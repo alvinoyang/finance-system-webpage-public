@@ -194,6 +194,7 @@ const ICONS = {
   search: [["circle", { cx: 10.5, cy: 10.5, r: 6 }], ["path", { d: "M15 15l4.5 4.5", "stroke-width": 2.2 }]],
   trend: [["path", { d: "M4 17l5-5 3.5 3.5L20 8" , "stroke-width": 2.2 }], ["path", { d: "M15 8h5v5" , "stroke-width": 2.2 }]],
   updown: [["path", { d: "M8.5 9.5L12 6l3.5 3.5M8.5 14.5L12 18l3.5-3.5", "stroke-width": 2 }]],
+  refresh: [["path", { d: "M19 12a7 7 0 1 1-2.05-4.95", "stroke-width": 2.2 }], ["path", { d: "M19.5 4.5v4h-4", "stroke-width": 2.2 }]],
 };
 function icon(name) {
   const NS = "http://www.w3.org/2000/svg";
@@ -399,13 +400,13 @@ async function flush() {
   }
 }
 
-function submit(kind, fields, corrects) {
+function submit(kind, fields, corrects, said) {
   const entry = { format: MARKER, id: newId(), kind, typed_at: typedAt(), device: device(), fields };
   if (corrects) entry.corrects = corrects;
   const box = load("outbox", []);
   box.push(entry);
   save("outbox", box);
-  toast(navigator.onLine ? "Saved. Sending…" : "Saved on this device. It sends when you are back online.");
+  toast(navigator.onLine ? (said || "Saved. Sending…") : "Saved on this device. It sends when you are back online.");
   flush();
   return entry;
 }
@@ -437,8 +438,34 @@ function receiptOf(q) {
   return { date: m[1], what: m[2], amount: m[3], problem: m[4] === ":" ? "No card or bank charge found for it" : "No receipt filed" };
 }
 function openQuestions() {
-  return ((SNAP && SNAP.questions) || []).filter(q => !q.answered)
+  const mine = answeredHere();
+  return ((SNAP && SNAP.questions) || []).filter(q => !q.answered && !mine.has(q.id))
     .sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999"));
+}
+// Questions answered from this device that the MacBook has not filed yet: they leave the lists at once, and
+// come back if the answer is taken back. Question id -> the answer entry.
+function answeredHere() {
+  const local = load("outbox", []).concat(load("sent", []).map(x => x.entry)).filter(Boolean);
+  const gone = new Set(local.filter(e => e.kind === "withdraw").map(e => e.corrects));
+  // An answer the MacBook held is not an answer: its question stays open (the held entry shows on Today).
+  for (const r of (SNAP && SNAP.recent) || []) if (r.status === "held") gone.add(r.id);
+  const out = new Map();
+  for (const e of local) if (e.kind === "answer" && e.fields && e.fields.question && !gone.has(e.id)) out.set(e.fields.question, e);
+  return out;
+}
+
+/* A charge with no receipt can be kept without one: one tap sends that answer, and the MacBook marks the
+   expense "kept without a receipt" in its record, which takes it off this list and off the monthly close's
+   (tools/parsers/receipts.py). Added 2026-09-14 at Alvin's request: "an easy way to mark a missing receipt as
+   not having a receipt, allow the gap and close the open item". Shown only once the forms know the answer. */
+const NO_RECEIPT = "no-receipt";
+function canKeepWithout(q) {
+  const f = formsList().find(x => x.kind === "answer");
+  return !!(q && /^receipt-/.test(q.id) && f && f.fields.some(x => x.key === "resolution"));
+}
+function keepWithout(q) {
+  return submit("answer", { question: q.id, answer: "There is no receipt. Keep the expense on the statement alone.", resolution: NO_RECEIPT }, "",
+                "Kept without a receipt.");
 }
 
 /* ---------- the frame: top bar, tabs, sync ---------- */
@@ -501,6 +528,7 @@ function render(animate) {
   if (!MEM || (!document.getElementById("lock").hidden && !LOCK.mode.startsWith("change"))) return;
   renderChrome();
   const main = clear(document.getElementById("main"));
+  SWIPE = null;                 // each page says what a sideways swipe does on it, as it is drawn
   let page;
   if (VIEW && VIEW.type === "form") page = renderForm();
   else if (VIEW && VIEW.type === "settings") page = renderSettings();
@@ -516,7 +544,12 @@ function render(animate) {
   if (VIEW && VIEW.type !== "settings") {
     page.prepend(h("button", { class: "back pageback", type: "button", onclick: () => closeView() }, icon("chevL"), parentName()));
   }
-  if (animate && motionOK()) { page.classList.add("enter"); page.addEventListener("animationend", () => page.classList.remove("enter"), { once: true }); }
+  if (!SWIPE) SWIPE = VIEW ? (["form", "settings"].includes(VIEW.type) ? null : { el: page, prev: () => BACK(), next: null })
+                           : { el: page, prev: () => tabStep(-1), next: () => tabStep(1) };
+  // A page reached sideways slides in from that side; any other fades up.
+  const cls = ENTER ? "enter-" + ENTER : "enter";
+  ENTER = "";
+  if (animate && motionOK()) { page.classList.add(cls); page.addEventListener("animationend", () => page.classList.remove(cls), { once: true }); }
   main.append(page);
   onScroll();
 }
@@ -531,8 +564,11 @@ function historyBack(n) {
   OWN_BACKS += 1;
   try { history.go(-n); } catch (e) { OWN_BACKS -= 1; }
 }
+const TABS = ["today", "add", "numbers"];
+let ENTER = "";                // "l" or "r": the side the next page drawn slides in from
 function go(tab) {
   const depth = STACK.length + (VIEW ? 1 : 0);
+  if (!depth && tab !== TAB && !ENTER) ENTER = TABS.indexOf(tab) > TABS.indexOf(TAB) ? "r" : "l";
   STACK = []; VIEW = null;
   historyBack(depth);
   TAB = tab; save("tab", tab);
@@ -566,6 +602,159 @@ function viewTitle(v) {
             trend: v.title || "History" })[v.type] || "Back";
 }
 function onScroll() { document.getElementById("bar").classList.toggle("scrolled", window.scrollY > 28); }
+// The top bar is fixed, so the page starts below it: its height, as drawn, sets where.
+function measureBar() {
+  const b = document.getElementById("bar");
+  if (b && b.offsetHeight) document.documentElement.style.setProperty("--bar-h", b.offsetHeight + "px");
+}
+
+/* ---------- gestures: pull down to refresh, swipe sideways between pages ----------
+ * Added 2026-09-14 at Alvin's request. Pulling down at the top of a page fetches the summary again and sends
+ * anything waiting, without reloading the page (a reload would lock it). Only the middle moves: the top bar
+ * and the tab bar are fixed, and the browser's own pull, which would drag or reload the whole page, is
+ * stopped for that one touch.
+ * A sideways swipe does what the page's row of choices does: the Summary's three parts, a page's years, Hours
+ * and Pay per hour. Past the ends of that row it moves to the next tab (Today, Add, Summary) or, on a page
+ * opened from another, back. A swipe that starts on a chart (which is read by sliding a finger along it) or on
+ * a row of choices that scrolls sideways is left alone. In Safari and Brave a swipe from the very edge of the
+ * screen belongs to the browser (back and forward); on the Home Screen icon, which has no such gesture, a
+ * swipe in from the left edge goes back. */
+const PULL_AT = 64, PULL_MAX = 110, PULL_HOLD = 54;
+let SWIPE = null;              // { el, prev, next }: prev and next give { run, whole } or null
+let GS = null;                 // the touch being followed
+let PULLING = false;           // a refresh begun by a pull, still running
+let NO_CLICK_UNTIL = 0;        // a swipe that lands on a button must not also press it
+const BACK = () => VIEW ? { whole: true, back: true, run: () => { ENTER = "l"; closeView(); } } : null;
+function tabStep(d) {
+  const i = TABS.indexOf(TAB) + d;
+  if (i < 0 || i >= TABS.length) return null;
+  return { whole: true, run: () => { ENTER = d > 0 ? "r" : "l"; if (TABS[i] === "numbers") save("sumpart", "total"); go(TABS[i]); } };
+}
+// A swipe that moves along a row of choices (segments or chips), and past its ends to `before` or `after`.
+function swipeAlong(group, el, before, after) {
+  const step = d => {
+    const o = Array.from(group.querySelectorAll('[role="radio"]')), i = o.findIndex(b => b.getAttribute("aria-checked") === "true");
+    return o[i + d] || null;
+  };
+  // The swipe presses the choice itself, so the guard against a stray tap after a swipe must let this one through.
+  const move = (d, beyond) => () => { const b = step(d); return b ? { run: () => { NO_CLICK_UNTIL = 0; b.click(); } } : beyond ? beyond() : null; };
+  SWIPE = { el, prev: move(-1, before), next: move(1, after) };
+}
+function standalone() { return (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true; }
+function ptrEls() { return { main: document.getElementById("main"), ptr: document.getElementById("ptr") }; }
+
+function gStart(ev) {
+  if (GS && GS.mode) gEnd({ type: "touchcancel" });     // a second finger: put back what the first had moved
+  GS = null;
+  if (ev.touches.length !== 1 || !MEM || lockShowing() || document.querySelector(".scrim")) return;
+  const t = ev.touches[0], tg = ev.target, a = document.activeElement;
+  if (tg.closest && tg.closest("input, textarea, select, .tabbar, .formbar")) return;
+  if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;          // the keyboard is up
+  const edge = t.clientX < 22 ? "l" : t.clientX > window.innerWidth - 22 ? "r" : "";
+  GS = { x: t.clientX, y: t.clientY, t: Date.now(), mode: null, dx: 0, dy: 0, el: null, top: window.scrollY <= 0, edge,
+         noSide: !!(tg.closest && tg.closest(".chips, .chart.scrub, .bar, .pad")) || (edge && !standalone()) };
+}
+// What a sideways swipe of `dx` would do: the page's own, or, from the left edge on the Home Screen icon, back.
+function sideTarget(dx) {
+  if (GS && GS.edge === "l" && dx > 0 && standalone() && VIEW) return BACK();
+  if (!SWIPE) return null;
+  return dx > 0 ? (SWIPE.prev && SWIPE.prev()) : (SWIPE.next && SWIPE.next());
+}
+function gMove(ev) {
+  if (!GS || ev.touches.length !== 1) return;
+  const t = ev.touches[0], dx = t.clientX - GS.x, dy = t.clientY - GS.y;
+  GS.dx = dx; GS.dy = dy;
+  if (!GS.mode) {
+    if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+    // Taken only while the browser still lets it be: once it has begun scrolling, the touch is its own.
+    if (!ev.cancelable) GS.mode = "none";
+    else if (GS.top && !PULLING && dy > 0 && dy > Math.abs(dx) && window.scrollY <= 0) GS.mode = "pull";
+    else if (!GS.noSide && Math.abs(dx) > Math.abs(dy) * 1.3 && (SWIPE || sideTarget(dx))) { GS.mode = "side"; closePop(); }
+    else GS.mode = "none";
+  }
+  if (GS.mode === "pull") { ev.preventDefault(); pullTo(dy); }
+  else if (GS.mode === "side") { ev.preventDefault(); sideTo(dx); }
+}
+function gEnd(ev) {
+  if (!GS) return;
+  const g = GS, cancel = ev && ev.type === "touchcancel";
+  GS = null;
+  if (g.mode === "pull") pullRelease(cancel ? 0 : g.dy);
+  else if (g.mode === "side") sideRelease(g, cancel);
+}
+
+// The pull: the middle follows the finger at half its speed, to a limit; the circle turns as it goes and
+// turns blue when letting go will refresh.
+function pullOffset(dy) { return Math.max(0, Math.min(PULL_MAX, dy * 0.5)); }
+function pullSet(off, settle) {
+  const { main, ptr } = ptrEls(), i = ptr.firstChild;
+  main.classList.toggle("settle", !!settle); ptr.classList.toggle("settle", !!settle);
+  main.style.top = off ? off + "px" : "";
+  ptr.style.height = off + "px";
+  const k = Math.min(1, off / PULL_AT);
+  i.style.opacity = String(k);
+  if (!ptr.classList.contains("busy")) i.style.transform = `scale(${(.6 + .4 * k).toFixed(3)}) rotate(${Math.round(k * 300)}deg)`;
+  ptr.classList.toggle("armed", off >= PULL_AT);
+}
+function pullTo(dy) {
+  const { ptr } = ptrEls();
+  if (!ptr.firstChild.firstChild) ptr.firstChild.append(icon("refresh"));
+  pullSet(pullOffset(dy), false);
+}
+async function pullRelease(dy) {
+  const { ptr } = ptrEls();
+  if (pullOffset(dy) < PULL_AT || PULLING) { pullSet(0, true); return; }
+  PULLING = true;
+  pullSet(PULL_HOLD, true);
+  ptr.classList.add("busy"); ptr.firstChild.style.transform = "";
+  const t0 = Date.now();
+  try { await flush(); await refresh(); } finally {
+    await new Promise(r => setTimeout(r, Math.max(0, 650 - (Date.now() - t0))));   // long enough to be seen
+    ptr.classList.remove("busy");
+    PULLING = false;
+    pullSet(0, true);
+    toast(NET === "ok" ? `Up to date. The MacBook last checked in ${ago(SNAP && SNAP.checked_at)}.` : NET_MSG);
+  }
+}
+
+// The swipe: what moves is the part of the page that will change (the whole page for a new tab or going back),
+// at the finger's speed, or held back hard where there is nothing further that way.
+function sideEl(tg) { return tg && tg.whole ? document.getElementById("main") : (SWIPE && SWIPE.el) || document.getElementById("main"); }
+function sidePlace(el, off, settle) {
+  const isMain = el.id === "main";
+  el.classList.toggle("side-settle", !!settle);
+  if (isMain) el.style.left = off ? off + "px" : ""; else el.style.transform = off ? `translateX(${off}px)` : "";
+  el.style.opacity = off ? String(1 - Math.min(.4, Math.abs(off) / window.innerWidth * .7)) : "";
+}
+function sideTo(dx) {
+  const tg = sideTarget(dx), el = sideEl(tg);
+  if (GS.el && GS.el !== el) sidePlace(GS.el, 0, false);
+  GS.el = el;
+  sidePlace(el, tg ? dx : dx * 0.2, false);
+}
+function sideRelease(g, cancel) {
+  const tg = cancel ? null : sideTarget(g.dx), el = g.el || sideEl(tg);
+  const fast = Math.abs(g.dx) > 30 && Math.abs(g.dx) / Math.max(1, Date.now() - g.t) > 0.45;
+  // Set after the swipe's own action, which may press a choice itself.
+  const guard = () => { NO_CLICK_UNTIL = Date.now() + 400; };
+  if (!tg || !(fast || Math.abs(g.dx) > Math.min(100, window.innerWidth * .25))) {
+    guard();
+    sidePlace(el, 0, true);
+    setTimeout(() => el.classList.remove("side-settle"), 300);
+    return;
+  }
+  sidePlace(el, 0, false);
+  const from = g.dx < 0 ? "r" : "l";
+  if (tg.whole) { ENTER = ENTER || from; tg.run(); guard(); return; }
+  tg.run();
+  guard();
+  // The new choice's content slides in from the side the finger came from.
+  const el2 = SWIPE && SWIPE.el;
+  if (el2 && motionOK()) {
+    el2.classList.remove("enter-l", "enter-r"); void el2.offsetWidth; el2.classList.add("enter-" + from);
+    el2.addEventListener("animationend", () => el2.classList.remove("enter-" + from), { once: true });
+  }
+}
 
 /* ---------- Today ---------- */
 
@@ -630,29 +819,53 @@ function visitDate(pd) {
   return t <= lbd ? isoOf(lbd) : (pd.next_visit || isoOf(lastBusinessDay(t.getFullYear(), t.getMonth() + 1)));
 }
 
+// A payment's short name on Today's card: "Pay yourself: net pay for September" is "Your net pay", "Pay CRA: the
+// payroll remittance for September" is "CRA payroll remittance", "Pay the Amex balance" is "Amex". The month
+// they share is said once, above them. Anything shaped otherwise is shown as it is.
+function visitName(what) {
+  let m = /^Pay yourself: (?:the )?(.+?)(?: for \w+)?$/i.exec(what);
+  if (m) return "Your " + m[1];
+  m = /^Pay ([^:]+): (?:the )?(.+?)(?: for \w+)?$/i.exec(what);
+  if (m) return `${m[1]} ${m[2]}`;
+  m = /^Pay (?:the )?(.+?) balance$/i.exec(what);
+  if (m) return m[1].replace(/^./, c => c.toUpperCase());
+  return what;
+}
 function visitCard() {
+  // Tidied 2026-09-14 at Alvin's request ("looks busy, clean up a bit … without losing info"): one line for
+  // when, the total, then one line per payment with a short name. An estimate is marked by the small orange
+  // ring used for estimates everywhere, said in words once at the foot, in place of a tag on every row.
   const pd = SNAP.payday;
   const c = h("section", { class: "visit glass", "aria-label": "Month-end banking" });
   if (!pd) { c.append(h("p", { class: "muted", text: "Nothing planned yet." })); return c; }
   const iso = visitDate(pd);
-  const known = pd.items.filter(i => money(i.amount)), unknown = pd.items.length - known.length;
+  const known = pd.items.filter(i => money(i.amount)), cards = pd.items.length - known.length;
   const est = i => (i.basis || "").startsWith("estimate");
+  const ring = () => h("span", { class: "bd estimate", "aria-hidden": "true" });
   const anyEst = known.some(est);
   const total = known.reduce((a, i) => a + money(i.amount), 0);
-  c.append(h("div", { class: "top" },
-    h("div", {}, h("div", { class: "when", text: dayName(iso, { weekday: "long", day: "numeric", month: "long" }) }), h("div", { class: "in", text: rel(iso) })),
-    known.length ? h("div", { class: "total" },
-      anyEst ? h("div", { class: "est" }, h("span", { class: "v num", text: "about " + fmtWhole$(Math.round(total)) }), h("span", { class: "chip orange", text: "estimate" }))
-             : h("div", { class: "v num", text: fmt$(total) }),
-      h("div", { class: "l", text: unknown ? `to pay, plus ${plural(unknown, "card balance")}` : "to pay" })) : null));
+  const months = [...new Set(pd.items.map(i => (/ for (January|February|March|April|May|June|July|August|September|October|November|December)$/.exec(i.what) || [])[1]).filter(Boolean))];
+  c.append(h("div", { class: "when-line" },
+    h("span", { class: "when", text: dayName(iso, { weekday: "short", day: "numeric", month: "long" }) }),
+    h("span", { class: "in", text: rel(iso) })));
+  if (known.length) {
+    const what = (months.length === 1 ? `to pay for ${months[0]}` : "to pay") +
+      (cards === 1 ? ", plus a card balance" : cards === 2 ? ", plus both card balances" : cards ? `, plus ${cards} card balances` : "");
+    c.append(h("div", { class: "total" },
+      h("span", { class: "v num" }, (anyEst ? "about " : "") + (anyEst ? fmtWhole$(Math.round(total)) : fmt$(total)), anyEst ? ring() : null),
+      h("span", { class: "l", text: what })));
+  }
   const items = h("div", { class: "items" });
   for (const it of pd.items) {
-    items.append(h("div", { class: "item" }, h("span", { class: "what" }, it.what, est(it) ? h("span", { class: "chip orange", text: "estimate" }) : null),
-      it.amount ? h("span", { class: "amt", text: est(it) ? "about " + fmtWhole$(Math.round(money(it.amount))) : fmt$(it.amount) }) : h("span", { class: "onscreen", text: "full balance" })));
+    const name = months.length === 1 ? visitName(it.what) : it.what.replace(/^Pay yourself: /, "Pay yourself ");
+    items.append(h("div", { class: "item", title: it.what }, h("span", { class: "what", text: name }),
+      it.amount ? h("span", { class: "amt num" }, est(it) ? ring() : null, h("span", { text: est(it) ? fmtWhole$(Math.round(money(it.amount))) : fmt$(it.amount) }),
+                    est(it) ? h("span", { class: "sr", text: " (an estimate)" }) : null)
+                : h("span", { class: "onscreen", text: "full balance" })));
   }
   c.append(items);
-  const why = pd.items.filter(est).map(i => i.basis.replace(/^estimate:\s*/, ""));
-  if (why.length) c.append(h("p", { class: "small muted", text: `The amounts marked estimate are ${[...new Set(why)][0]}.` }));
+  const why = [...new Set(pd.items.filter(est).map(i => i.basis.replace(/^estimate:\s*/, "")))];
+  if (why.length) c.append(h("p", { class: "visit-foot" }, ring(), h("span", { text: `Estimate: ${why[0]}.` })));
   c.append(h("button", { class: "btn primary wide", type: "button", onclick: () => startForm("bankvisit", null, "today") }, "Log month-end banking"));
   return c;
 }
@@ -700,13 +913,22 @@ function upcoming() {
   return s;
 }
 
-function receiptRow(q, from) {
+function receiptRow(q, from, redraw) {
   const r = receiptOf(q), dt = dateOf(r.date);
-  return h("button", { class: "row", type: "button", onclick: () => startForm("answer", { question: q.id }, from) },
-    h("span", { class: "day", "aria-hidden": "true" }, h("span", { class: "wd", text: dt.toLocaleDateString("en-CA", { weekday: "short" }) }),
-      h("span", { class: "dn", text: String(dt.getDate()) }), h("span", { class: "mo", text: dt.toLocaleDateString("en-CA", { month: "short" }) })),
-    h("span", { class: "main" }, h("span", { class: "title", text: r.what }), h("span", { class: "meta", text: r.problem })),
+  const leaf = () => h("span", { class: "day", "aria-hidden": "true" }, h("span", { class: "wd", text: dt.toLocaleDateString("en-CA", { weekday: "short" }) }),
+    h("span", { class: "dn", text: String(dt.getDate()) }), h("span", { class: "mo", text: dt.toLocaleDateString("en-CA", { month: "short" }) }));
+  const keep = canKeepWithout(q) && redraw;
+  const row = h("div", { class: "row" }, leaf(),
+    h("span", { class: "main" }, h("span", { class: "title", text: r.what }), h("span", { class: "meta", text: r.problem }),
+      keep ? h("button", { class: "btn small gray keep", type: "button", onclick: () => {
+        const entry = keepWithout(q);
+        // In its place until the list is next drawn: what was done, and a way to take it back.
+        row.replaceWith(h("div", { class: "row kept" }, leaf(),
+          h("span", { class: "main" }, h("span", { class: "title", text: "Kept without a receipt" }), h("span", { class: "meta", text: `${r.what}, ${r.amount}` })),
+          h("button", { class: "link", type: "button", onclick: () => { submit("withdraw", {}, entry.id, "Back on your list. Sending…"); redraw(); } }, "Undo")));
+      } }, "Keep without a receipt") : null),
     h("span", { class: "amt", text: r.amount }));
+  return tapArea(row, `${r.what}, ${r.amount}, ${shortDate(r.date)}. ${r.problem}. Answer`, () => startForm("answer", { question: q.id }, from));
 }
 function questionRow(q, from) {
   if (receiptOf(q)) return receiptRow(q, from);
@@ -733,7 +955,7 @@ function questionsSection() {
 }
 
 function renderQuestions() {
-  const all = openQuestions(), qs = all.filter(q => !receiptOf(q)), rs = all.filter(q => receiptOf(q));
+  let qs = [], rs = [];
   const p = h("div", { class: "page narrow" });
   p.append(head("Questions", "What the MacBook is waiting on you for, soonest first. Tap one to answer it."));
   const box = h("div", { class: "searchbox glass" }, icon("search"));
@@ -744,6 +966,8 @@ function renderQuestions() {
   p.append(holder);
   const draw = () => {
     clear(holder);
+    const all = openQuestions();          // again each time: one kept without a receipt, or put back, has moved
+    qs = all.filter(q => !receiptOf(q)); rs = all.filter(q => receiptOf(q));
     const t = inp.value.trim().toLowerCase();
     const match = q => !t || prettyDates(q.text).toLowerCase().includes(t);
     const q1 = qs.filter(match), r1 = rs.filter(match).sort((a, b) => receiptOf(a).date.localeCompare(receiptOf(b).date));
@@ -751,7 +975,7 @@ function renderQuestions() {
     else if (t && r1.length) holder.append(h("p", { class: "foot", text: "No questions match; these receipts do." }));
     if (r1.length) {
       const ul = h("div", { class: "list glass" });
-      for (const q of r1) ul.append(receiptRow(q, "today"));
+      for (const q of r1) ul.append(receiptRow(q, "today", draw));
       holder.append(h("details", { class: "fold", open: !!VIEW.receipts || !!t || !q1.length },
         h("summary", {}, h("span", { text: `Receipts to explain · ${r1.length}` }), h("span", { class: "link" }, h("span", { class: "when-closed", text: "Show" }), h("span", { class: "when-open", text: "Hide" }))),
         ul));
@@ -867,7 +1091,11 @@ function summaryOf(e) {
     case "reading": return `Reading: ${f.value || ""}`;
     case "card": return "Card change";
     case "life": return "Change: " + (f.text || "").slice(0, 60);
-    case "answer": { const q = ((SNAP && SNAP.questions) || []).find(x => x.id === f.question); return "Answer: " + (q ? q.text : "a question"); }
+    case "answer": {
+      const q = ((SNAP && SNAP.questions) || []).find(x => x.id === f.question), r = q && receiptOf(q);
+      if (f.resolution === NO_RECEIPT) return "Kept without a receipt: " + (r ? `${r.what}, ${r.amount}` : "an expense");
+      return "Answer: " + (q ? q.text : "a question");
+    }
     case "note": return "Note: " + (f.text || "").slice(0, 80);
     case "withdraw": return "Deleting an entry";
     default: return e.kind;
@@ -976,9 +1204,16 @@ function buildForm(f) {
         clear(box);
         const cur = ((SNAP && SNAP.questions) || []).find(x => x.id === hidden.value);
         const r = cur && receiptOf(cur);
-        if (r) box.append(h("span", { class: "small muted", text: r.problem }), h("span", { class: "q", text: `${r.what}, ${r.amount}, on ${shortDate(r.date)}` }),
-          h("span", { class: "small muted", text: "What was it, and how was it paid? If there is a receipt, say where it is." }));
-        else if (cur) box.append(h("span", { class: "small muted", text: cur.due ? "Due " + shortDate(cur.due) : "Question" }), h("span", { class: "q", text: prettyDates(cur.text) }));
+        if (r) {
+          box.append(h("span", { class: "small muted", text: r.problem }), h("span", { class: "q", text: `${r.what}, ${r.amount}, on ${shortDate(r.date)}` }),
+            h("span", { class: "small muted", text: "What was it, and how was it paid? If there is a receipt, say where it is." }));
+          // No receipt to be had: one tap keeps it on the statement alone, and nothing needs typing. Not offered
+          // while correcting an answer already sent.
+          if (canKeepWithout(cur) && !VIEW.corrects) box.append(h("button", { class: "btn tinted wide", type: "button", onclick: () => {
+            const d = load("drafts", {}); delete d.answer; save("drafts", d);
+            keepWithout(cur); closeView();
+          } }, "Keep it without a receipt"));
+        } else if (cur) box.append(h("span", { class: "small muted", text: cur.due ? "Due " + shortDate(cur.due) : "Question" }), h("span", { class: "q", text: prettyDates(cur.text) }));
         else box.append(h("span", { class: "q muted", text: "Which question are you answering?" }));
         box.append(h("button", { class: "btn small tinted", type: "button", onclick: () => pickQuestion(hidden, draw) }, cur ? "Choose another" : "Choose a question"));
       };
@@ -1079,7 +1314,8 @@ function buildForm(f) {
         isQuestion ? rows : h("div", { class: "fields glass" }, rows), g.foot ? h("div", { class: "gf", text: g.foot }) : null));
     }
   }
-  const rest = f.fields.filter(x => !used.has(x.key));
+  // The answer form's "resolution" is sent only by its own button (keepWithout), never typed.
+  const rest = f.fields.filter(x => !used.has(x.key) && !(f.kind === "answer" && x.key === "resolution"));
   if (rest.length) form.append(h("div", { class: "group" }, h("div", { class: "fields glass" }, rest.map(fieldEl))));
 
   // A draft: what was typed and not sent is kept, locked in the vault, until it is sent or cleared.
@@ -1589,7 +1825,11 @@ function renderShifts() {
     }
     if (!rows.length) holder.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "Every shift has its pay and patients." })));
   };
-  if (needs.length) p.append(segControl([["all", `All · ${all.length}`], ["needs", `Needs details · ${needs.length}`]], which, draw, "Which shifts", "range wide"));
+  if (needs.length) {
+    const seg = segControl([["all", `All · ${all.length}`], ["needs", `Needs details · ${needs.length}`]], which, draw, "Which shifts", "range wide");
+    p.append(seg);
+    swipeAlong(seg, holder, BACK, null);
+  }
   p.append(holder);
   draw(which);
   p.append(h("p", { class: "foot", text: "Shifts typed in the Work tab are changed there. A change here replaces the shift in your books; the record keeps both, marked." }));
@@ -1768,7 +2008,13 @@ function chipRow(choices, value, onPick, label) {
   const row = h("div", { class: "chips", role: "radiogroup", "aria-label": label });
   for (const [v, lab] of choices) {
     const b = h("button", { class: "chip-b", type: "button", role: "radio", "aria-checked": String(v === value) }, lab);
-    b.addEventListener("click", () => { for (const x of row.children) x.setAttribute("aria-checked", String(x === b)); onPick(v); });
+    b.addEventListener("click", () => {
+      for (const x of row.children) x.setAttribute("aria-checked", String(x === b));
+      // Chosen by a swipe, or half off the screen: brought into view.
+      const r = b.getBoundingClientRect(), rr = row.getBoundingClientRect();
+      if (r.left < rr.left) row.scrollLeft -= rr.left - r.left + 16; else if (r.right > rr.right) row.scrollLeft += r.right - rr.right + 16;
+      onPick(v);
+    });
     row.append(b);
   }
   // When the row runs off the screen, its far edge fades, so it is plain there is more to the side.
@@ -1813,10 +2059,11 @@ function renderSummary() {
     if (motionOK()) { body.classList.add("fadein"); }
     holder.append(body);
   };
-  p.append(segControl([["total", "Total"], ["personal", "Personal"], ["corporation", "Corporation"]], part,
-    v => { save("sumpart", v); closePop(); draw(v); }, "Which part of the Summary", "partseg"));
-  p.append(holder);
+  const parts = segControl([["total", "Total"], ["personal", "Personal"], ["corporation", "Corporation"]], part,
+    v => { save("sumpart", v); closePop(); draw(v); }, "Which part of the Summary", "partseg");
+  p.append(parts, holder);
   draw(part);
+  swipeAlong(parts, holder, () => tabStep(-1), null);
   return p;
 }
 function openTrendOf(id) {
@@ -2084,6 +2331,7 @@ function renderIncome() {
   const pick = y => { for (const x of chips.children) x.setAttribute("aria-checked", String(x.textContent.startsWith(y))); draw(y); };
   p.append(chips, holder);
   draw(sel);
+  swipeAlong(chips, holder, BACK, null);
   p.append(h("p", { class: "foot", text: `${plainSource(I.source)}. Your workbook's tab for each year is the record of what came in; the shifts' pay is filled in months later, when the pay details arrive.` }));
   return p;
 }
@@ -2102,7 +2350,9 @@ function renderWork() {
   const places = [["all", "Everywhere"]].concat((W.places || []).map(x => [x.value, x.label.replace(" consulting", "")]));
   VIEW.year = VIEW.year || years[0]; VIEW.place = VIEW.place || "all";
   const holder = h("div", { class: "page" });
-  p.append(segControl([["hours", "Hours"], ["rate", "Pay per hour"]], metric, v => { VIEW.metric = v; render(); }, "Show", "partseg"));
+  const metricSeg = segControl([["hours", "Hours"], ["rate", "Pay per hour"]], metric, v => { VIEW.metric = v; render(); }, "Show", "partseg");
+  p.append(metricSeg);
+  swipeAlong(metricSeg, holder, BACK, null);
   p.append(h("div", { class: "filters" }, chipRow(yearC, VIEW.year, v => { VIEW.year = v; draw(); }, "Which year"),
     chipRow(places, VIEW.place, v => { VIEW.place = v; draw(); }, "Which place")));
   p.append(holder);
@@ -2181,7 +2431,8 @@ function renderWork() {
         if (rows.length) holder.append(h("section", { class: "section" }, h("h2", { text: "By place" }),
           h("div", { class: "card glass" }, hbars(rows, v => `${fmtWhole$(Math.round(v))}/h`, k => pickPlace(k)))));
       } else {
-        const rows = years.slice().reverse().map(k => ({ label: k, value: cell(k, pl) ? rate(cell(k, pl)) : 0, on: k === y, sub: cell(k, pl) ? `${Math.round(money(cell(k, pl).hours))} h` : "" })).filter(r => r.value > 0);
+        // The newest year first (Alvin, 2026-09-14), as the year choices above run.
+        const rows = years.map(k => ({ label: k, value: cell(k, pl) ? rate(cell(k, pl)) : 0, on: k === y, sub: cell(k, pl) ? `${Math.round(money(cell(k, pl).hours))} h` : "" })).filter(r => r.value > 0);
         if (rows.length > 1) holder.append(h("section", { class: "section" }, h("h2", { text: `${nameOf(pl)}, year by year` }), h("div", { class: "card glass" }, hbars(rows, v => `${fmtWhole$(Math.round(v))}/h`)),
           pl === "edlp" ? h("p", { class: "foot", text: "Each year counts the monthly stipend with the shifts' pay, over the shifts' hours." }) : null));
         const sites = Object.keys(C).filter(k => { const [a1, b1, s2] = k.split("|"); return a1 === y && b1 === pl && s2; })
@@ -2303,6 +2554,7 @@ function renderTrend() {
     }
     p.append(segs);
     draw(rs);
+    swipeAlong(segs, holder, BACK, null);
   } else draw(0);
   p.append(holder);
   // The same numbers as a list, for reading exactly.
@@ -2363,7 +2615,8 @@ function motionOK() { return !(window.matchMedia && matchMedia("(prefers-reduced
 
 // One chart: a line (balances) or columns (amounts by month or year). Redrawn to its width.
 function chart(sers, o) {
-  const box = h("div", { class: "chart" + (o.spark ? " spark-chart" : "") });
+  // A chart read by sliding a finger along it is marked "scrub", so a sideways swipe begun on it is left to it.
+  const box = h("div", { class: "chart" + (o.spark ? " spark-chart" : "") + (o.hover !== false && !o.spark ? " scrub" : "") });
   const tip = h("div", { class: "tip", hidden: true });
   if (!o.spark) box.append(tip);
   if (o.legend) box.append(h("div", { class: "legend" }, sers.map((s2, j) => h("span", { class: "lk" }, h("span", { class: "sw s" + j }), s2.label))));
@@ -2787,6 +3040,13 @@ async function boot() {
   document.getElementById("bar-done").addEventListener("click", () => closeView());
   document.getElementById("sync").addEventListener("click", () => openView({ type: "settings" }));
   window.addEventListener("scroll", onScroll, { passive: true });
+  document.addEventListener("touchstart", gStart, { passive: true });
+  document.addEventListener("touchmove", gMove, { passive: false });
+  document.addEventListener("touchend", gEnd, { passive: true });
+  document.addEventListener("touchcancel", gEnd, { passive: true });
+  document.addEventListener("click", ev => { if (Date.now() < NO_CLICK_UNTIL) { ev.stopPropagation(); ev.preventDefault(); } }, true);
+  if (window.ResizeObserver) new ResizeObserver(measureBar).observe(document.getElementById("bar"));
+  window.addEventListener("resize", measureBar);
   window.addEventListener("popstate", () => {
     if (OWN_BACKS) { OWN_BACKS -= 1; return; }     // a step back the page took itself has already been drawn
     if (VIEW) closeView(true);
