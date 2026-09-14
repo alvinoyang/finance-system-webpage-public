@@ -571,3 +571,139 @@ input.masked { -webkit-text-security: disc; }
 /* The estimate label sits under its payment's name, in the same place on every row. */
 .visit .item .what { display: block; }
 .visit .item .what .chip { display: table; margin-top: 4px; }
+
+/* ---------- 2026-09-14, night: the Summary in three parts, the dots, the new shift form ---------- */
+:root { --c2: #8E5BD9; }
+@media (prefers-color-scheme: dark) { :root { --c2: #A874F0; } }
+/* The passcode pad: a digit answers as the finger lands, and a quick second tap never zooms the page. */
+.lock, .pad button { touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.pad button.txt { min-width: 76px; }
+
+/* A figure's top line: its name, and at the right the dot saying how sure it is. */
+.ftop { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; min-width: 0; }
+.ftop .l, .ftop h3 { min-width: 0; }
+.trend-top .ftop .l { font-size: .9rem; font-weight: 600; color: var(--ink-2); padding-top: 3px; }
+.bdot { flex: none; width: 30px; height: 30px; margin: -7px -9px -7px 0; border-radius: 50%; display: grid; place-items: center; position: relative; }
+.bdot .d, .bd { width: 10px; height: 10px; border-radius: 50%; background: var(--ink-3); box-shadow: 0 0 0 2.5px var(--glass-strong); display: inline-block; flex: none; }
+.bdot::after { content: ""; position: absolute; inset: -4px; }
+@media (hover: hover) { .bdot:hover { background: var(--fill); } }
+.bdot.verified .d, .bd.verified { background: var(--green); } .bdot.derived .d, .bd.derived { background: var(--accent); }
+.bdot.recorded .d, .bd.recorded { background: var(--yellow); } .bdot.measured .d, .bd.measured { background: var(--purple); }
+.bdot.estimate .d, .bd.estimate { background: var(--orange); }
+.pop { position: fixed; z-index: 45; width: max-content; max-width: min(300px, calc(100vw - 24px)); padding: 12px 14px; border-radius: 16px;
+  background: var(--seg-on); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 12px 36px rgba(20, 30, 60, .22); font-size: .88rem; line-height: 1.38; display: grid; gap: 6px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pop { background: #282C38; } }
+@media (prefers-color-scheme: light), (prefers-color-scheme: no-preference) { .pop { background: #FFFFFF; } }
+.pop p { margin: 0; }
+.pop .pop-h { display: flex; align-items: center; gap: 8px; font-size: .95rem; }
+.pop .pop-x { color: var(--ink-2); font-size: .82rem; }
+@media (prefers-reduced-motion: no-preference) { .pop { animation: popIn .18s cubic-bezier(.2, .9, .25, 1) both; } }
+@keyframes popIn { from { opacity: 0; transform: translateY(-4px) scale(.97); } to { opacity: 1; transform: none; } }
+
+/* Cards that open a page. */
+.fig.tappable, .trendcard.tappable { cursor: pointer; }
+@media (hover: hover) { .fig.tappable:hover, .trendcard.tappable:hover { background: var(--glass-strong); } }
+.fig.hero .v { font-variant-numeric: normal; }
+.fig .fmeta:empty { display: none; }
+
+/* The Summary's three parts, and the filters on its pages. */
+.segs.partseg { max-width: 460px; width: 100%; justify-self: center; margin-top: 0; }
+.segs.partseg button { padding: 8px 6px; font-size: .92rem; }
+.segs.wide { max-width: none; }
+.filters { display: grid; gap: 8px; }
+.chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 2px 2px 4px; margin: 0 -2px; -webkit-overflow-scrolling: touch; scroll-snap-type: x proximity; }
+.chips::-webkit-scrollbar { display: none; }
+.chip-b { flex: none; padding: 8px 15px; border-radius: 99px; background: var(--fill); color: var(--ink); font-weight: 600; font-size: .9rem; white-space: nowrap; scroll-snap-align: start; min-height: 36px; }
+.chip-b[aria-checked="true"] { background: var(--accent); color: var(--accent-ink); }
+@media (hover: hover) { .chip-b:not([aria-checked="true"]):hover { background: var(--sep); } }
+.fadein { animation: fadeIn .22s ease both; }
+
+/* A bar in parts: the household split, an account's room. A 2px gap between the parts. */
+.meter { display: flex; gap: 2px; height: 12px; border-radius: 6px; overflow: hidden; width: 100%; }
+.meter.thin { height: 8px; border-radius: 4px; }
+.meter .mseg { min-width: 3px; border-radius: 2px; }
+.meter .mseg.s0, .sw2.s0 { background: var(--c0); } .meter .mseg.s1, .sw2.s1 { background: var(--c1); } .meter .mseg.s2, .sw2.s2 { background: var(--c2); }
+.meter .mseg.rest, .sw2.rest { background: rgba(118, 124, 140, .22); }
+.sw2 { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
+.list.flat { border-radius: 0; background: none; box-shadow: none; overflow: visible; }
+.list.flat .row { padding-left: 0; padding-right: 0; }
+.list.flat .row + .row::before { left: 0; }
+.row.legendrow { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.row.legendrow .bdot { margin: -8px -8px -8px -4px; }
+.splitcard { gap: 6px; }
+.fig .spark .list.flat { margin-top: 6px; }
+.fig .spark .row.legendrow { padding-top: 9px; padding-bottom: 9px; min-height: 0; }
+
+/* Bars across, with their names and values written out: pay per hour by place, by year, by site. */
+.hbars { display: grid; gap: 4px; }
+.hb { display: grid; grid-template-columns: minmax(84px, 32%) minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 7px 0; text-align: left; width: 100%; }
+.hb.tap { grid-template-columns: minmax(84px, 32%) minmax(0, 1fr) auto 14px; border-radius: 10px; }
+.hb.tap > svg { width: 14px; height: 14px; color: var(--ink-3); }
+@media (hover: hover) { .hb.tap:hover { background: var(--fill); } }
+.hb-lab { display: grid; min-width: 0; }
+.hb-l { font-weight: 600; font-size: .92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hb-s { font-size: .74rem; color: var(--ink-2); }
+.hb-t { height: 10px; border-radius: 5px; background: var(--fill); overflow: hidden; }
+.hb-f { display: block; height: 100%; border-radius: 5px; background: var(--c0); }
+.hb-f.dim { opacity: .38; }
+.hb-v { font-weight: 650; font-size: .92rem; white-space: nowrap; }
+
+/* An account's page. */
+.roomcard { gap: 12px; }
+.legend3 { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .9rem; color: var(--ink); }
+.legend3 > span { display: inline-flex; align-items: center; gap: 6px; }
+.legend3 b { font-weight: 650; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 10px 14px; }
+.facts.card { padding: 16px; }
+.facts > div { display: grid; gap: 1px; }
+.facts .k { font-size: .78rem; color: var(--ink-2); font-weight: 600; }
+.facts .fv { font-weight: 650; font-size: 1.02rem; }
+.life { display: grid; gap: 8px; padding-top: 4px; }
+.life-h { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-size: .92rem; font-weight: 600; }
+.life-h b { font-weight: 700; }
+
+/* The shift form: where first, as a row of choices; then site and shift as menus. */
+.pills { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.pills button { min-height: 48px; padding: 10px 6px; border-radius: 14px; font-weight: 650; font-size: .98rem; background: var(--glass);
+  -webkit-backdrop-filter: blur(28px) saturate(170%); backdrop-filter: blur(28px) saturate(170%); box-shadow: inset 0 1px 0 var(--glass-edge), var(--shadow); }
+.pills button[aria-checked="true"] { background: var(--accent); color: var(--accent-ink); box-shadow: 0 4px 14px rgba(0, 122, 255, .28); }
+.pills.bad { border-radius: 16px; outline: 2px solid var(--red); outline-offset: 3px; }
+@media (min-width: 600px) { .pills { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+.daterow { display: flex; align-items: center; gap: 10px; }
+.daterow input { flex: 1; min-width: 0; }
+.daterow .btn.small { flex: none; }
+.combo input[type="text"] { font: inherit; font-size: 1.02rem; color: var(--ink); width: 100%; background: transparent; border: 0; padding: 4px 0; outline: none; min-height: 32px; }
+.combo-back { justify-self: start; margin-top: 4px; font-size: .85rem; }
+.shiftpart { display: grid; gap: 22px; }
+.shiftpart:empty { display: none; }
+.field .money span:last-child:not(:first-child) { margin-left: 2px; }
+.row .chiprow { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.shiftform .btn.danger { margin-top: -6px; }
+.fig.wide { grid-column: 1 / -1; }
+.chips.more-r { -webkit-mask-image: linear-gradient(to right, #000 82%, transparent); mask-image: linear-gradient(to right, #000 82%, transparent); }
+.chips.more-l { -webkit-mask-image: linear-gradient(to left, #000 82%, transparent); mask-image: linear-gradient(to left, #000 82%, transparent); }
+.chips.more-l.more-r { -webkit-mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent); mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent); }
+.field .money input { flex: 1; min-width: 0; }
+details.identity > .identity-in { padding: 4px 12px 14px; display: grid; }
+details.identity .fields.glass, details.identity .pills button { box-shadow: inset 0 0 0 1px var(--sep); }
+.pop::before { content: ""; position: absolute; top: -6px; left: calc(var(--ax, 50%) - 6px); width: 12px; height: 12px; background: inherit; transform: rotate(45deg); border-radius: 2px; }
+.pop.above::before { top: auto; bottom: -6px; }
+.pop > * { position: relative; }
+.pop .pop-all { display: flex; flex-wrap: wrap; gap: 4px 10px; padding-top: 8px; margin-top: 2px; border-top: 1px solid var(--sep); font-size: .74rem; color: var(--ink-3); }
+.pop .pop-all > span { display: inline-flex; align-items: center; gap: 4px; }
+.pop .pop-all > span.on { color: var(--ink); font-weight: 650; }
+.pop .pop-all .bd { width: 7px; height: 7px; box-shadow: none; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .hb-f.dim { opacity: .55; } }
+/* A card that opens something: the button laid over it, the dot above that. */
+.tap-host { position: relative; }
+.tap-hit { position: absolute; inset: 0; z-index: 1; width: 100%; border-radius: inherit; cursor: pointer; }
+.tap-hit:focus-visible { outline-offset: -3px; }
+.tap-host .bdot { z-index: 2; }
+@media (hover: hover) { .row.tap-host:hover { background: var(--fill); } }
+.row.tap-host:has(.tap-hit:active) { background: var(--fill); }
+.fig.tap-host:has(.tap-hit:active), .trendcard.tap-host:has(.tap-hit:active) { transform: scale(.992); }
+/* Estimate is a ring, not a dot: it must never be mistaken for recorded's gold, and it is the one to heed. */
+.bdot.estimate .d, .bd.estimate { background: transparent; box-shadow: inset 0 0 0 3px var(--orange), 0 0 0 2.5px var(--glass-strong); }
+.pop .pop-all .bd.estimate { box-shadow: inset 0 0 0 1.8px var(--orange); }
+.field .money { gap: 4px; }
+.foot.warnline { color: var(--orange); }
