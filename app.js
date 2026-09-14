@@ -494,31 +494,47 @@ function renderChrome() {
   } else {
     title.textContent = VIEW && VIEW.type === "settings" ? "Settings" : ({ today: "Today", add: "Add", numbers: "Summary" })[TAB];
   }
+  document.body.classList.toggle("toplevel", !VIEW);
   const s = document.getElementById("sync"), st = document.getElementById("sync-text");
   s.className = "sync";
   const outbox = load("outbox", []).length;
-  let text;
-  if (NET === "key" || NET === "error") { s.classList.add("bad"); text = "Needs attention"; }
-  else if (SNAP && SNAP.machine && SNAP.machine.state === "stuck") { s.classList.add("bad"); text = "Books not updating"; }
-  else if (NET === "offline") { s.classList.add("stale"); text = outbox ? `Offline · ${outbox} to send` : "Offline"; }
-  else if (!SNAP) { s.classList.add("stale"); text = "No summary yet"; }
-  else if (hoursSince(SNAP.checked_at) > STALE_HOURS) { s.classList.add("stale"); text = `MacBook asleep · ${ago(SNAP.checked_at, true)}`; }
-  else if (outbox) { s.classList.add("stale"); text = `${outbox} to send`; }
-  else if (SNAP.machine && SNAP.machine.state === "busy") text = "Catching up";
-  else text = `Updated ${ago(SNAP.checked_at, true)}`;
+  // The long form sits in the wide screen's top bar; the short one beside a page's title on the phone.
+  let text, short;
+  if (NET === "key" || NET === "error") { s.classList.add("bad"); text = short = "Needs attention"; }
+  else if (SNAP && SNAP.machine && SNAP.machine.state === "stuck") { s.classList.add("bad"); text = "Books not updating"; short = "Not updating"; }
+  else if (NET === "offline") { s.classList.add("stale"); text = outbox ? `Offline · ${outbox} to send` : "Offline"; short = "Offline"; }
+  else if (!SNAP) { s.classList.add("stale"); text = short = "No summary yet"; }
+  else if (hoursSince(SNAP.checked_at) > STALE_HOURS) { s.classList.add("stale"); text = `MacBook asleep · ${ago(SNAP.checked_at, true)}`; short = `Asleep · ${ago(SNAP.checked_at, true)}`; }
+  else if (outbox) { s.classList.add("stale"); text = short = `${outbox} to send`; }
+  else if (SNAP.machine && SNAP.machine.state === "busy") text = short = "Catching up";
+  else { text = `Updated ${ago(SNAP.checked_at, true)}`; short = ago(SNAP.checked_at, true).replace(/^just now$/, "Just now"); }
   st.textContent = text;
+  SYNC_SHORT = short;
   s.setAttribute("aria-label", "Sync: " + text + ". Open settings.");
+  // A redraw that keeps the page (quietRender) still brings the heading's copy up to date.
+  for (const p of document.querySelectorAll(".head-sync")) {
+    p.className = s.className + " head-sync";
+    p.setAttribute("aria-label", s.getAttribute("aria-label"));
+    const t = p.querySelector(".sync-t"); if (t) t.textContent = short;
+  }
   app.hidden = false;
 }
+let SYNC_SHORT = "";
 
+// A page's heading. On the three tabs (withStatus) the phone has no top bar: the title sits at the top of the
+// screen, with when the figures were updated and the gear at its right, as the App Store's Today page does
+// (Alvin, 2026-09-14: "a lot of wasted space in the header for just the settings icon"). On a wide screen the
+// top bar holds both instead.
 function head(title, sub, withStatus) {
-  const hd = h("div", { class: "head" }, h("h1", { text: title }), sub ? h("div", { class: "sub", text: sub }) : null);
+  const hd = h("div", { class: "head" + (withStatus ? " with-status" : "") }, h("h1", { text: title }));
   if (withStatus) {
     const src = document.getElementById("sync");
-    const pill = h("button", { class: src.className, type: "button", "aria-label": src.getAttribute("aria-label"), onclick: () => openView({ type: "settings" }) },
-      h("span", { class: "dot" }), h("span", { text: document.getElementById("sync-text").textContent }));
-    hd.append(pill);
+    const pill = h("button", { class: src.className + " head-sync", type: "button", "aria-label": src.getAttribute("aria-label"), onclick: () => openView({ type: "settings" }) },
+      h("span", { class: "dot" }), h("span", { class: "sync-t", text: SYNC_SHORT || document.getElementById("sync-text").textContent }));
+    const gear = h("button", { class: "icon-btn head-gear", type: "button", "aria-label": "Settings", onclick: () => openView({ type: "settings" }) }, icon("gear"));
+    hd.append(h("div", { class: "head-right" }, pill, gear));
   }
+  if (sub) hd.append(h("div", { class: "sub", text: sub }));
   return hd;
 }
 
@@ -547,9 +563,9 @@ function render(animate) {
   if (!SWIPE) SWIPE = VIEW ? (["form", "settings"].includes(VIEW.type) ? null : { el: page, prev: () => BACK(), next: null })
                            : { el: page, prev: () => tabStep(-1), next: () => tabStep(1) };
   // A page reached sideways slides in from that side; any other fades up.
-  const cls = ENTER ? "enter-" + ENTER : "enter";
+  const cls = ENTER === "none" ? "" : ENTER ? "enter-" + ENTER : "enter";
   ENTER = "";
-  if (animate && motionOK()) { page.classList.add(cls); page.addEventListener("animationend", () => page.classList.remove(cls), { once: true }); }
+  if (animate && cls && motionOK()) { page.classList.add(cls); page.addEventListener("animationend", () => page.classList.remove(cls), { once: true }); }
   main.append(page);
   onScroll();
 }
@@ -601,7 +617,8 @@ function viewTitle(v) {
             work: v.metric === "rate" ? "Pay per hour" : "Hours", account: ({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[v.account] || "Account",
             trend: v.title || "History" })[v.type] || "Back";
 }
-function onScroll() { document.getElementById("bar").classList.toggle("scrolled", window.scrollY > 28); }
+// On a tab the phone's bar appears, with the page's name, only once the large title has scrolled away.
+function onScroll() { document.getElementById("bar").classList.toggle("scrolled", window.scrollY > (document.body.classList.contains("toplevel") ? 48 : 28)); }
 // The top bar is fixed, so the page starts below it: its height, as drawn, sets where.
 function measureBar() {
   const b = document.getElementById("bar");
@@ -624,11 +641,12 @@ let SWIPE = null;              // { el, prev, next }: prev and next give { run, 
 let GS = null;                 // the touch being followed
 let PULLING = false;           // a refresh begun by a pull, still running
 let NO_CLICK_UNTIL = 0;        // a swipe that lands on a button must not also press it
-const BACK = () => VIEW ? { whole: true, back: true, run: () => { ENTER = "l"; closeView(); } } : null;
+// ENTER is already "none" when the swipe slides the new page in itself (sideRelease).
+const BACK = () => VIEW ? { whole: true, back: true, run: () => { ENTER = ENTER || "l"; closeView(); } } : null;
 function tabStep(d) {
   const i = TABS.indexOf(TAB) + d;
   if (i < 0 || i >= TABS.length) return null;
-  return { whole: true, run: () => { ENTER = d > 0 ? "r" : "l"; if (TABS[i] === "numbers") save("sumpart", "total"); go(TABS[i]); } };
+  return { whole: true, run: () => { ENTER = ENTER || (d > 0 ? "r" : "l"); if (TABS[i] === "numbers") save("sumpart", "total"); go(TABS[i]); } };
 }
 // A swipe that moves along a row of choices (segments or chips), and past its ends to `before` or `after`.
 function swipeAlong(group, el, before, after) {
@@ -743,17 +761,51 @@ function sideRelease(g, cancel) {
     setTimeout(() => el.classList.remove("side-settle"), 300);
     return;
   }
-  sidePlace(el, 0, false);
   const from = g.dx < 0 ? "r" : "l";
-  if (tg.whole) { ENTER = ENTER || from; tg.run(); guard(); return; }
-  tg.run();
+  // Since 2026-09-14, at Alvin's request ("the next page should animate scrolling into view"): the page, or the
+  // part of it, being left carries on off the screen with the finger, and the next slides in behind it from the
+  // other edge, both at once, as an iPhone's pages do. What leaves is a still copy of it (a "ghost"), laid
+  // exactly where it was; the new one is drawn in its place and starts a screen's width away.
+  const ghost = motionOK() ? ghostOf(el) : null;
+  sidePlace(el, 0, false);
+  if (tg.whole) { ENTER = "none"; tg.run(); } else tg.run();
   guard();
-  // The new choice's content slides in from the side the finger came from.
-  const el2 = SWIPE && SWIPE.el;
-  if (el2 && motionOK()) {
-    el2.classList.remove("enter-l", "enter-r"); void el2.offsetWidth; el2.classList.add("enter-" + from);
-    el2.addEventListener("animationend", () => el2.classList.remove("enter-" + from), { once: true });
-  }
+  const el2 = tg.whole ? document.getElementById("main") : (SWIPE && SWIPE.el);
+  if (!ghost) return;
+  const w = window.innerWidth, left = Math.max(0, w - Math.abs(g.dx));
+  const speed = Math.abs(g.dx) / Math.max(1, Date.now() - g.t);                 // px per ms, as the finger went
+  const ms = Math.round(Math.max(200, Math.min(340, left / Math.max(speed, 1.6))));
+  const sign = g.dx < 0 ? -1 : 1;
+  ghost.el.style.transform = `translateX(${g.dx}px)`;
+  if (el2) { el2.style.transition = "none"; el2.style.transform = `translateX(${-sign * left}px)`; }
+  void ghost.el.offsetWidth;
+  const ease = `transform ${ms}ms cubic-bezier(.25, .8, .25, 1)`;
+  ghost.el.style.transition = ease + `, opacity ${ms}ms ease`;
+  ghost.el.style.transform = `translateX(${sign * w}px)`;
+  ghost.el.style.opacity = ".6";
+  if (el2) { el2.style.transition = ease; el2.style.transform = "translateX(0)"; }
+  setTimeout(() => {
+    ghost.el.remove();
+    if (el2) { el2.style.transition = ""; el2.style.transform = ""; }
+  }, ms + 40);
+  void from;
+}
+// A still copy of an element, fixed where it sits on the screen, for it to slide away while the new one comes in.
+function ghostOf(el) {
+  if (!el || !el.isConnected) return null;
+  const r = el.getBoundingClientRect();
+  const c = el.cloneNode(true);
+  c.removeAttribute("id");
+  for (const x of c.querySelectorAll("[id]")) x.removeAttribute("id");
+  c.classList.add("ghost");
+  c.setAttribute("aria-hidden", "true");
+  // Where the original sits before the finger dragged it: the copy is moved by its own transform instead.
+  const dragged = (parseFloat(el.style.left) || 0) + Number((/translateX\((-?[\d.]+)px\)/.exec(el.style.transform || "") || [0, 0])[1]);
+  c.style.position = "fixed"; c.style.top = r.top + "px"; c.style.left = (r.left - dragged) + "px"; c.style.width = r.width + "px";
+  c.style.margin = "0"; c.style.opacity = ""; c.style.pointerEvents = "none"; c.style.zIndex = "12";
+  c.classList.remove("side-settle", "settle", "enter", "enter-l", "enter-r");
+  document.body.append(c);
+  return { el: c };
 }
 
 /* ---------- Today ---------- */
@@ -896,20 +948,26 @@ function upcoming() {
       const dd = dateOf(d.date), chargeDay = dd ? new Date(dd.getFullYear(), dd.getMonth(), +via[3]) : null;
       const t = new Date(); t.setHours(0, 0, 0, 0);
       paid = chargeDay && chargeDay <= t;
-      viaNote = paid ? "paid through the Chexy charge" : `paid through the Chexy charge on ${chargeDay ? shortDate(isoOf(chargeDay)) : "the 20th"}`;
+      viaNote = paid ? "paid via Chexy" : `via Chexy, ${chargeDay ? monthDay(isoOf(chargeDay)) : "the 20th"}`;
       rest = "";
     }
-    const main = h("span", { class: "main" }, h("span", { class: "title clamp", text: title }),
-      h("span", { class: "meta", text: rel(d.date).replace(/^./, c => c.toUpperCase()) + (viaNote ? " · " + viaNote : "") }),
-      rest ? h("span", { class: "detail" }, icon("chevR"), h("span", { class: "clamp1", text: rest.replace(/^./, c => c.toUpperCase()).replace(/(^|[^$\d.,])(\d{1,3}(?:,\d{3})*\.\d{2})\b/g, "$1$$$2") })) : null);
+    // Compact since 2026-09-14, at Alvin's request ("the coming up rows are very cramped"): the title on one line,
+    // when on the next, the amount at the right. The rest of the title, and the calendar's note, open on a tap.
     const est = (d.basis || "").startsWith("estimate") && !via;
-    const amount = d.amount && Number(d.amount) ? h("span", { class: "amt" + (paid ? " paid" : via ? " covered" : ""), text: (est ? "about " : "") + "$" + Math.round(money(d.amount)).toLocaleString("en-CA") }) : h("span", {});
-    const row = rest ? h("button", { class: "row", type: "button", "aria-expanded": "false" }, leaf, main, amount) : h("div", { class: "row" }, leaf, main, amount);
-    if (rest) row.addEventListener("click", () => { const o = row.classList.toggle("open"); row.setAttribute("aria-expanded", String(o)); });
+    const detail = rest ? rest.replace(/^./, c => c.toUpperCase()).replace(/(^|[^$\d.,])(\d{1,3}(?:,\d{3})*\.\d{2})\b/g, "$1$$$2") : "";
+    const more = !!detail || title.length > 30;
+    const main = h("span", { class: "main" }, h("span", { class: "title one", text: title }),
+      h("span", { class: "meta" }, h("span", { text: rel(d.date).replace(/^./, c => c.toUpperCase()) + (viaNote ? " · " + viaNote : "") }),
+        more ? h("span", { class: "chev-d", "aria-hidden": "true" }, icon("chevR")) : null),
+      detail ? h("span", { class: "detail", text: detail }) : null);
+    const amount = d.amount && Number(d.amount) ? h("span", { class: "amt" + (paid ? " paid" : via ? " covered" : "") },
+      est ? h("span", { class: "about", text: "about" }) : null, h("span", { text: "$" + Math.round(money(d.amount)).toLocaleString("en-CA") })) : h("span", {});
+    const row = more ? h("button", { class: "row due", type: "button", "aria-expanded": "false" }, leaf, main, amount) : h("div", { class: "row due" }, leaf, main, amount);
+    if (more) row.addEventListener("click", () => { const o = row.classList.toggle("open"); row.setAttribute("aria-expanded", String(o)); });
     ul.append(row);
   }
   s.append(ul);
-  if (due.some(d => (d.basis || "").startsWith("estimate"))) s.append(h("p", { class: "foot", text: "Amounts are as planned in your calendar: estimates until paid." }));
+  if (due.some(d => (d.basis || "").startsWith("estimate"))) s.append(h("p", { class: "foot", text: "Amounts are as planned in your calendar: estimates until paid. Tap a line for its details." }));
   return s;
 }
 
@@ -1002,7 +1060,7 @@ function withdraw(e) {
 
 function renderAdd() {
   const p = h("div", { class: "page" });
-  p.append(head("Add", "Sent to your private mailbox. The MacBook files it within 15 minutes of being open.", true));
+  p.append(head("Add", "The MacBook files what you send within 15 minutes of being open.", true));
   const forms = formsList();
   if (!forms.length) { p.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "The forms have not arrived yet. They come with the first summary." }))); return p; }
   const all = openQuestions(), rc = all.filter(q => receiptOf(q)).length, qc = all.length - rc;
@@ -1977,13 +2035,14 @@ function figCard(o, opts) {
   const tap = !!opts.onOpen;
   const card = h("div", { class: "fig glass" + (opts.hero ? " hero" : "") + (opts.wide ? " wide" : "") + (tap ? " tappable" : "") });
   card.append(h("div", { class: "ftop" }, h("span", { class: "l", text: opts.label || o.label }), basisDot(opts.basis || o.basis, opts.why || whyLines(o))));
-  card.append(h("span", { class: "v rounded" + (opts.hero ? "" : " num"), text: opts.value || wholeValue(o.value) }));
+  // An estimate says "about", small, before its figure.
+  card.append(h("span", { class: "v rounded" + (opts.hero ? "" : " num") }, opts.about ? h("span", { class: "about", text: "about " }) : null, opts.value || wholeValue(o.value)));
   const ser = opts.series;
   card.append(opts.body ? h("span", { class: "spark" }, opts.body)
     : ser && ser.points.length >= 4 ? h("span", { class: "spark" }, chart([sparkOf(ser, o)], { form: ser.form, unit: ser.unit, spark: true, height: opts.hero ? 56 : 34 }))
     : h("span", { class: "spark none" }));
   card.append(h("span", { class: "fmeta" }, opts.meta || null));
-  if (tap) tapArea(card, `${opts.label || o.label}, ${opts.value || wholeValue(o.value)}. Open`, () => opts.onOpen());
+  if (tap) tapArea(card, `${opts.label || o.label}, ${opts.about ? "about " : ""}${opts.value || wholeValue(o.value)}. Open`, () => opts.onOpen());
   return card;
 }
 // A card left alone on the last row of a grid of two takes the whole row.
@@ -2049,7 +2108,7 @@ function sumPart() { const v = load("sumpart", "total"); return ["total", "perso
 
 function renderSummary() {
   const p = h("div", { class: "page" });
-  p.append(head("Summary", "Worked out on the MacBook from your records. Choose a card for more; its dot says how sure the figure is.", true));
+  p.append(head("Summary", "Tap a card for more. Its dot says how sure the figure is.", true));
   if (!SNAP || !((SNAP.overview || []).length)) { p.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "No figures yet." }))); return p; }
   const part = sumPart();
   const holder = h("div", { class: "page" });
@@ -2072,36 +2131,51 @@ function openTrendOf(id) {
   if (o && o.series && SNAP.series && SNAP.series[o.series]) openView({ type: "trend", figId: id, title: o.label });
 }
 
+// The household's figure as late as the records reach: the MacBook's `now` (the corporation's latest month-end,
+// the three accounts at their last values plus what went in since), or else the last year end.
+function householdNow() {
+  const nw = (SNAP && SNAP.networth) || {};
+  if (nw.now) return { date: nw.now.date, total: money(nw.now.household), corp: money(nw.now.corporation), pers: money(nw.now.personal),
+                       since: money(nw.now.personal_since), from: nw.now.personal_from, basis: "estimate", corpBasis: nw.now.corporation_label, note: nw.now.note, est: true };
+  if (nw.household) return { date: nw.date, total: money(nw.household), corp: money(nw.corporation), pers: money(nw.personal), since: 0, from: nw.date,
+                             basis: "derived", corpBasis: nw.corporation_label, est: false };
+  return null;
+}
+function householdWhy(n) {
+  const nw = (SNAP && SNAP.networth) || {};
+  return [`At ${prettyDates(n.date)}${n.est ? ", the corporation's latest month-end with a bank and Questrade statement" : ""}.`,
+          "It counts the corporation, at market, and your TFSA, RRSP and FHSA. Before the tax paid to take money out of the corporation.",
+          n.est ? `An estimate: ${n.note}.` : "", nw.household && n.est ? `At ${prettyDates(nw.date)}, the last year end with every account's value, it was ${fmtWhole$(Math.round(money(nw.household)))}.` : ""];
+}
 function summaryTotal() {
   const out = h("div", { class: "page" }), S = (SNAP && SNAP.series) || {}, nw = SNAP.networth || {};
-  const hh = ov("household");
+  const n = householdNow();
+  if (!n) return out;
+  // Rewritten 2026-09-14 at Alvin's request: the figure as current as the records allow, not the last year end;
+  // "Breakdown" in place of "What it is made of"; and the card "Since then", which he found unclear, folded into
+  // the figure's own line (how much it rose since the year end).
   const g = h("div", { class: "figs" });
-  if (hh) g.append(figCard(hh, { hero: true, label: `${hh.label}, ${prettyDates(hh.as_of)}`, series: S.household, onOpen: () => openTrendOf("household"),
-    why: whyLines(hh).concat(["It counts the corporation and your TFSA, RRSP and FHSA. Part of it is recorded, not derived: the accounts' values are typed by you, with no statements filed."]),
-    meta: [deltaOf(S.household, "household"), h("span", { class: "asof", text: "The last year end with every account's value. Before the tax paid to take money out of the corporation." })] }));
+  const up = nw.household && n.est ? Math.round((n.total - money(nw.household)) / 1000) * 1000 : null;
+  g.append(figCard({ label: "Household net worth", basis: n.basis }, { hero: true, label: `Household net worth, ${prettyDates(n.date)}`, value: fmtWhole$(Math.round(n.total)), about: n.est,
+    series: S.household, onOpen: () => openTrendOf("household"), why: householdWhy(n),
+    meta: [up !== null ? h("span", { class: "delta", text: `${up >= 0 ? "Up" : "Down"} ${compact(Math.abs(up), "$")} since ${prettyDates(nw.date)}.` }) : null,
+           h("span", { class: "asof", text: "Before the tax paid to take money out of the corporation." })] }));
   out.append(g);
-  if (nw.household) {
-    const c = money(nw.corporation), pr = money(nw.personal), t = money(nw.household);
-    const pct = v => Math.round(v / t * 100) + "%";
-    const row = (cls, label, v, basis, why, part) => tapArea(h("div", { class: "row legendrow" },
-      h("span", { class: "sw2 " + cls }), h("span", { class: "main" }, h("span", { class: "title", text: label }), h("span", { class: "meta", text: pct(v) + " of the total" })),
-      h("span", { class: "amt", text: fmtWhole$(Math.round(v)) }), basisDot(basis, why)), `${label}, ${fmtWhole$(Math.round(v))}. Show in detail`, () => { save("sumpart", part); render(); window.scrollTo(0, 0); });
-    out.append(h("section", { class: "section" }, h("h2", { text: "What it is made of" }),
-      h("div", { class: "card glass splitcard" },
-        meter([{ value: c, cls: "s0", label: "The corporation" }, { value: pr, cls: "s1", label: "Your registered accounts" }]),
-        h("div", { class: "list flat" },
-          row("s0", "The corporation, at market", c, nw.corporation_label, [`At ${prettyDates(nw.date)}.`, "Its investments and chequing, less what it owes on its Visa.", "Before the tax paid to take money out of the corporation."], "corporation"),
-          row("s1", "Your TFSA, RRSP and FHSA", pr, nw.personal_label, [`At ${prettyDates(nw.date)}.`, "The year-end values you typed in the workbook's Overview; no statements are filed for them yet."], "personal"))),
-      h("p", { class: "foot", text: "Choose either line to see it in detail." })));
-  }
-  const cm = ov("corp_market");
-  if (nw.corp_now && cm && nw.corp_now_date > (nw.date || "")) {
-    const up = Math.round((money(nw.corp_now) - money(nw.corporation)) / 1000) * 1000;
-    out.append(h("section", { class: "section" }, h("h2", { text: "Since then" }),
-      h("div", { class: "figs" }, figCard(cm, { label: `The corporation alone, at ${prettyDates(cm.as_of)}`, wide: true, series: S.corp_market, onOpen: () => openTrendOf("corp_market"),
-        meta: [h("span", { class: "delta", text: `${up >= 0 ? "Up" : "Down"} ${compact(Math.abs(up), "$")} since ${prettyDates(nw.date)}.` + priceSplit(nw.date, nw.corp_now_date, up) }),
-               h("span", { class: "asof", text: "Your TFSA, RRSP and FHSA are valued again at the year end." })] }))));
-  }
+  const pct = v => Math.round(v / n.total * 100) + "%";
+  const row = (cls, label, sub, v, basis, why, part) => tapArea(h("div", { class: "row legendrow" },
+    h("span", { class: "sw2 " + cls }), h("span", { class: "main" }, h("span", { class: "title", text: label }), h("span", { class: "meta", text: sub })),
+    h("span", { class: "amt", text: fmtWhole$(Math.round(v)) }), basisDot(basis, why)), `${label}, ${fmtWhole$(Math.round(v))}. Show in detail`, () => { save("sumpart", part); render(); window.scrollTo(0, 0); });
+  const persSub = n.since ? `${pct(n.pers)} · ${monthDay(n.from)} value + ${fmtWhole$(Math.round(n.since))} put in to ${monthDay(n.date)}` : `${pct(n.pers)} · at ${monthDay(n.from)}`;
+  out.append(h("section", { class: "section" }, h("h2", { text: "Breakdown" }),
+    h("div", { class: "card glass splitcard" },
+      meter([{ value: n.corp, cls: "s0", label: "Corporation" }, { value: n.pers, cls: "s1", label: "TFSA, RRSP, FHSA" }]),
+      h("div", { class: "list flat" },
+        row("s0", "Corporation", `${pct(n.corp)} · at market, ${monthDay(n.date)}`, n.corp, n.corpBasis,
+            [`At ${prettyDates(n.date)}.`, "Its investments and chequing, less what it owes on its Visa.", "Before the tax paid to take money out of the corporation."], "corporation"),
+        row("s1", "TFSA, RRSP, FHSA", persSub, n.pers, n.since ? "estimate" : nw.personal_label,
+            [`Their values at ${prettyDates(n.from)}, as you typed them in the workbook's Overview; no statements are filed for them yet.`,
+             n.since ? `Plus ${fmtWhole$(Math.round(n.since))} you put in between then and ${prettyDates(n.date)}, from your Personal tab and this page. How their investments moved since is not known until their statements are filed, so this is an estimate.` : ""], "personal"))),
+    h("p", { class: "foot", text: "Choose either line to see it in detail." })));
   return out;
 }
 
@@ -2117,8 +2191,9 @@ function summaryCorp() {
   const cm = ov("corp_market");
   if (cm) g.append(figCard(cm, { hero: true, series: S.corp_market, onOpen: () => openTrendOf("corp_market"), meta: [deltaOf(S.corp_market, "corp_market")] }));
   const inc = ov("income");
+  const exp = ((SNAP && SNAP.income) || {}).expected;
   if (inc) g.append(figCard(inc, { label: inc.label.replace("Income into the corporation", "Income"), series: S.income, onOpen: () => openView({ type: "income" }),
-    meta: [h("span", { class: "asof", text: incomeVsLastYear() || "Every year, by month" })] }));
+    meta: [h("span", { class: "asof" }, exp ? h("span", { class: "expect" }, h("span", { class: "bd estimate", "aria-hidden": "true" }), `About ${compact(money(exp.total), "$")} expected by Dec 31`) : (incomeVsLastYear() || "Every year, by month"))] }));
   const wh = ov("work_hours"), pph = ov("pay_per_hour");
   const lagNote = o => daysFrom(o.as_of) < -35 ? `MGH counted to ${monthDay(o.as_of)}` : "";
   if (wh) g.append(figCard(wh, { label: wh.label.replace(/ · .*/, ""), value: wholeValue(wh.value) + " h", series: S.work_hours, onOpen: () => openView({ type: "work", metric: "hours" }),
@@ -2130,10 +2205,11 @@ function summaryCorp() {
   const tx = ov("tax_left");
   if (tx) g.append(figCard(tx, { label: "Tax instalments left this year", meta: [h("span", { class: "asof", text: "Paid through Chexy on the Amex" })] }));
   out.append(balance(g));
-  const cards = [["invest", "Investments: their value, and what they cost", ["invest_market", "invest_cost"]],
-                 ["chequing", "Cash in corporate chequing, at each month's end", ["chequing"]]].filter(c => c[2].every(k => S[k]));
+  // The card of cash in chequing at each month's end was taken off on 2026-09-14 at Alvin's request ("don't need
+  // this info"); the chequing still counts in the corporation's value above.
+  const cards = [["invest", "Their value, and what they cost", ["invest_market", "invest_cost"]]].filter(c => c[2].every(k => S[k]));
   if (cards.length) {
-    const sec = h("section", { class: "section" }, h("h2", { text: "Savings and investments" }));
+    const sec = h("section", { class: "section" }, h("h2", { text: "Investments" }));
     const grid = h("div", { class: "trend-cards" });
     for (const [id, title, keys] of cards) {
       let sub = null, basis = S[keys[0]].basis, why = [plainSource(S[keys[0]].source) + "."];
@@ -2145,14 +2221,10 @@ function summaryCorp() {
           why.push("The gap between the two lines is worked out from them, so it is derived.");
         }
       }
-      if (id === "chequing") {
-        const lp = S.chequing.points[S.chequing.points.length - 1];
-        sub = h("span", { class: "tc-sub" }, `${compact(lp[1], "$", true)} at ${keyLabel(lp[0], true)}`);
-      }
       const b = h("div", { class: "card glass trendcard tappable" },
         h("span", { class: "tc-h" }, h("span", { class: "t", text: title }), basisDot(basis, why)), sub || h("span", { class: "tc-sub" }),
         chart(keys.map(k => S[k]), { form: "line", unit: "$", height: 150, legend: keys.length > 1, axis: true, hover: false, range: 36 }));
-      grid.append(tapArea(b, `${title}. Open`, () => openView({ type: "trend", keys, title })));
+      grid.append(tapArea(b, `Investments: ${title}. Open`, () => openView({ type: "trend", keys, title: "Investments" })));
     }
     sec.append(grid);
     out.append(sec);
@@ -2179,10 +2251,13 @@ function summaryPersonal() {
     const at = vals[0][2][0], total = vals.reduce((s2, x) => s2 + x[2][1], 0);
     const rows = h("div", { class: "list flat" }, vals.map(([a, n, v], i) => h("button", { class: "row legendrow", type: "button", onclick: ev => { ev.stopPropagation(); openView({ type: "account", account: a }); } },
       h("span", { class: "sw2 s" + i }), h("span", { class: "main" }, h("span", { class: "title", text: n })), h("span", { class: "amt", text: fmtWhole$(Math.round(v[1])) }), icon("chevR"))));
+    const since = ACCOUNTS.reduce((s2, [a]) => s2 + (money((regOf(a) || {}).since_value) || 0), 0);
     g.append(figCard({ label: "Your registered accounts", basis: vals[0][2][2] },
-      { hero: true, value: fmtWhole$(Math.round(total)), why: [`At ${prettyDates(at)}, the last year end.`, "The values you typed in the workbook's Overview; no statements are filed for these accounts yet."],
+      { hero: true, label: `Your registered accounts, ${prettyDates(at)}`, value: fmtWhole$(Math.round(total)),
+        why: [`At ${prettyDates(at)}, the last year end.`, "The values you typed in the workbook's Overview; no statements are filed for these accounts yet, so there is no later value."],
         body: h("div", {}, meter(vals.map(([a, n, v], i) => ({ value: v[1], cls: "s" + i, label: n }))), rows),
-        meta: [h("span", { class: "asof", text: `At ${prettyDates(at)}` })] }));
+        meta: [h("span", { class: "asof", text: (since > 0 ? `${fmtWhole$(Math.round(since))} more has gone in since, from your Personal tab and this page. `
+                                                   : since < 0 ? `${fmtWhole$(Math.round(-since))} more has come out than gone in since. ` : "") + "Their value today waits for their statements." })] }));
   }
   for (const [a, n] of ACCOUNTS) {
     const acct = regOf(a);
@@ -2315,7 +2390,15 @@ function renderIncome() {
       top.append(h("div", { class: "fmeta rise" }, `${compact(Math.abs(diff), "$", true)} ${diff >= 0 ? "more" : "less"} than January to ${keyLabel(I.same_months_through, true).replace(/ \d{4}$/, "")} ${Number(v) - 1} (${compact(before, "$", true)}).`));
     }
     holder.append(top);
-    holder.append(h("div", { class: "card glass chartcard" }, chart([ser], { form: "bars", unit: "$", height: 220, axis: true, hover: true })));
+    const exp = v === now && I.expected && I.expected.year === v ? I.expected : null;
+    if (exp) {
+      // What the year is likely to reach (added 2026-09-14 at Alvin's request): the chart runs on to December,
+      // the months to come drawn faint, and the card says how the sum is made.
+      const first = exp.months.find(m => m[2] !== "arrived");
+      const ser2 = { label: "Income", unit: "$", form: "bars", points: exp.months.map(m => [m[0], m[1]]), est_from: first ? first[0] : "" };
+      holder.append(h("div", { class: "card glass chartcard" }, chart([ser2], { form: "bars", unit: "$", height: 220, axis: true, hover: true })));
+      holder.append(expectedCard(exp));
+    } else holder.append(h("div", { class: "card glass chartcard" }, chart([ser], { form: "bars", unit: "$", height: 220, axis: true, hover: true })));
     const avg = money(yr.total) / yr.months.length;
     holder.append(h("div", { class: "facts glass card" },
       h("div", {}, h("span", { class: "k", text: "A month, on average" }), h("span", { class: "fv num", text: fmtWhole$(Math.round(avg)) })),
@@ -2334,6 +2417,28 @@ function renderIncome() {
   swipeAlong(chips, holder, BACK, null);
   p.append(h("p", { class: "foot", text: `${plainSource(I.source)}. Your workbook's tab for each year is the record of what came in; the shifts' pay is filled in months later, when the pay details arrive.` }));
   return p;
+}
+
+// The year's expected income: the figure, a bar of what has arrived against what is to come, and the sum in words.
+function expectedCard(exp) {
+  const total = money(exp.total), arrived = money(exp.arrived), usual = money(exp.usual_month), bonus = money(exp.bonus) || 0;
+  const toCome = total - arrived, n = exp.to_come;
+  const mon = k => keyLabel(k, true).replace(/ \d{4}$/, "");
+  const last = exp.months.filter(m => m[2] === "arrived").pop();
+  const why = ["What has arrived, from your year tab, plus each month still to come at your usual month" + (bonus ? ", plus MGH's active staff bonus in December" : "") + ".",
+               `Your usual month is the middle one of the ${plural(12, "month")} from ${keyLabel(exp.usual_from, true)} to ${keyLabel(exp.usual_to, true)}: a lump, such as December 2025's retro pay, or a payment that lands a month early or late, does not move it.`,
+               bonus ? `The bonus is taken as one month of MGH pay at ${exp.year}'s average so far (${plural(exp.bonus_months, "month")}), as you expect. Last December's retro pay and practice-plan points are not expected again.` : "",
+               "Written down as assumptions A-2026-09-14-01 and A-2026-09-14-02 in the Finance System (profile/assumptions.csv), to be checked at the January review."];
+  const rows = [[last ? `Arrived, January to ${mon(last[0])}` : "Arrived", arrived, "s0"],
+                [n ? `${plural(n, "month")} to come at your usual ${fmtWhole$(Math.round(usual))}` : "", usual * n, "later"],
+                [bonus ? "MGH's active staff bonus, in December" : "", bonus, "later"]].filter(r => r[0]);
+  return h("section", { class: "card glass expectcard" },
+    h("div", { class: "ftop" }, h("span", { class: "l", text: `Expected for ${exp.year}` }), basisDot("estimate", why)),
+    h("div", { class: "v rounded", text: "about " + fmtWhole$(Math.round(total / 100) * 100) }),
+    meter([{ value: arrived, cls: "s0", label: "Arrived" }, { value: toCome, cls: "s0 faint", label: "To come" }]),
+    h("div", { class: "list flat" }, rows.map(([t, v, c]) => h("div", { class: "row plain legendrow2" },
+      h("span", { class: "main" }, h("span", { class: "title" }, h("span", { class: "sw2 s0" + (c === "later" ? " faint" : "") }), t)), h("span", { class: "amt", text: fmtWhole$(Math.round(v)) })))),
+    (exp.left_out || []).length ? h("p", { class: "small muted", text: "Not counted: " + exp.left_out.map(x => `${x.what.replace(/^./, c => c.toLowerCase())} (${x.why.replace(/ \(Q-[\d-]+\)$/, "")})`).join("; ") + "." }) : null);
 }
 
 /* ---------- hours and pay per hour, full page ---------- */
@@ -2445,18 +2550,33 @@ function renderWork() {
         const rows = years.map(k => ({ label: k, value: cell(k, pl) ? rate(cell(k, pl)) : 0, on: k === y, sub: cell(k, pl) ? `${Math.round(money(cell(k, pl).hours))} h` : "" })).filter(r => r.value > 0);
         if (rows.length > 1) holder.append(h("section", { class: "section" }, h("h2", { text: `${nameOf(pl)}, year by year` }), h("div", { class: "card glass" }, hbars(rows, v => `${fmtWhole$(Math.round(v))}/h`)),
           pl === "edlp" ? h("p", { class: "foot", text: "Each year counts the monthly stipend with the shifts' pay, over the shifts' hours." }) : null));
-        const sites = Object.keys(C).filter(k => { const [a1, b1, s2] = k.split("|"); return a1 === y && b1 === pl && s2; })
-          .map(k => ({ label: k.split("|")[2], value: rate(C[k]), sub: `${plural(Number(C[k].units), "shift")}, ${Math.round(money(C[k].hours))} h` })).sort((a1, b1) => b1.value - a1.value);
-        if (sites.length) holder.append(h("section", { class: "section" }, h("h2", { text: "By site" }), h("div", { class: "card glass" }, hbars(sites, v => `${fmtWhole$(Math.round(v))}/h`)),
-          pl === "edlp" ? h("p", { class: "foot", text: "The shifts alone: the monthly stipend belongs to no site." }) : null));
+        bySite(k => rate(C[k]), v => `${fmtWhole$(Math.round(v))}/h`, k => `${plural(Number(C[k].units), "shift")}, ${Math.round(money(C[k].hours))} h`,
+               pl === "edlp" ? "The shifts alone: the monthly stipend belongs to no site." : "");
       }
     }
+    if (metric === "hours" && pl !== "all") bySite(k => money(C[k].hours), v => `${Math.round(v).toLocaleString("en-CA")} h`, k => plural(Number(C[k].units), "shift"), "");
     const stEnd = W.last && W.last["edlp-stipend"], shEnd = W.last && W.last.edlp;
     if (metric === "rate" && (pl === "edlp" || pl === "all") && kind("edlp-stipend") && stEnd && shEnd && stEnd.slice(0, 7) > shEnd.slice(0, 7) && (cur || y === "all"))
       holder.append(h("p", { class: "foot warnline", text: `EDLP's stipend is counted to ${monthDay(stEnd)}, its shifts to ${monthDay(shEnd)}. If shifts since then are still to be typed, the figure with the stipend is too high until they are; the shifts alone are not affected.` }));
     holder.append(h("p", { class: "foot", text: (metric === "rate" ? "Your pay for each shift, over its hours. " : "") + "Hours are ones you typed, measured by your phone, or the usual length of that kind of shift. Worked out in the work-hours workings, from your Work tab and the shifts sent from this page." }));
   };
   const pickPlace = k => { VIEW.place = k; render(); };
+  // A place's sites, for the year shown, with the sites worked only in other years named beneath and one tap
+  // from all years (Alvin, 2026-09-14: "how come EDLP hours by site doesn't show other sites beside Wiarton and
+  // Southampton? I've done Meaford etc": 2026, the year the page opens on, had only those two).
+  function bySite(valOf, fmtV, subOf, note) {
+    const y = VIEW.year, pl = VIEW.place;
+    const keysOf = yy => Object.keys(C).filter(k => { const [a1, b1, s2] = k.split("|"); return a1 === yy && b1 === pl && s2; });
+    const here = keysOf(y).map(k => ({ label: k.split("|")[2], value: valOf(k), sub: subOf(k) })).filter(r => r.value > 0).sort((a1, b1) => b1.value - a1.value);
+    const others = keysOf("all").map(k => k.split("|")[2]).filter(s2 => !here.some(r => r.label === s2)).sort();
+    if (!here.length && !others.length) return;
+    const sec = h("section", { class: "section" }, h("h2", { text: `By site, ${y === "all" ? "all years" : y}` }));
+    if (here.length) sec.append(h("div", { class: "card glass" }, hbars(here, fmtV)));
+    if (note && here.length) sec.append(h("p", { class: "foot", text: note }));
+    if (others.length && y !== "all") sec.append(h("p", { class: "foot" }, `Worked in other years only: ${others.join(", ")}. `,
+      h("button", { class: "link", type: "button", onclick: () => { VIEW.year = "all"; render(); } }, "Show all years")));
+    holder.append(sec);
+  }
   draw();
   return p;
 }
@@ -2524,10 +2644,35 @@ function renderTrend() {
   let keys, title, fig = null;
   if (VIEW.figId !== undefined) { fig = ov(VIEW.figId); keys = fig && fig.series ? [fig.series] : []; title = fig ? fig.label : ""; }
   else { keys = VIEW.keys || []; title = VIEW.title || ""; }
-  const sers = keys.map(k => S[k]).filter(Boolean);
+  // The household: its year ends and its latest estimate, drawn over the corporation's month-ends, which are most
+  // of it and have a point every month (Alvin, 2026-09-14: "shouldn't we have multiple points since 2022?").
+  const house = VIEW.figId === "household" ? householdNow() : null;
+  if (house && S.corp_market) keys = keys.concat(["corp_market"]);
+  const sers = keys.map(k => k === "corp_market" && house ? { ...S[k], label: "Corporation alone" } : k === "household" && house ? { ...S[k], label: "Household" } : S[k]).filter(Boolean);
   if (!sers.length) { p.append(head("Not available", "This history has not arrived yet.")); return p; }
   const main = sers[0], last = main.points[main.points.length - 1];
   p.append(head(title, fig ? "" : ""));
+  if (house) {
+    const nw = SNAP.networth || {};
+    const up = house.est && nw.household ? Math.round((house.total - money(nw.household)) / 1000) * 1000 : null;
+    const top = h("div", { class: "trend-top" },
+      h("div", { class: "ftop" }, h("span", { class: "l", text: "At " + prettyDates(house.date) }), basisDot(house.basis, householdWhy(house))),
+      h("div", { class: "v rounded", text: (house.est ? "about " : "") + fmtWhole$(Math.round(house.total)) }));
+    if (up !== null) top.append(h("div", { class: "fmeta rise" }, h("span", { class: "delta", text: `${up >= 0 ? "Up" : "Down"} ${compact(Math.abs(up), "$")} since ${prettyDates(nw.date)}, when it was ${fmtWhole$(Math.round(money(nw.household)))}.` })));
+    top.append(h("div", { class: "fmeta" }, h("span", { class: "asof", text: "Before the tax paid to take money out of the corporation." })));
+    p.append(top);
+    p.append(h("div", { class: "card glass chartcard" }, chart(sers, { form: "line", unit: "$", height: 240, legend: true, axis: true, hover: true })));
+    const pts = main.points.slice().reverse();
+    p.append(h("section", { class: "section" }, h("h2", { text: "Each point" }), h("div", { class: "list glass" }, pts.map(pt => {
+      const est = main.est_from && String(pt[0]) >= main.est_from;
+      return h("div", { class: "row plain" }, h("span", { class: "main" }, h("span", { class: "title", text: prettyDates(pt[0]) }),
+        h("span", { class: "meta", text: est ? "Latest, an estimate" : "Year end" })),
+        h("span", { class: "est-wrap" }, h("span", { class: "amt", text: (est ? "about " : "") + fmtWhole$(Math.round(pt[1])) }), basisDot(est ? "estimate" : "derived", est ? householdWhy(house) : ["The corporation at market plus the TFSA, RRSP and FHSA as you typed them for that year end."])));
+    }))));
+    p.append(h("p", { class: "foot", text: "The household has a point only where the TFSA, RRSP and FHSA have a value: the year ends you typed in the workbook's Overview, and the latest estimate. " +
+      "Once their monthly Questrade statements are filed, it will have one every month. Dec 31, 2023 is missing because the corporation's 2023 bank statements are not filed. The corporation alone has a point every month." }));
+    return p;
+  }
   // The figure's own page gives it to the cent, so it can be matched to the workbook; its card rounds it.
   let lead = fig ? String(fig.value).replace(/\.00$/, "") : compact(last[1], main.unit, true), leadNote = null;
   if (!fig && keys[0] === "invest_market" && S.invest_cost) {
@@ -2555,7 +2700,8 @@ function renderTrend() {
   const holder = h("div", { class: "card glass chartcard" });
   const draw = n => { clear(holder); holder.append(chart(sers, { form: main.form, unit: main.unit, height: 240, legend: sers.length > 1, axis: true, hover: true, range: n })); };
   if (ranges.length) {
-    const rs = VIEW.range !== undefined ? VIEW.range : 36;
+    // What is sent to CRA for payroll opens on its last year (Alvin, 2026-09-14); the rest on three.
+    const rs = VIEW.range !== undefined ? VIEW.range : keys[0] === "remit" ? 12 : 36;
     const segs = h("div", { class: "segs range", role: "radiogroup", "aria-label": "How far back" });
     for (const [n, lab] of ranges) {
       const b = h("button", { type: "button", role: "radio", "aria-checked": String(n === rs) }, lab);
@@ -2643,7 +2789,10 @@ function chart(sers, o) {
     const fromT = o.range ? lastT - o.range * 30.44 * 864e5 - 15 * 864e5 : -Infinity;
     const S2 = sers.map(s2 => ({ ...s2, points: s2.points.filter(p2 => tOf(p2[0]) >= fromT) })).filter(s2 => s2.points.length);
     if (!S2.length) return;
-    const keys = S2[0].points.map(p2 => p2[0]);
+    // A line chart of several histories reads every date any of them has (the household's year ends over the
+    // corporation's months); columns keep the first history's.
+    const keys = bars || S2.length === 1 ? S2[0].points.map(p2 => p2[0])
+      : [...new Set(S2.flatMap(s2 => s2.points.map(p2 => p2[0])))].sort((a1, b1) => tOf(a1) - tOf(b1));
     const vals = S2.flatMap(s2 => s2.points.map(p2 => p2[1]));
     let lo = bars ? 0 : Math.min(...vals), hi = Math.max(...vals);
     if (!bars) { const pad2 = (hi - lo) * .08 || Math.abs(hi) * .05 || 1; lo -= pad2; hi += pad2; }
@@ -2698,7 +2847,7 @@ function chart(sers, o) {
           const x0 = x(i, p2[0]) - bw / 2, y0 = y(Math.max(0, p2[1])), hh = Math.max(0, y(0) - y0), r = Math.min(4, bw / 2, hh);
           if (hh <= 0) { if (!o.spark || true) svg.append(sv("line", { class: "zero", x1: x0 + 1, x2: x0 + bw - 1, y1: y(0) - .5, y2: y(0) - .5 })); return; }
           const d = `M${x0},${y(0)} V${y0 + r} Q${x0},${y0} ${x0 + r},${y0} H${x0 + bw - r} Q${x0 + bw},${y0} ${x0 + bw},${y0 + r} V${y(0)} Z`;
-          const bar = sv("path", { class: "bar s" + j + (anim ? " grow" : ""), d });
+          const bar = sv("path", { class: "bar s" + j + (anim ? " grow" : "") + (s2.est_from && String(p2[0]) >= s2.est_from ? " est" : ""), d });
           if (anim) bar.style.setProperty("--d", `${Math.min(i * 12, 400)}ms`);
           svg.append(bar);
         });
@@ -2708,18 +2857,25 @@ function chart(sers, o) {
         const steps = s2.points.slice(1).map((p2, i) => tOf(p2[0]) - tOf(s2.points[i][0])).sort((a1, b1) => a1 - b1);
         const usual = steps.length ? steps[Math.floor(steps.length / 2)] : 0;
         const segs = [[]];
-        s2.points.forEach((p2, i) => {
+        // Points from `est_from` on are estimates: the line into them is dashed, and the last dot hollow.
+        const ei = s2.est_from ? s2.points.findIndex(p2 => String(p2[0]) >= s2.est_from) : -1;
+        const solidN = ei > 0 ? ei : s2.points.length;
+        s2.points.slice(0, solidN).forEach((p2, i) => {
           if (i && (!o.spark || W > 400) && tOf(p2[0]) - tOf(s2.points[i - 1][0]) > Math.max(40 * 864e5, usual * 1.6)) segs.push([]);
           segs[segs.length - 1].push([x(i, p2[0]), y(p2[1])]);
         });
+        const estSeg = ei > 0 ? s2.points.slice(ei - 1).map(p2 => [x(0, p2[0]), y(p2[1])]) : null;
         const dOf = seg => seg.map((q, i) => (i ? "L" : "M") + q[0].toFixed(1) + "," + q[1].toFixed(1)).join(" ");
         if (S2.length === 1) for (const seg of segs) if (seg.length > 1) svg.append(sv("path", { class: "area s" + j + (anim ? " fade" : ""), d: dOf(seg) + ` L${seg[seg.length - 1][0].toFixed(1)},${T + ih} L${seg[0][0].toFixed(1)},${T + ih} Z` }));
         for (const seg of segs) {
-          if (seg.length === 1) { svg.append(sv("circle", { class: "end s" + j, cx: seg[0][0], cy: seg[0][1], r: 2 })); continue; }
+          if (seg.length === 1) { svg.append(sv("circle", { class: "end s" + j, cx: seg[0][0], cy: seg[0][1], r: S2.length > 1 ? 3 : 2 })); continue; }
           svg.append(sv("path", { class: "line s" + j + (anim ? " draw" : ""), d: dOf(seg) }));
         }
-        const all = segs[segs.length - 1], e = all[all.length - 1];
-        if (!o.spark || j === 0) svg.append(sv("circle", { class: "end s" + j, cx: e[0], cy: e[1], r: o.spark ? 2.6 : 4 }));
+        if (estSeg) svg.append(sv("path", { class: "line est s" + j, d: dOf(estSeg) }));
+        // A history of a few points (the household's year ends) shows each one.
+        if (s2.points.length <= 6 && !o.spark) for (const q of segs.flat()) svg.append(sv("circle", { class: "end s" + j, cx: q[0], cy: q[1], r: 3.2 }));
+        const all = estSeg || segs[segs.length - 1], e = all[all.length - 1];
+        if (!o.spark || j === 0) svg.append(sv("circle", { class: "end s" + j + (estSeg ? " est" : ""), cx: e[0], cy: e[1], r: o.spark ? 2.6 : 4 }));
       }
     });
     box.prepend(svg);
@@ -2739,7 +2895,12 @@ function chart(sers, o) {
         cross.removeAttribute("hidden"); cross.setAttribute("x1", xs[i]); cross.setAttribute("x2", xs[i]);
         S2.forEach((s2, j) => { const pt = s2.points.find(q => q[0] === keys[i]); if (!pt) { dots[j].setAttribute("hidden", ""); return; } dots[j].removeAttribute("hidden"); dots[j].setAttribute("cx", xs[i]); dots[j].setAttribute("cy", y(pt[1])); });
         clear(tip);
-        tip.append(h("div", { class: "tk", text: keyLabel(keys[i], true) }), ...S2.map((s2, j) => { const pt = s2.points.find(q => q[0] === keys[i]); return h("div", { class: "tr" }, S2.length > 1 ? h("span", { class: "sw s" + j }) : null, h("span", { text: (S2.length > 1 ? s2.label + ": " : "") + compact(pt ? pt[1] : null, s2.unit, true) })); }));
+        tip.append(h("div", { class: "tk", text: keyLabel(keys[i], true) }), ...S2.map((s2, j) => {
+          const pt = s2.points.find(q => q[0] === keys[i]);
+          if (!pt) return null;             // a history with no point on this date says nothing
+          const est = s2.est_from && String(pt[0]) >= s2.est_from;
+          return h("div", { class: "tr" }, S2.length > 1 ? h("span", { class: "sw s" + j }) : null, h("span", { text: (S2.length > 1 ? s2.label + ": " : "") + (est ? "about " : "") + compact(pt[1], s2.unit, true) }));
+        }).filter(Boolean));
         tip.hidden = false;
         // On the side away from the pointer, so it never covers the point being read.
         const tx = xs[i] / W * box.clientWidth, tw = tip.offsetWidth, cw = box.clientWidth;
@@ -3063,6 +3224,7 @@ async function boot() {
   });
   for (const ev of ["pointerdown", "keydown", "scroll", "touchstart"]) window.addEventListener(ev, touch, { passive: true });
   setInterval(checkIdle, 20000);
+  setInterval(() => { if (MEM && !lockShowing()) renderChrome(); }, 60000);   // "5 min ago" keeps counting
   document.addEventListener("keydown", ev => {
     if (document.getElementById("lock").hidden || document.querySelector(".scrim") || LOCK.mode === "setup-key") return;
     if (ev.target && /^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName)) return;
