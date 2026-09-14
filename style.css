@@ -119,8 +119,10 @@ main {
   padding: var(--bar-h, calc(max(8px, env(safe-area-inset-top)) + 60px)) max(16px, env(safe-area-inset-right)) calc(var(--tabbar-h) + 40px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
 }
 html { scroll-padding-top: calc(var(--bar-h, 64px) + 8px); }
-/* A page dragged sideways never makes the screen scroll sideways. */
-#app { overflow-x: hidden; overflow-x: clip; }
+/* No overflow rule on #app, the box that holds the two fixed bars. One was added on 2026-09-14 so a page dragged
+   sideways could not widen the screen; on the iPhone it made both bars scroll away with the page (Alvin's screenshot
+   the same night): Safari clips overflow-x: clip in both directions, and ties fixed bars inside it to the page.
+   A sideways drag cannot scroll the screen anyway, since the swipe stops the browser's own panning. */
 body.in-form main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 .page { display: grid; gap: 22px; }
 .head { display: grid; gap: 2px; padding: 4px 4px 0; }
