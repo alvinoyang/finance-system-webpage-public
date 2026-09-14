@@ -2,7 +2,7 @@
    connection and kept, so the last good copy opens when there is not. Requests to GitHub's API are
    never touched here: the page keeps its own saved summary and its outbox. */
 "use strict";
-const CACHE = "finance-system-webpage-v4";
+const CACHE = "finance-system-webpage-v5";
 const FILES = ["./", "index.html", "app.js", "style.css", "config.json", "manifest.webmanifest", "icon.svg", "icon-180.png", "icon-512.png"];
 
 self.addEventListener("install", ev => {
