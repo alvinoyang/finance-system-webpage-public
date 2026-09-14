@@ -761,3 +761,59 @@ main.side-settle { transition: left .26s cubic-bezier(.2, .9, .25, 1), opacity .
 .row .keep { position: relative; z-index: 2; justify-self: start; margin-top: 8px; min-height: 30px; padding: 4px 12px; font-size: .84rem; }
 .row.kept .title { color: var(--green); }
 .row.kept { grid-template-columns: auto 1fr auto; }
+
+/* ---------- 2026-09-14, later: the phone's heading, the sliding swipe, compact Coming up, expected income ---------- */
+/* On the three tabs the phone has no top bar: the title sits at the top of the screen, with when the figures were
+   updated and the gear at its right (Alvin: "a lot of wasted space in the header for just the settings icon").
+   A slim bar with the page's name fades in only once the title has scrolled away. Pages opened from a tab keep the
+   bar, for its way back. */
+.head.with-status { grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 10px; }
+.head.with-status .sub { grid-column: 1 / -1; }
+.head-right { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.head .head-sync { margin-top: 0; max-width: 44vw; }
+.head-sync .sync-t { overflow: hidden; text-overflow: ellipsis; }
+.head-gear { width: 40px; height: 40px; margin-right: -8px; }
+.head-gear svg { width: 23px; height: 23px; }
+@media (max-width: 599px) {
+  .bar #gear { display: none; }
+  body.toplevel .bar { opacity: 0; pointer-events: none; transition: opacity .2s, background .2s, box-shadow .2s; }
+  body.toplevel .bar.scrolled { opacity: 1; pointer-events: auto; }
+  body.toplevel main { padding-top: calc(max(10px, env(safe-area-inset-top)) + 8px); }
+  body.toplevel .ptr { top: max(0px, env(safe-area-inset-top)); }
+}
+@media (min-width: 600px) { .head-right { display: none; } .head.with-status { grid-template-columns: 1fr; } }
+
+/* The swipe: the page being left is a still copy sliding away; nothing inside it moves on its own. */
+.ghost, .ghost * { animation: none !important; }
+.ghost .line.draw { stroke-dasharray: none; stroke-dashoffset: 0; }
+.ghost .bar.grow { transform: none; }
+
+/* Coming up: one line for what, one for when, the amount at the right; the rest opens on a tap. */
+.row.due { grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; padding: 10px 16px; min-height: 0; align-items: center; }
+.row.due .day { width: 40px; padding: 4px 0 5px; border-radius: 10px; }
+.row.due .day .dn { font-size: 1.08rem; }
+.row.due .title.one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row.due.open .title.one { white-space: normal; }
+.row.due .meta { display: flex; align-items: center; gap: 5px; }
+.row.due .chev-d { display: inline-grid; }
+.row.due .chev-d svg { width: 11px; height: 11px; transform: rotate(90deg); color: var(--ink-3); transition: transform .2s; }
+.row.due.open .chev-d svg { transform: rotate(-90deg); }
+.row.due .detail { display: none; margin-top: 4px; font-size: .84rem; color: var(--ink-2); }
+.row.due.open .detail { display: block; }
+.row.due .amt { display: grid; justify-items: end; line-height: 1.15; }
+.row.due .amt .about { font-size: .68rem; font-weight: 500; color: var(--ink-2); text-transform: none; }
+
+/* Expected income: the figure, arrived against to come, and the sum in words. */
+.expectcard { gap: 10px; }
+.expectcard .ftop .l { font-size: .9rem; font-weight: 600; color: var(--ink-2); }
+.expectcard .v { font-size: 1.9rem; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; }
+.meter .mseg.faint, .sw2.faint { opacity: .42; }
+.row.legendrow2 { padding: 8px 0; min-height: 0; }
+.row.legendrow2 .title { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; font-size: .92rem; }
+.expect { display: inline-flex; align-items: center; gap: 6px; }
+.expect .bd.estimate { width: 8px; height: 8px; box-shadow: inset 0 0 0 2px var(--orange); }
+/* An estimate in a chart: a faint column, a dashed line, a hollow last dot. */
+.chart .bar.est { fill-opacity: .32; }
+.chart .line.est { stroke-dasharray: 5 5; }
+.chart .end.est.s0 { fill: var(--glass-strong); stroke: var(--c0); stroke-width: 2.2; }
+.fig .v .about { font-size: .5em; font-weight: 600; color: var(--ink-2); letter-spacing: 0; margin-right: 2px; }
