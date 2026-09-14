@@ -2378,13 +2378,19 @@ function renderWork() {
     const kind = t => K[`${y}|${t}`];
     const unitsText = () => {
       if (pl === "edlp") { const sh = kind("edlp-shift"); return sh ? plural(Number(sh.units), "shift") : ""; }
-      return plural(units, ({ mgh: "shift or call", bochner: "list", endoscopy: "list", abp: "month's entry", all: "shift or list" })[pl] || "entry",
+      const ppk = (pl === "mgh" || pl === "all") && kind("mgh-practice-plan");   // its activities are not shifts
+      const n = units - (ppk ? Number(ppk.units) : 0);
+      return plural(n, ({ mgh: "shift or call", bochner: "list", endoscopy: "list", abp: "month's entry", all: "shift or list" })[pl] || "entry",
                     ({ mgh: "shifts and calls", bochner: "lists", endoscopy: "lists", abp: "months' entries", all: "shifts and lists" })[pl] || "entries");
     };
     if (!c) { holder.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: `No work at ${nameOf(pl)} ${y === "all" ? "yet" : "in " + y}.` }))); return; }
     const hrs = money(c.hours), units = Number(c.units), est = money(c.estimated_hours), tr = money(c.travel_hours);
+    // MGH's practice plan: typed once a year for its whole cycle, so its hours are shared evenly over the
+    // cycle's months (models/work-hours, corrected 2026-09-14), and it is paid as points once a year, outside
+    // the Work tab, so its hours are left out of pay per hour.
+    const ppHours = money(c.hours_no_pay_per_activity) || 0;
+    const ppNote = `${Math.round(ppHours)} h of it is the practice plan, typed once a year and shared evenly over the months of its cycle`;
     const label = `${y === "all" ? "All years" : cur ? y + " so far" : y}, ${nameOf(pl)}` + (metric === "rate" && pl === "edlp" && kind("edlp-stipend") ? " with its stipend"
-                  : metric === "rate" && pl === "mgh" && kind("mgh-practice-plan") ? " with the practice plan"
                   : metric === "rate" && pl === "all" && kind("all:shifts") ? ", all work" : "");
     if (metric === "hours") {
       holder.append(h("div", { class: "trend-top" },
@@ -2392,6 +2398,7 @@ function renderWork() {
         h("div", { class: "v rounded", text: `${Math.round(hrs).toLocaleString("en-CA")} h` }),
         h("div", { class: "fmeta" }, h("span", { class: "asof", text: [unitsText(), tr ? `${Math.round(tr)} h of travel besides` : "",
           est ? `${Math.round(est / hrs * 100)}% of the hours are the usual length, not measured` : ""].filter(Boolean).join(" · ") })),
+        ppHours ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: ppNote })) : null,
         lagText ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: lagText })) : null));
       // By month in a year; by year across all.
       let ser;
@@ -2400,7 +2407,8 @@ function renderWork() {
       if (ser.points.length >= 2) holder.append(h("div", { class: "card glass chartcard" }, chart([ser], { form: "bars", unit: "h", height: 200, axis: true, hover: true })));
       if (pl === "all") {
         const rows = (W.places || []).map(x => ({ key: x.value, label: x.label.replace(" consulting", ""), value: cell(y, x.value) ? money(cell(y, x.value).hours) : 0,
-                                                 sub: cell(y, x.value) ? plural(Number(cell(y, x.value).units), "shift") : "" })).filter(r => r.value > 0).sort((a1, b1) => b1.value - a1.value);
+                                                 sub: cell(y, x.value) ? plural(Number(cell(y, x.value).units) - (x.value === "mgh" && kind("mgh-practice-plan") ? Number(kind("mgh-practice-plan").units) : 0), "shift")
+                                                      + (x.value === "mgh" && kind("mgh-practice-plan") ? ", and the practice plan" : "") : "" })).filter(r => r.value > 0).sort((a1, b1) => b1.value - a1.value);
         if (rows.length > 1) holder.append(h("section", { class: "section" }, h("h2", { text: "By place" }),
           h("div", { class: "card glass" }, hbars(rows, v => `${Math.round(v).toLocaleString("en-CA")} h`, k => pickPlace(k)))));
       }
@@ -2408,18 +2416,20 @@ function renderWork() {
       holder.append(h("div", { class: "trend-top" },
         h("div", { class: "ftop" }, h("span", { class: "l", text: label }), basisDot("derived", why())),
         h("div", { class: "v rounded", text: `${fmtWhole$(Math.round(rate(c)))}/h` }),
-        h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${fmtWhole$(Math.round(rateT(c)))}/h with travel time · ${fmtWhole$(Math.round(money(c.pay)))} over ${Math.round(hrs - (money(c.hours_awaiting_pay) || 0)).toLocaleString("en-CA")} h` +
-          (money(c.hours_awaiting_pay) ? `; ${Math.round(money(c.hours_awaiting_pay))} h of shifts still waiting for their pay are left out` : "") })),
+        h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${fmtWhole$(Math.round(rateT(c)))}/h with travel time · ${fmtWhole$(Math.round(money(c.pay)))} over ${Math.round(hrs - (money(c.hours_awaiting_pay) || 0) - ppHours).toLocaleString("en-CA")} h` +
+          (money(c.hours_awaiting_pay) ? `; ${Math.round(money(c.hours_awaiting_pay))} h of shifts still waiting for their pay are left out` : "") +
+          (ppHours ? `; the practice plan's ${Math.round(ppHours)} h are left out, since it is paid as points once a year, not per activity` : "") })),
         lagText ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: lagText })) : null));
       // EDLP's figure counts its monthly stipend; say what the shifts alone pay, and what the stipend added.
       // A place's figure counts EDLP's stipend (pay, no hours) and MGH's practice plan (hours, no pay per
       // activity); say what the shifts alone pay, and what the other added.
       const sh = kind(pl + ":shifts");
       const st = pl === "edlp" || pl === "all" ? kind("edlp-stipend") : null, pp = pl === "mgh" || pl === "all" ? kind("mgh-practice-plan") : null;
-      if (sh && (st || pp)) holder.append(h("div", { class: "facts glass card" },
+      // Only a stipend changes the figure now: the practice plan's hours are already left out of it.
+      if (sh && st) holder.append(h("div", { class: "facts glass card" },
         h("div", {}, h("span", { class: "k", text: "The shifts alone" }), h("span", { class: "fv num", text: `${fmtWhole$(Math.round(money(sh.pay_per_hour)))}/h` })),
-        st ? h("div", {}, h("span", { class: "k", text: `EDLP's stipend, ${plural(Number(st.units), "month")}` }), h("span", { class: "fv num", text: fmtWhole$(Math.round(money(st.pay))) })) : null,
-        pp ? h("div", {}, h("span", { class: "k", text: "Practice plan, no pay per activity" }), h("span", { class: "fv num", text: `${Math.round(money(pp.hours))} h` })) : null));
+        h("div", {}, h("span", { class: "k", text: `EDLP's stipend, ${plural(Number(st.units), "month")}` }), h("span", { class: "fv num", text: fmtWhole$(Math.round(money(st.pay))) })),
+        pp ? h("div", {}, h("span", { class: "k", text: "Practice plan, left out" }), h("span", { class: "fv num", text: `${Math.round(money(pp.hours))} h` })) : null));
       if (pl === "all") {
         // Place against place, like for like: the shifts alone where a place also has a stipend or practice plan.
         const rows = (W.places || []).map(x => {
