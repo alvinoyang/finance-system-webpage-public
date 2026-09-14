@@ -63,9 +63,12 @@ button:disabled { opacity: .45; cursor: default; }
 .small { font-size: .82rem; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-/* ---------- the top bar ---------- */
+/* ---------- the top bar ----------
+   Fixed, like the tab bar, since 2026-09-14: pulling down at the top of a page moves only the middle, never the
+   bar (Alvin: "the top navigation bar should still stay pinned, just like the bottom task bar"). The page is
+   pushed below it by its height, --bar-h, which app.js measures (measureBar). */
 .bar {
-  position: sticky; top: 0; z-index: 20;
+  position: fixed; top: 0; left: 0; right: 0; z-index: 20;
   padding: max(8px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left));
   background: transparent; transition: background .2s, box-shadow .2s;
 }
@@ -112,9 +115,12 @@ body.in-form .tabbar { display: none; }
 
 /* ---------- pages ---------- */
 main {
-  max-width: 1080px; margin: 0 auto;
-  padding: 0 max(16px, env(safe-area-inset-right)) calc(var(--tabbar-h) + 40px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  max-width: 1080px; margin: 0 auto; position: relative;
+  padding: var(--bar-h, calc(max(8px, env(safe-area-inset-top)) + 60px)) max(16px, env(safe-area-inset-right)) calc(var(--tabbar-h) + 40px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
 }
+html { scroll-padding-top: calc(var(--bar-h, 64px) + 8px); }
+/* A page dragged sideways never makes the screen scroll sideways. */
+#app { overflow-x: hidden; overflow-x: clip; }
 body.in-form main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 .page { display: grid; gap: 22px; }
 .head { display: grid; gap: 2px; padding: 4px 4px 0; }
@@ -385,7 +391,7 @@ body.veiled #app { visibility: hidden; }
   .seg button { padding: 7px 22px; border-radius: 9px; font-size: .92rem; font-weight: 600; color: var(--ink-2); display: inline-flex; gap: 6px; align-items: center; }
   .seg button[aria-current="page"] { background: var(--seg-on); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .14); }
   .tabbar { display: none; }
-  main { padding-top: 28px; padding-bottom: 64px; }
+  main { padding-top: calc(var(--bar-h, 70px) + 28px); padding-bottom: 64px; }
   body.in-form main { padding-bottom: 64px; }
   .head h1 { font-size: 2.3rem; }
   .figs { grid-template-columns: repeat(2, 1fr); }
@@ -711,3 +717,45 @@ details.identity .fields.glass, details.identity .pills button { box-shadow: ins
    sized a full-width card's rows from the grid instead, and the Personal card's account rows spilled out of it
    (Alvin's screenshot, 2026-09-14). */
 .fig.hero, .fig.wide { grid-row: auto; grid-template-rows: none; }
+
+/* ---------- 2026-09-14, late: pull to refresh, sideways swipes, a calmer month-end card, keeping a charge without a receipt ---------- */
+/* Pull to refresh: the circle sits in the gap the pull opens between the fixed bar and the page. */
+.ptr { position: fixed; left: 0; right: 0; top: var(--bar-h, 60px); height: 0; z-index: 15; display: grid; place-items: center; overflow: hidden; pointer-events: none; }
+.ptr-i { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; opacity: 0; color: var(--ink-2);
+  background: var(--glass-strong); box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 4px 14px rgba(20, 30, 60, .14); }
+.ptr-i svg { width: 18px; height: 18px; }
+.ptr.armed .ptr-i, .ptr.busy .ptr-i { color: var(--accent); }
+.ptr.busy .ptr-i svg { animation: ptrSpin .8s linear infinite; }
+@keyframes ptrSpin { to { transform: rotate(360deg); } }
+main.settle, .ptr.settle { transition: top .3s cubic-bezier(.2, .9, .25, 1), height .3s cubic-bezier(.2, .9, .25, 1); }
+main.side-settle { transition: left .26s cubic-bezier(.2, .9, .25, 1), opacity .26s; }
+.side-settle { transition: transform .26s cubic-bezier(.2, .9, .25, 1), opacity .26s; }
+/* A page, or a part of one, reached by a swipe slides in from the side the finger came from. */
+@media (prefers-reduced-motion: no-preference) {
+  .enter-r { animation: fromRight .3s cubic-bezier(.2, .8, .2, 1) backwards; }
+  .enter-l { animation: fromLeft .3s cubic-bezier(.2, .8, .2, 1) backwards; }
+  @keyframes fromRight { from { opacity: 0; transform: translateX(44px); } to { opacity: 1; transform: none; } }
+  @keyframes fromLeft { from { opacity: 0; transform: translateX(-44px); } to { opacity: 1; transform: none; } }
+}
+
+/* The month-end card: when on one line, the total, one line per payment. */
+.visit { gap: 12px; }
+.visit .when-line { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.visit .when-line .when { font-size: 1.08rem; font-weight: 650; letter-spacing: -.015em; line-height: 1.2; }
+.visit .when-line .in { font-size: .88rem; color: var(--ink-2); white-space: nowrap; }
+.visit .total { display: grid; gap: 1px; flex-basis: auto; }
+.visit .total .v { font-size: 1.9rem; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; display: inline-flex; align-items: center; gap: 8px; }
+.visit .total .l { font-size: .84rem; color: var(--ink-2); }
+.visit .items { margin-top: 2px; }
+.visit .item { padding: 10px 0; align-items: baseline; }
+.visit .item .what { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.visit .item .amt { display: inline-flex; align-items: center; gap: 6px; }
+.visit .item .onscreen { font-size: .92rem; }
+.visit .bd.estimate { width: 9px; height: 9px; box-shadow: inset 0 0 0 2.2px var(--orange); }
+.visit .total .bd.estimate { width: 11px; height: 11px; box-shadow: inset 0 0 0 2.6px var(--orange); }
+.visit-foot { margin: -2px 0 0; display: flex; align-items: center; gap: 7px; font-size: .8rem; color: var(--ink-2); }
+
+/* A charge with no receipt: its button to keep it without one sits above the row's own tap. */
+.row .keep { position: relative; z-index: 2; justify-self: start; margin-top: 8px; min-height: 30px; padding: 4px 12px; font-size: .84rem; }
+.row.kept .title { color: var(--green); }
+.row.kept { grid-template-columns: auto 1fr auto; }
