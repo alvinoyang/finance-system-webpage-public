@@ -2307,7 +2307,8 @@ function renderAccount() {
       h("div", { class: "legend3" },
         h("span", {}, h("span", { class: "sw2 s0" }), "Put in ", h("b", { text: fmtWhole$(Math.round(put)) }), ` of ${fmtWhole$(Math.round(room))}`),
         h("span", {}, h("span", { class: "sw2 rest" }), "Left ", h("b", { text: fmtWhole$(Math.round(left)) }))));
-    if (tfsa) card.append(h("p", { class: "small muted", text: `The room is what CRA's rule leaves at January 1: each year's limit since ${acct.room_since}, plus what came out before this year, less what went in before this year.` }));
+    if (tfsa) card.append(h("p", { class: "small muted", text: basisOf(acct.room_basis) === "verified" ? acct.room_note
+      : `The room is what CRA's rule leaves at January 1: each year's limit since ${acct.room_since}, plus what came out before this year, less what went in before this year.` }));
     if (acct.waiting && acct.waiting.length) card.append(h("p", { class: "small muted", text: `Counted here and not yet in your Personal tab: ${acct.waiting.map(w => `${fmtWhole$(w.amount)} on ${shortDate(w.date)}`).join(", ")}.` }));
     p.append(card);
   }
