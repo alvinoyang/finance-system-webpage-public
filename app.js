@@ -2165,7 +2165,10 @@ function summaryTotal() {
   const row = (cls, label, sub, v, basis, why, part) => tapArea(h("div", { class: "row legendrow" },
     h("span", { class: "sw2 " + cls }), h("span", { class: "main" }, h("span", { class: "title", text: label }), h("span", { class: "meta", text: sub })),
     h("span", { class: "amt", text: fmtWhole$(Math.round(v)) }), basisDot(basis, why)), `${label}, ${fmtWhole$(Math.round(v))}. Show in detail`, () => { save("sumpart", part); render(); window.scrollTo(0, 0); });
-  const persSub = n.since ? `${pct(n.pers)} · ${monthDay(n.from)} value + ${fmtWhole$(Math.round(n.since))} put in to ${monthDay(n.date)}` : `${pct(n.pers)} · at ${monthDay(n.from)}`;
+  // One date when the three accounts' last values share it (each Dec 31), else "latest values" (a reading typed since).
+  const oneDate = new Set(Object.values(((SNAP.networth || {}).now || {}).personal_dates || { x: n.from })).size === 1;
+  const valueWord = oneDate ? `${monthDay(n.from)} value` : "latest values";
+  const persSub = n.since ? `${pct(n.pers)} · ${valueWord} + ${fmtWhole$(Math.round(n.since))} put in to ${monthDay(n.date)}` : `${pct(n.pers)} · ${valueWord}`;
   out.append(h("section", { class: "section" }, h("h2", { text: "Breakdown" }),
     h("div", { class: "card glass splitcard" },
       meter([{ value: n.corp, cls: "s0", label: "Corporation" }, { value: n.pers, cls: "s1", label: "TFSA, RRSP, FHSA" }]),
@@ -2173,7 +2176,8 @@ function summaryTotal() {
         row("s0", "Corporation", `${pct(n.corp)} · at market, ${monthDay(n.date)}`, n.corp, n.corpBasis,
             [`At ${prettyDates(n.date)}.`, "Its investments and chequing, less what it owes on its Visa.", "Before the tax paid to take money out of the corporation."], "corporation"),
         row("s1", "TFSA, RRSP, FHSA", persSub, n.pers, n.since ? "estimate" : nw.personal_label,
-            [`Their values at ${prettyDates(n.from)}, as you typed them in the workbook's Overview; no statements are filed for them yet.`,
+            [oneDate ? `Their values at ${prettyDates(n.from)}, as you typed them in the workbook's Overview or on this page; no statements are filed for them yet.`
+                     : `Each at its latest value you typed: ${Object.entries(((SNAP.networth || {}).now || {}).personal_dates || {}).map(([a, d]) => `${({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[a]} ${monthDay(d)}`).join(", ")}. No statements are filed for them yet.`,
              n.since ? `Plus ${fmtWhole$(Math.round(n.since))} you put in between then and ${prettyDates(n.date)}, from your Personal tab and this page. How their investments moved since is not known until their statements are filed, so this is an estimate.` : ""], "personal"))),
     h("p", { class: "foot", text: "Choose either line to see it in detail." })));
   return out;
@@ -2249,12 +2253,15 @@ function summaryPersonal() {
   const vals = ACCOUNTS.map(([a, n]) => [a, n, lastValue(regOf(a))]).filter(x => x[2]);
   if (vals.length) {
     const at = vals[0][2][0], total = vals.reduce((s2, x) => s2 + x[2][1], 0);
+    // A value read off Questrade and typed on this page counts from its date, so the three may differ.
+    const same = vals.every(x => x[2][0] === at);
     const rows = h("div", { class: "list flat" }, vals.map(([a, n, v], i) => h("button", { class: "row legendrow", type: "button", onclick: ev => { ev.stopPropagation(); openView({ type: "account", account: a }); } },
       h("span", { class: "sw2 s" + i }), h("span", { class: "main" }, h("span", { class: "title", text: n })), h("span", { class: "amt", text: fmtWhole$(Math.round(v[1])) }), icon("chevR"))));
     const since = ACCOUNTS.reduce((s2, [a]) => s2 + (money((regOf(a) || {}).since_value) || 0), 0);
     g.append(figCard({ label: "Your registered accounts", basis: vals[0][2][2] },
-      { hero: true, label: `Your registered accounts, ${prettyDates(at)}`, value: fmtWhole$(Math.round(total)),
-        why: [`At ${prettyDates(at)}, the last year end.`, "The values you typed in the workbook's Overview; no statements are filed for these accounts yet, so there is no later value."],
+      { hero: true, label: same ? `Your registered accounts, ${prettyDates(at)}` : "Your registered accounts, latest values", value: fmtWhole$(Math.round(total)),
+        why: [same ? `At ${prettyDates(at)}.` : "Each at its latest value: " + vals.map(([a, n, v]) => `${n} ${prettyDates(v[0])}`).join(", ") + ".",
+              "The values you typed, in the workbook's Overview at each year end or on this page (Add › A reading); no statements are filed for these accounts yet."],
         body: h("div", {}, meter(vals.map(([a, n, v], i) => ({ value: v[1], cls: "s" + i, label: n }))), rows),
         meta: [h("span", { class: "asof", text: (since > 0 ? `${fmtWhole$(Math.round(since))} more has gone in since, from your Personal tab and this page. `
                                                    : since < 0 ? `${fmtWhole$(Math.round(-since))} more has come out than gone in since. ` : "") + "Their value today waits for their statements." })] }));
