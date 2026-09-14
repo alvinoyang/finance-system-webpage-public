@@ -707,3 +707,7 @@ details.identity .fields.glass, details.identity .pills button { box-shadow: ins
 .pop .pop-all .bd.estimate { box-shadow: inset 0 0 0 1.8px var(--orange); }
 .field .money { gap: 4px; }
 .foot.warnline { color: var(--orange); }
+/* A card across the whole row lines its rows up with no neighbour, so it sizes itself. WebKit (iPhone Safari)
+   sized a full-width card's rows from the grid instead, and the Personal card's account rows spilled out of it
+   (Alvin's screenshot, 2026-09-14). */
+.fig.hero, .fig.wide { grid-row: auto; grid-template-rows: none; }
