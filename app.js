@@ -249,7 +249,7 @@ function monthDay(iso) {
   if (!d) return iso || "";
   const opts = { month: "short", day: "numeric" };
   if (d.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
-  return d.toLocaleDateString("en-CA", opts);
+  return d.toLocaleDateString("en-CA", opts).replace(/ (\d)/g, "\u00a0$1");    // never "Sep" on one line and "5" on the next
 }
 function rel(iso) {
   const n = daysFrom(iso);
@@ -2487,7 +2487,8 @@ function chart(sers, o) {
       hit.addEventListener("pointerleave", hide); hit.addEventListener("pointercancel", hide);
     }
   };
-  if (window.ResizeObserver) new ResizeObserver(draw).observe(box);
+  // Redrawn on the next frame, so a redraw that changes the box's height never loops back into the observer.
+  if (window.ResizeObserver) new ResizeObserver(() => requestAnimationFrame(draw)).observe(box);
   setTimeout(draw, 0);
   return box;
 }
