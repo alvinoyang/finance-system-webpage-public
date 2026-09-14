@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en-CA">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://api.github.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Finance System">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#EEF1F6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#07090D" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="style.css">
+<title>Finance System</title>
+</head>
+<body>
+<!-- The passcode screen. Until it is passed, nothing of Alvin's is in the page: the key, the summary and
+     the unsent entries are kept on the device only in encrypted form (app.js, "The lock"). -->
+<div id="lock" class="lock" hidden></div>
+
+<div id="app" hidden>
+  <header class="bar" id="bar">
+    <div class="bar-inner">
+      <div class="bar-left" id="bar-left">
+        <span class="brand">Finance System</span>
+        <span class="bar-title" id="bar-title"></span>
+      </div>
+      <nav class="seg" id="seg" aria-label="Sections">
+        <button data-tab="today" type="button">Today</button>
+        <button data-tab="add" type="button">Add</button>
+        <button data-tab="numbers" type="button">Summary</button>
+      </nav>
+      <div class="bar-right">
+        <button id="sync" class="sync" type="button" aria-label="Sync status"><span class="dot"></span><span id="sync-text">…</span></button>
+        <button id="gear" class="icon-btn" type="button" aria-label="Settings"></button>
+        <button id="bar-done" class="bar-done" type="button">Done</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main"></main>
+
+  <nav class="tabbar" id="tabbar" aria-label="Sections">
+    <button data-tab="today" type="button"></button>
+    <button data-tab="add" type="button" class="add-tab"></button>
+    <button data-tab="numbers" type="button"></button>
+  </nav>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+<noscript><p>The web page needs JavaScript turned on.</p></noscript>
+<script src="app.js"></script>
+</body>
+</html>
