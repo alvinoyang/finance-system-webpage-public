@@ -1,41 +1,12 @@
-/* The Finance System's web page.
- *
- * In plain words: this page reads the summary the MacBook pinned up (webpage-summary.json) and the forms
- * (webpage-forms.json) from Alvin's private mailbox on GitHub, and posts what he types back to the same
- * mailbox as notes (GitHub "issues"). It never works anything out that the MacBook has not worked out
- * first; the one sum it does is the sweep, from figures the summary gives it.
- *
- * Everything typed is saved on this device first, in its outbox, and only then sent. If sending fails
- * (no signal, the key has expired) it stays in the outbox and is tried again the next time the page is
- * unlocked or comes back online. Each note carries a serial number made here, so if one is ever sent
- * twice the MacBook keeps it once.
- *
- * The lock (added 2026-09-13 at Alvin's request): a six-digit passcode opens the page. The key, the last
- * summary and the unsent entries are kept on the device only encrypted (AES-GCM, with a key derived from
- * the passcode by PBKDF2-SHA-256, 600,000 rounds), so without the passcode they cannot be read, even from
- * the browser's storage. The page locks when reloaded, and after a set time away or idle. Wrong guesses
- * bring growing waits. A forgotten passcode means erasing this device's copy and pasting the key again.
- *
- * All text from the summary is shown as text, never as HTML. The page talks to api.github.com and
- * nowhere else (the Content-Security-Policy in index.html enforces it).
- *
- * Source: webpage/ in the Finance System repository; tools/finance-system-webpage.py deploy copies it to
- * the page's own public repository, which holds code only. Written 2026-09-13 under D-2026-09-13-01;
- * redesigned the same night (layout, passcode).
- */
 "use strict";
 
-// GitHub's address. Only a test changes it, through config.json, to a stand-in on
-// the same machine; the published config.json never names one.
 const api = () => (CFG && CFG.api) || "https://api.github.com";
 const MARKER = "finance-system-web-entry";
 const P = "finance-system.";
 const STALE_HOURS = 2;
 const ITERATIONS = 600000;
 const PIN_LEN = 6;
-// What only an unlocked page may hold. Everything else (the forms, the settings) is not private.
 const SECRET = new Set(["token", "snap", "outbox", "sent", "waiting", "expiry", "schema", "drafts"]);
-// Where the page kept these before the lock existed, read once to move them into the vault.
 const OLD = { token: "token", snap: "snapshot", outbox: "outbox", sent: "sent", waiting: "waiting", expiry: "expiry", schema: "schema" };
 
 let CFG = null, SNAP = null, SCHEMA = null;
@@ -47,7 +18,6 @@ let MEM = null, VKEY = null, VMETA = null;   // the unlocked vault: its contents
 let GEN = 0;                   // bumped by every lock, passcode change and erase: a fetch begun before is dropped
 let VGEN = 0;                  // bumped by a passcode change and an erase only: a save begun before is dropped
 
-/* ---------- storage ---------- */
 
 function rawGet(k) { try { return localStorage.getItem(P + k); } catch (e) { return null; } }
 function rawSet(k, v) { try { localStorage.setItem(P + k, v); } catch (e) { /* storage blocked */ } }
@@ -65,7 +35,6 @@ function save(k, v) {
 }
 function token() { return load("token", ""); }
 
-/* ---------- the lock: encryption ---------- */
 
 const enc = new TextEncoder(), dec = new TextDecoder();
 function b64(u8) { let s = ""; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); }
@@ -82,10 +51,6 @@ async function seal(key, meta, text) {
   const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, enc.encode(text)));
   return JSON.stringify({ v: 1, salt: meta.salt, iter: meta.iter, iv: b64(iv), ct: b64(ct) });
 }
-// Saves made in one moment are sealed once, with the newest contents (since 2026-09-15: a summary arriving sealed
-// the whole store three times over, for itself, the forms and a count). Locking no longer drops a save still
-// being sealed: until 2026-09-15 it bumped GEN, which this checked, so an entry typed just before a lock could
-// miss the vault. Only a passcode change or an erase (VGEN) drops one now.
 let persisting = Promise.resolve(), SEAL_NEXT = null;
 function persist() {
   if (!MEM || !VKEY) return persisting;
@@ -125,18 +90,16 @@ async function setPasscode(pin) {
 function hasVault() { return !!rawGet("vault"); }
 function eraseDevice() {
   GEN++; VGEN++; SEAL_NEXT = null;
+  if (typeof dropNeighbours === "function") dropNeighbours();
   MEM = null; VKEY = null; VMETA = null; SNAP = null; SCHEMA = null;
   persisting.then(() => dropAll());
   dropAll();
 }
-// Everything this page ever kept on the device, including the names used before 2026-09-13's renames.
 function dropAll() {
   try {
     for (const k of Object.keys(localStorage)) if (k.startsWith(P) || k.startsWith("desk.") || k.startsWith("finance-desk.")) localStorage.removeItem(k);
   } catch (e) { /* ignore */ }
 }
-// A tab left open on the old page, or its copy kept for offline use, can write the old names in the clear
-// again. At every start and every unlock, fold anything unsent into the vault and remove the old names.
 function sweepOld() {
   let found = false;
   try {
@@ -152,11 +115,9 @@ function sweepOld() {
   return found;
 }
 
-/* Wrong guesses: four are free, then 30 seconds, doubling, at most 15 minutes. */
 function lockout() { return load("lockout", { fails: 0, until: 0 }); }
 function failWait(fails) { return fails < 5 ? 0 : Math.min(15 * 60, 30 * Math.pow(2, fails - 5)) * 1000; }
 
-/* ---------- small helpers ---------- */
 
 function h(tag, attrs, ...kids) {
   const e = document.createElement(tag);
@@ -164,7 +125,6 @@ function h(tag, attrs, ...kids) {
     if (v === null || v === undefined || v === false) continue;
     if (a === "class") e.className = v;
     else if (a === "text") e.textContent = v;
-    // Set through the DOM: the page's Content-Security-Policy refuses style written as an attribute.
     else if (a === "style") for (const d of String(v).split(";")) { const i = d.indexOf(":"); if (i > 0) e.style.setProperty(d.slice(0, i).trim(), d.slice(i + 1).trim()); }
     else if (a.startsWith("on")) e.addEventListener(a.slice(2), v);
     else if (v === true) e.setAttribute(a, "");
@@ -178,7 +138,6 @@ function h(tag, attrs, ...kids) {
 }
 function clear(e) { while (e.firstChild) e.removeChild(e.firstChild); return e; }
 
-/* Icons, drawn as lines in the manner of Apple's symbols. */
 const ICONS = {
   today: [["rect", { x: 3.5, y: 5, width: 17, height: 15.5, rx: 3.5 }], ["path", { d: "M3.5 10h17M8 3v4M16 3v4" }], ["circle", { cx: 12, cy: 15, r: 1.4, fill: "currentColor", stroke: "none" }]],
   plus: [["path", { d: "M12 5v14M5 12h14", "stroke-width": 2.4 }]],
@@ -249,14 +208,12 @@ function shortDate(iso) {
   if (d && d.getFullYear() !== new Date().getFullYear()) { delete opts.weekday; opts.year = "numeric"; }
   return dayName(iso, opts).replace(/^(\w+),/, "$1");
 }
-// A date inside a sentence reads as "Jan 1, 2026"; in a list it is "Thu Jan 1".
 function prettyDates(text) { return String(text || "").replace(/\b(\d{4}-\d{2}-\d{2})\b/g, (m, iso) => dayName(iso, { day: "numeric", month: "short", year: "numeric" })); }
 function daysFrom(iso) {
   const d = dateOf(iso); if (!d) return null;
   const t = new Date(); t.setHours(0, 0, 0, 0);
   return Math.round((d - t) / 864e5);
 }
-// "Sep 14", or "Dec 24, 2025" for another year: a date inside a short line.
 function monthDay(iso) {
   const d = dateOf(iso);
   if (!d) return iso || "";
@@ -290,8 +247,6 @@ function when(iso) {
   return new Date(t).toLocaleString("en-CA", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).replace(/,/g, "");
 }
 function newId() {
-  // Letters only (since 2026-09-15): a run of seven digits in a serial number looked like an account number to the
-  // scrubber, which held the entry (found by the data-flow audit, intake-06). Old serials with digits still count.
   const abc = "abcdefghjkmnpqrstuvwxyz", a = rand(14);
   return Array.from(a, x => abc[x % abc.length]).join("");
 }
@@ -306,7 +261,6 @@ function toast(msg) {
 function hoursSince(iso) { const t = Date.parse(iso || ""); return Number.isFinite(t) ? (Date.now() - t) / 3.6e6 : 999; }
 function plural(n, one, many) { return `${n} ${n === 1 ? one : (many || one + "s")}`; }
 
-/* A sheet rising from the bottom: a question with its answers, in place of the browser's own boxes. */
 function sheet(title, msg, actions, closeLabel) {
   const scrim = h("div", { class: "scrim", role: "dialog", "aria-modal": "true", "aria-label": title });
   const close = () => {
@@ -329,7 +283,6 @@ function sheet(title, msg, actions, closeLabel) {
   return box;
 }
 
-/* ---------- talking to GitHub ---------- */
 
 class PageError extends Error { constructor(kind, msg, detail) { super(msg); this.kind = kind; this.detail = detail || ""; } }
 
@@ -357,9 +310,6 @@ async function gh(path, opts = {}) {
 }
 const repo = () => `/repos/${encodeURIComponent(CFG.github_owner)}/${encodeURIComponent(CFG.mailbox_repository)}`;
 
-// A redraw the page makes by itself (a summary arriving, an entry sent) must never rebuild a form, the
-// settings or a search being typed in: it would wipe what is typed and close the keyboard. Those get only the
-// top bar and badges.
 function quietRender() {
   if (SIDE_ANIM || (GS && GS.side)) { setTimeout(quietRender, 400); return; }   // never under a finger mid-swipe
   if (VIEW && ["form", "settings", "questions"].includes(VIEW.type)) renderChrome(); else render();
@@ -375,13 +325,12 @@ async function refresh() {
     ]);
     const issues = await gh(repo() + "/issues?state=open&per_page=100").then(r => r.json());
     if (gen !== GEN || !MEM) return;                // locked while the answer was on its way
-    // Only what changed is saved, and the page is drawn again only when something on it did (since 2026-09-15:
-    // every summary arriving redrew the page and sealed the store, though most carry only a new checked_at).
     const was = { snap: SNAP, schema: SCHEMA, waiting: load("waiting", 0), net: NET };
     const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
     const bare = x => x ? Object.assign({}, x, { checked_at: "" }) : x;
     let redraw = false;
-    if (s && s.format === "finance-system-webpage-summary" && !same(s, SNAP)) { redraw = !same(bare(s), bare(SNAP)); SNAP = s; save("snap", s); }
+    const staleOf = x => !!(x && hoursSince(x.checked_at) > STALE_HOURS);
+    if (s && s.format === "finance-system-webpage-summary" && !same(s, SNAP)) { redraw = !same(bare(s), bare(SNAP)) || staleOf(s) !== staleOf(SNAP); SNAP = s; save("snap", s); }
     if (f && f.forms && !same(f, SCHEMA)) { SCHEMA = f; save("schema", f); redraw = true; }
     const waiting = issues.filter(i => !i.pull_request && typeof i.body === "string" && i.body.indexOf(MARKER) >= 0).length;
     if (waiting !== was.waiting) { save("waiting", waiting); redraw = true; }
@@ -425,10 +374,6 @@ async function flush() {
   }
 }
 
-// A number shaped like a SIN, a card, an account or a phone number, in anything typed as text. The MacBook's scrubber
-// takes such numbers out when it collects, but an entry waits in the mailbox until then, and its copy stays on this
-// device, so the page asks for it to come out before it is sent (since 2026-09-15; found by the data-flow audit,
-// intake-15). Money and hours are numbers of their own and are not looked at.
 const LOOKS_PRIVATE = [/\b\d{3}[ -]?\d{3}[ -]?\d{3}\b/, /\b(?:\d[ -]?){12,18}\d\b/, /\d{7,}/, /\(?\b\d{3}\)?[ .-]\d{3}[ .-]\d{4}\b/];
 function privateIn(fields, formFields) {
   const numeric = new Set((formFields || []).filter(f => ["money", "number", "date", "month", "time"].includes(f.type)).map(f => f.key));
@@ -450,9 +395,7 @@ function submit(kind, fields, corrects, said) {
   return entry;
 }
 
-/* ---------- what each kind of entry is called, and looks like ---------- */
 
-// How often each kind is used decides where it sits on Add: the everyday ones as tiles, the rest in lists.
 const KINDS = {
   shift: { name: "Shift", desc: "MGH, EDLP, Bochner, Endoscopy, ABP", icon: "work", color: "blue", group: "often",
            help: "Where, and which shift, is all it needs. Hours, patients and pay can wait: add them any time from Your shifts." },
@@ -469,11 +412,8 @@ const KINDS = {
 };
 function kindOf(k) { return KINDS[k] || { name: k, desc: "", icon: "pencil", color: "gray" }; }
 function formsList() { return (SCHEMA && SCHEMA.forms) || []; }
-// The expense ledger's questions are all one shape: "<date> - <what> - $<amount> has no receipt. ..."
 const RECEIPT = /^(\d{4}-\d{2}-\d{2}) - (.+) - (-?\$[\d,]+(?:\.\d\d)?)(:| has no receipt)/;
 function receiptOf(q) {
-  // A meal's question (who was there, and why) has the same shape as a receipt's; its id says which (since 2026-09-15,
-  // found by the data-flow audit, pres-09).
   if (/^meal-/.test(String(q.id || ""))) return null;
   const m = RECEIPT.exec(q.text || "");
   if (!m) return null;
@@ -484,22 +424,15 @@ function openQuestions() {
   return ((SNAP && SNAP.questions) || []).filter(q => !q.answered && !mine.has(q.id))
     .sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999"));
 }
-// Questions answered from this device that the MacBook has not filed yet: they leave the lists at once, and
-// come back if the answer is taken back. Question id -> the answer entry.
 function answeredHere() {
   const local = load("outbox", []).concat(load("sent", []).map(x => x.entry)).filter(Boolean);
   const gone = new Set(local.filter(e => e.kind === "withdraw").map(e => e.corrects));
-  // An answer the MacBook held is not an answer: its question stays open (the held entry shows on Today).
   for (const r of (SNAP && SNAP.recent) || []) if (r.status === "held") gone.add(r.id);
   const out = new Map();
   for (const e of local) if (e.kind === "answer" && e.fields && e.fields.question && !gone.has(e.id)) out.set(e.fields.question, e);
   return out;
 }
 
-/* A charge with no receipt can be kept without one: one tap sends that answer, and the MacBook marks the
-   expense "kept without a receipt" in its record, which takes it off this list and off the monthly close's
-   (tools/parsers/receipts.py). Added 2026-09-14 at Alvin's request: "an easy way to mark a missing receipt as
-   not having a receipt, allow the gap and close the open item". Shown only once the forms know the answer. */
 const NO_RECEIPT = "no-receipt";
 function canKeepWithout(q) {
   const f = formsList().find(x => x.kind === "answer");
@@ -510,14 +443,12 @@ function keepWithout(q) {
                 "Kept without a receipt.");
 }
 
-/* ---------- the frame: top bar, tabs, sync ---------- */
 
 function renderChrome() {
   const app = document.getElementById("app");
   document.body.classList.toggle("in-form", !!(VIEW && VIEW.type === "form"));
   document.body.classList.toggle("in-settings", !!(VIEW && VIEW.type === "settings"));
   const here = VIEW && VIEW.type === "settings" ? "" : VIEW && VIEW.type === "form" && VIEW.from === "today" && !STACK.length ? "today" : TAB;
-  // A small count on a tab: entries not yet sent on Add, things that need him on Today.
   const needs = ((SNAP && SNAP.held) || []).length + (NET === "key" ? 1 : 0), unsent = load("outbox", []).length;
   for (const b of document.querySelectorAll("#seg button, #tabbar button")) {
     const old = b.querySelector(".tab-badge"); if (old) old.remove();
@@ -540,7 +471,6 @@ function renderChrome() {
   const s = document.getElementById("sync"), st = document.getElementById("sync-text");
   s.className = "sync";
   const outbox = load("outbox", []).length;
-  // The long form sits in the wide screen's top bar; the short one beside a page's title on the phone.
   let text, short;
   if (NET === "key" || NET === "error") { s.classList.add("bad"); text = short = "Needs attention"; }
   else if (SNAP && SNAP.machine && SNAP.machine.state === "stuck") { s.classList.add("bad"); text = "Books not updating"; short = "Not updating"; }
@@ -553,7 +483,6 @@ function renderChrome() {
   st.textContent = text;
   SYNC_SHORT = short;
   s.setAttribute("aria-label", "Sync: " + text + ". Open settings.");
-  // A redraw that keeps the page (quietRender) still brings the heading's copy up to date.
   for (const p of document.querySelectorAll(".head-sync")) {
     p.className = s.className + " head-sync";
     p.setAttribute("aria-label", s.getAttribute("aria-label"));
@@ -563,10 +492,6 @@ function renderChrome() {
 }
 let SYNC_SHORT = "";
 
-// A page's heading. On the three tabs (withStatus) the phone has no top bar: the title sits at the top of the
-// screen, with when the figures were updated and the gear at its right, as the App Store's Today page does
-// (Alvin, 2026-09-14: "a lot of wasted space in the header for just the settings icon"). On a wide screen the
-// top bar holds both instead.
 function head(title, sub, withStatus) {
   const hd = h("div", { class: "head" + (withStatus ? " with-status" : "") }, h("h1", { text: title }));
   if (withStatus) {
@@ -581,16 +506,13 @@ function head(title, sub, withStatus) {
 }
 
 function render(animate) {
-  // Drawing a neighbour aside for the swipe: the page is made, and kept, but nothing on the screen changes.
   if (ASIDE) { SWIPE = null; const pg = pageFor(); ASIDE.out = { page: pg, swipe: SWIPE }; return; }
   closePop();
-  // Never draw Alvin's figures behind the lock, except while he changes the passcode from Settings.
   if (!MEM || (!document.getElementById("lock").hidden && !LOCK.mode.startsWith("change"))) return;
   renderChrome();
   const main = clear(document.getElementById("main"));
   SWIPE = null;                 // each page says what a sideways swipe does on it, as it is drawn
   const page = pageFor();
-  // A page reached sideways slides in from that side; any other fades up.
   const cls = ENTER === "none" ? "" : ENTER ? "enter-" + ENTER : "enter";
   ENTER = "";
   if (animate && cls && motionOK()) { page.classList.add(cls); page.addEventListener("animationend", () => page.classList.remove(cls), { once: true }); }
@@ -598,7 +520,6 @@ function render(animate) {
   onScroll();
   neighboursStale();
 }
-// The page for where things stand (TAB, VIEW), with what a sideways swipe does on it (SWIPE).
 function pageFor() {
   let page;
   if (VIEW && VIEW.type === "form") page = renderForm();
@@ -620,10 +541,6 @@ function pageFor() {
   return page;
 }
 
-// Pages open inside pages (Summary › Income; Add › Your shifts › a shift). STACK holds the pages under the
-// one showing, and each has its own step in the browser's history, so the phone's back gesture and the
-// Back button always go up one level. OWN_BACKS counts the history steps this page took itself, whose
-// popstate must not close a second page.
 let STACK = [], OWN_BACKS = 0;
 function historyBack(n) {
   if (!n || ASIDE) return;
@@ -654,7 +571,6 @@ function closeView(fromPop) {
   if (!fromPop) historyBack(1);
   render(true); window.scrollTo(0, VIEW && VIEW.scroll ? VIEW.scroll : 0);
 }
-// What the Back button says: the page underneath.
 function parentName() {
   const under = STACK[STACK.length - 1];
   if (under) return viewTitle(under);
@@ -667,46 +583,28 @@ function viewTitle(v) {
             work: v.metric === "rate" ? "Pay per hour" : "Hours", account: ({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[v.account] || "Account",
             trend: v.title || "History" })[v.type] || "Back";
 }
-// On a tab the phone's bar appears, with the page's name, only once the large title has scrolled away.
 function onScroll() { document.getElementById("bar").classList.toggle("scrolled", window.scrollY > (document.body.classList.contains("toplevel") ? 48 : 28)); }
-// The top bar is fixed, so the page starts below it: its height, as drawn, sets where.
 function measureBar() {
   const b = document.getElementById("bar");
   if (b && b.offsetHeight) document.documentElement.style.setProperty("--bar-h", b.offsetHeight + "px");
 }
 
-/* ---------- gestures: pull down to refresh, swipe sideways between pages ----------
- * Added 2026-09-14 at Alvin's request. Pulling down at the top of a page fetches the summary again and sends
- * anything waiting, without reloading the page (a reload would lock it). Only the middle moves: the top bar
- * and the tab bar are fixed, and the browser's own pull, which would drag or reload the whole page, is
- * stopped for that one touch.
- * A sideways swipe does what the page's row of choices does: the Summary's three parts, a page's years, Hours
- * and Pay per hour. Past the ends of that row it moves to the next tab (Today, Add, Summary) or, on a page
- * opened from another, back. A swipe that starts on a chart (which is read by sliding a finger along it) or on
- * a row of choices that scrolls sideways is left alone. In Safari and Brave a swipe from the very edge of the
- * screen belongs to the browser (back and forward); on the Home Screen icon, which has no such gesture, a
- * swipe in from the left edge goes back.
- * Since 2026-09-15 the page a swipe leads to follows the finger (below, "The swipe"), and both gestures move
- * the page by transform only, so nothing is laid out again while a finger moves. */
 const PULL_AT = 64, PULL_MAX = 110, PULL_HOLD = 54;
 let SWIPE = null;              // { el, prev, next }: prev and next give { run, whole } or null
 let GS = null;                 // the touch being followed
 let PULLING = false;           // a refresh begun by a pull, still running
 let NO_CLICK_UNTIL = 0;        // a swipe that lands on a button must not also press it
-// ENTER is already "none" when the swipe slides the new page in itself (sideRelease).
 const BACK = () => VIEW ? { whole: true, back: true, run: () => { ENTER = ENTER || "l"; closeView(); } } : null;
 function tabStep(d) {
   const i = TABS.indexOf(TAB) + d;
   if (i < 0 || i >= TABS.length) return null;
   return { whole: true, run: () => { ENTER = ENTER || (d > 0 ? "r" : "l"); if (TABS[i] === "numbers") save("sumpart", "total"); go(TABS[i]); } };
 }
-// A swipe that moves along a row of choices (segments or chips), and past its ends to `before` or `after`.
 function swipeAlong(group, el, before, after) {
   const step = d => {
     const o = Array.from(group.querySelectorAll('[role="radio"]')), i = o.findIndex(b => b.getAttribute("aria-checked") === "true");
     return o[i + d] || null;
   };
-  // The swipe presses the choice itself, so the guard against a stray tap after a swipe must let this one through.
   const move = (d, beyond) => () => { const b = step(d); return b ? { run: () => { NO_CLICK_UNTIL = 0; b.click(); } } : beyond ? beyond() : null; };
   SWIPE = { el, prev: move(-1, before), next: move(1, after) };
 }
@@ -720,12 +618,12 @@ function gStart(ev) {
   if (ev.touches.length !== 1 || !MEM || lockShowing() || document.querySelector(".scrim")) return;
   const t = ev.touches[0], tg = ev.target, a = document.activeElement;
   if (tg.closest && tg.closest("input, textarea, select, .tabbar, .formbar")) return;
+  if (VIEW && VIEW.type === "form") return;
   if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;          // the keyboard is up
   const edge = t.clientX < 22 ? "l" : t.clientX > window.innerWidth - 22 ? "r" : "";
   GS = { x: t.clientX, y: t.clientY, t: Date.now(), mode: null, dx: 0, dy: 0, side: null, trail: [[ev.timeStamp || performance.now(), t.clientX]], top: window.scrollY <= 0, edge,
          noSide: !!(tg.closest && tg.closest(".chips, .chart.scrub, .bar, .pad")) || (edge && !standalone()) };
 }
-// What a sideways swipe of `dx` would do: the page's own, or, from the left edge on the Home Screen icon, back.
 function sideTarget(dx) {
   if (GS && GS.edge === "l" && dx > 0 && standalone() && VIEW) return BACK();
   if (!SWIPE) return null;
@@ -739,7 +637,6 @@ function gMove(ev) {
   if (GS.trail.length > 12) GS.trail.shift();
   if (!GS.mode) {
     if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
-    // Taken only while the browser still lets it be: once it has begun scrolling, the touch is its own.
     if (!ev.cancelable) GS.mode = "none";
     else if (GS.top && !PULLING && dy > 0 && dy > Math.abs(dx) && window.scrollY <= 0) GS.mode = "pull";
     else if (!GS.noSide && Math.abs(dx) > Math.abs(dy) * 1.3 && (SWIPE || sideTarget(dx))) { GS.mode = "side"; closePop(); }
@@ -756,15 +653,14 @@ function gEnd(ev) {
   else if (g.mode === "side") sideRelease(g, cancel);
 }
 
-// The pull: the middle follows the finger at half its speed, to a limit; the circle turns as it goes and
-// turns blue when letting go will refresh.
 function pullOffset(dy) { return Math.max(0, Math.min(PULL_MAX, dy * 0.5)); }
-// By transform and opacity alone since 2026-09-15 (was top and height, which laid the page out again every frame):
-// the page moves down by the pull, and the circle, in a strip of fixed height, sits in the middle of the gap.
 let PULL_Y = 0;
+let PULL_SETTLE = 0;
 function pullSet(off, settle) {
   const { main, ptr } = ptrEls(), i = ptr.firstChild;
   main.classList.toggle("settle", !!settle); ptr.classList.toggle("settle", !!settle);
+  clearTimeout(PULL_SETTLE);
+  if (settle && !off) PULL_SETTLE = setTimeout(() => { main.classList.remove("settle"); ptr.classList.remove("settle"); }, 340);
   PULL_Y = off;
   main.style.transform = off ? `translate3d(0,${off}px,0)` : "";
   const k = Math.min(1, off / PULL_AT), y = `translate3d(0,${(off / 2 - 16).toFixed(1)}px,0)`;
@@ -793,14 +689,6 @@ async function pullRelease(dy) {
   }
 }
 
-// The swipe. Rewritten 2026-09-15 at Alvin's request ("the next page follows my finger when I swipe"): once a
-// sideways swipe is recognised, the page it leads to is drawn just off the edge of the screen and both pages move
-// with the finger, pixel for pixel, by transform alone (nothing is laid out again while the finger moves). Where
-// nothing lies that way, the page gives less and less the further it is pulled, like a rubber band. On letting go it
-// finishes or springs back, by how far and how fast the finger went, and carries on at the finger's speed.
-// The neighbour is "drawn aside" (drawAside): the page's state is copied, the drawing runs on the copy, and
-// everything is put back, so nothing the page remembers changes until the swipe is finished. Neighbours are drawn
-// ahead while the page is idle (prepNeighbours), so recognising a swipe costs nothing.
 let ASIDE = null;              // while drawing aside: { store, out }: save() writes to store, render() draws into out
 let NB = { ver: -1 };          // the neighbours drawn ahead: { ver, prev, next }
 let NB_VER = 0;                // bumped by every drawing and every tap: a neighbour drawn before is stale
@@ -820,20 +708,17 @@ function drawAside(fn) {
     ASIDE = null;
   }
 }
-// Animations that play when something is first drawn: off for a neighbour, and for the page that takes its place.
 function stillen(root) {
   const cls = ["fadein", "enter", "enter-l", "enter-r", "draw", "grow", "fade"];
   for (const el of [root, ...root.querySelectorAll(".fadein, .enter, .enter-l, .enter-r, .draw, .grow, .fade")]) el.classList.remove(...cls);
   return root;
 }
-// What a swipe toward `dir` ("prev", finger moving right, or "next") would show: { whole, page, scroll } or null.
 function neighbour(dir, edgeBack) {
   if (!MEM || (VIEW && ["form", "settings"].includes(VIEW.type) && !edgeBack)) return null;
   return drawAside(() => {
     let tg = edgeBack ? BACK() : SWIPE && SWIPE[dir] && SWIPE[dir]();
     if (!tg) return null;
     if (!tg.whole) {
-      // A step along a row of choices presses a choice on the page: press it on a fresh copy instead.
       render();
       const now = ASIDE.out;
       tg = now && now.swipe && now.swipe[dir] && now.swipe[dir]();
@@ -854,7 +739,6 @@ function neighboursStale() {
   clearTimeout(NB_TIMER);
   NB_TIMER = setTimeout(prepNeighbours, 450);
 }
-// Drawn one at a time, only while no finger is down, so a tap or a scroll never waits behind them.
 function prepNeighbours() {
   if (!MEM || document.hidden || lockShowing()) return;
   if (GS) { NB_TIMER = setTimeout(prepNeighbours, 300); return; }
@@ -871,7 +755,6 @@ function neighbourFor(dir, edgeBack) {
   return (NB[dir] = neighbour(dir, false));
 }
 
-// The pieces that move: the page, or its part, under the finger (el), and the neighbour, laid in a layer of its own.
 function sideLayer(nb, el) {
   const W = window.innerWidth;
   let layer;
@@ -889,19 +772,16 @@ function sideLayer(nb, el) {
   layer.setAttribute("aria-hidden", "true");
   layer.style.transform = `translate3d(${W}px,0,0)`;
   document.body.append(layer);
-  // A row of choices shows its chosen one, as it would once drawn for real.
   for (const row of layer.querySelectorAll(".chips")) { const on = row.querySelector('[aria-checked="true"]'); if (on && on.offsetLeft + on.offsetWidth > row.clientWidth) row.scrollLeft = on.offsetLeft - 16; }
   return layer;
 }
 const rubber = (dx, W) => Math.sign(dx) * (1 - 1 / (Math.abs(dx) * 0.55 / W + 1)) * W;
 function sideEl(whole) { return whole ? document.getElementById("main") : (SWIPE && SWIPE.el) || document.getElementById("main"); }
-// The page keeps any offset a pull to refresh still holds it at.
 function place(el, x) {
   const y = el.id === "main" ? PULL_Y : 0;
   el.style.transform = x || y ? `translate3d(${x}px,${y}px,0)` : "";
 }
 
-// Following the finger: the direction decides the neighbour; crossing back over the start swaps it for the other side's.
 function sideTo(dx) {
   const S = GS.side || (GS.side = { dir: null });
   const dir = dx > 0 ? "prev" : "next";
@@ -912,6 +792,8 @@ function sideTo(dx) {
     const nb = neighbourFor(dir, edgeBack);
     S.dir = dir; S.nb = nb;
     S.el = sideEl(!nb || nb.whole);
+    S.el.classList.remove("settle");
+    S.el.style.transition = "none";
     S.el.style.willChange = "transform";
     S.layer = nb ? sideLayer(nb, S.el) : null;
     S.W = window.innerWidth;
@@ -922,7 +804,6 @@ function sideTo(dx) {
   place(S.el, x);
   if (S.layer) S.layer.style.transform = `translate3d(${x - Math.sign(dx) * S.W}px,0,0)`;
 }
-// The finger's speed over its last tenth of a second, in pixels a millisecond.
 function speedOf(g) {
   const s = g.trail, n = s.length;
   if (n < 2) return 0;
@@ -941,9 +822,9 @@ function sideRelease(g, cancel) {
   const to = going ? sign * W : 0;
   const finish = () => {
     SIDE_ANIM = null;
-    S.el.style.transition = ""; S.el.style.willChange = ""; place(S.el, 0);
+    S.el.style.transition = "none"; S.el.style.willChange = ""; place(S.el, 0);
+    requestAnimationFrame(() => { S.el.style.transition = ""; });
     if (going) {
-      // Drawn for real, in the neighbour's place and without its entry animation; then the neighbour goes.
       const tg = S.dir === "prev" ? (g.edge === "l" && standalone() && VIEW ? BACK() : sideTargetOf("prev")) : sideTargetOf("next");
       if (tg) {
         if (tg.whole) { ENTER = "none"; tg.run(); stillen(document.getElementById("main")); }
@@ -954,7 +835,6 @@ function sideRelease(g, cancel) {
     if (S.layer) S.layer.remove();
   };
   if (!motionOK() || Math.abs(to - x) < 1) { finish(); return; }
-  // As long as the rest of the way takes at the finger's speed, within reason; the curve starts at that speed.
   const rest = Math.abs(to - x), speed = Math.abs(v);
   const ms = Math.round(Math.max(160, Math.min(360, speed > 0.05 ? rest / speed : 360)));
   const slope = speed * ms / rest, x1 = 0.2, y1 = Math.max(0.05, Math.min(1, x1 * slope));
@@ -966,7 +846,6 @@ function sideRelease(g, cancel) {
 }
 function sideTargetOf(dir) { return SWIPE && SWIPE[dir] ? SWIPE[dir]() : null; }
 
-/* ---------- Today ---------- */
 
 function renderToday() {
   const p = h("div", { class: "page" });
@@ -978,8 +857,6 @@ function renderToday() {
       h("p", { class: "muted", text: "The MacBook sends one within 15 minutes of being open. If it never has, its bookkeeper may be switched off: the web page's instructions on the MacBook say how to switch it on." })));
     return p;
   }
-  // What needs doing first (the visit, the questions), then the calendar. On a wide screen the
-  // calendar sits beside them.
   const colA = h("div", {}), colB = h("div", {});
   colA.append(h("section", { class: "section" }, h("h2", { text: "Month-end banking" }), visitCard()));
   colA.append(questionsSection());
@@ -995,7 +872,6 @@ function attention() {
   if (NET === "key" || NET === "error") out.push(alert("red", "warn", NET === "key" ? "The key needs you" : "GitHub did not answer",
     h("div", { class: "d" }, NET_MSG + " ", NET_DETAIL ? h("details", {}, h("summary", { text: "Details" }), h("div", { text: NET_DETAIL })) : null),
     NET === "key" ? h("button", { class: "btn small tinted", type: "button", onclick: () => openView({ type: "settings" }) }, "Open Settings") : null));
-  // First, what only he can put right.
   if (SNAP && SNAP.held && SNAP.held.length) {
     for (const e of SNAP.held) {
       out.push(alert("orange", "warn", "Held back: " + prettyDates(e.summary), "It was not added to your books because " + e.reason + ".",
@@ -1006,7 +882,6 @@ function attention() {
   const outbox = load("outbox", []);
   if (outbox.length) out.push(alert("orange", "tray", `${plural(outbox.length, "entry", "entries")} not sent yet`, "Saved on this device. They send by themselves when there is a connection.",
     h("button", { class: "btn small tinted", type: "button", onclick: () => flush() }, "Send now")));
-  // Then the MacBook, in one line: asleep, or not updating, or both.
   const m = (SNAP && SNAP.machine) || {};
   const asleep = SNAP && hoursSince(SNAP.checked_at) > STALE_HOURS;
   if (m.state === "stuck" || asleep) {
@@ -1015,6 +890,8 @@ function attention() {
     out.push(alert(m.state === "stuck" ? "red" : "orange", m.state === "stuck" ? "warn" : "moon", t, d,
       h("button", { class: "btn small gray", type: "button", onclick: () => openView({ type: "settings" }) }, "Details")));
   }
+  if (m.collect_failed_since && !asleep) out.push(alert("orange", "warn", "The MacBook cannot collect your entries",
+    `Since ${ago(m.collect_failed_since)}${m.collect_failed_reason ? ` (${m.collect_failed_reason})` : ""}. They wait in your mailbox, safe, until it can.`, null));
   return out;   // the key, then what only he can put right, then what is unsent, then the MacBook
 }
 
@@ -1024,17 +901,12 @@ function lastBusinessDay(y, m) {
   return d;
 }
 function visitDate(pd) {
-  // The visit the MacBook worked the items out for (since 2026-09-15), while it is still to come: on a month-end
-  // weekend the device's own reckoning pointed a month late (found by the data-flow audit, pres-01).
-  if (pd.visit && pd.visit >= todayISO()) return pd.visit;
+  if (pd.visit) return pd.visit;     // never paired with another month's date; visitCard says when it has passed (r2-page-05)
   const t = new Date(), lbd = lastBusinessDay(t.getFullYear(), t.getMonth());
   t.setHours(0, 0, 0, 0);
   return t <= lbd ? isoOf(lbd) : (pd.next_visit || isoOf(lastBusinessDay(t.getFullYear(), t.getMonth() + 1)));
 }
 
-// A payment's short name on Today's card: "Pay yourself: net pay for September" is "Your net pay", "Pay CRA: the
-// payroll remittance for September" is "CRA payroll remittance", "Pay the Amex balance" is "Amex". The month
-// they share is said once, above them. Anything shaped otherwise is shown as it is.
 function visitName(what) {
   let m = /^Pay yourself: (?:the )?(.+?)(?: for \w+)?$/i.exec(what);
   if (m) return "Your " + m[1];
@@ -1045,13 +917,11 @@ function visitName(what) {
   return what;
 }
 function visitCard() {
-  // Tidied 2026-09-14 at Alvin's request ("looks busy, clean up a bit … without losing info"): one line for
-  // when, the total, then one line per payment with a short name. An estimate is marked by the small orange
-  // ring used for estimates everywhere, said in words once at the foot, in place of a tag on every row.
   const pd = SNAP.payday;
   const c = h("section", { class: "visit glass", "aria-label": "Month-end banking" });
   if (!pd) { c.append(h("p", { class: "muted", text: "Nothing planned yet." })); return c; }
   const iso = visitDate(pd);
+  const passed = iso < todayISO();
   const known = pd.items.filter(i => money(i.amount)), cards = pd.items.length - known.length;
   const est = i => (i.basis || "").startsWith("estimate");
   const ring = () => h("span", { class: "bd estimate", "aria-hidden": "true" });
@@ -1061,6 +931,7 @@ function visitCard() {
   c.append(h("div", { class: "when-line" },
     h("span", { class: "when", text: dayName(iso, { weekday: "short", day: "numeric", month: "long" }) }),
     h("span", { class: "in", text: rel(iso) })));
+  if (passed) c.append(h("p", { class: "foot warnline", text: "This visit's date has passed and the MacBook has not updated since: the next one is worked out when it does." }));
   if (known.length) {
     const what = (months.length === 1 ? `to pay for ${months[0]}` : "to pay") +
       (cards === 1 ? ", plus a card balance" : cards === 2 ? ", plus both card balances" : cards ? `, plus ${cards} card balances` : "");
@@ -1071,13 +942,13 @@ function visitCard() {
   const items = h("div", { class: "items" });
   for (const it of pd.items) {
     const name = months.length === 1 ? visitName(it.what) : it.what.replace(/^Pay yourself: /, "Pay yourself ");
-    items.append(h("div", { class: "item", title: it.what }, h("span", { class: "what", text: name }),
+    items.append(h("div", { class: "item", title: it.what + (it.basis ? " · " + it.basis : "") }, h("span", { class: "what", text: name }),
       it.amount ? h("span", { class: "amt num" }, est(it) ? ring() : null, h("span", { text: est(it) ? fmtWhole$(Math.round(money(it.amount))) : fmt$(it.amount) }),
                     est(it) ? h("span", { class: "sr", text: " (an estimate)" }) : null)
                 : h("span", { class: "onscreen", text: "full balance" })));
   }
   c.append(items);
-  const why = [...new Set(pd.items.filter(est).map(i => i.basis.replace(/^estimate:\s*/, "")))];
+  const why = [...new Set(pd.items.filter(est).map(i => i.basis.replace(/^estimate:\s*/, "").replace(/ \(ledger\/[^)]*\)/, "")))];
   if (why.length) c.append(h("p", { class: "visit-foot" }, ring(), h("span", { text: `Estimate: ${why[0]}.` })));
   c.append(h("button", { class: "btn primary wide", type: "button", onclick: () => startForm("bankvisit", null, "today") }, "Log month-end banking"));
   return c;
@@ -1088,7 +959,6 @@ function upcoming() {
   const due = (SNAP.due || []);
   if (!due.length) { s.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "Nothing in the next six weeks." }))); return s; }
   const ul = h("div", { class: "list glass" });
-  // A calendar line is "paid at the bank visit" only if a visit item has its date and, to the dollar, its amount.
   const visitItems = ((SNAP.payday && SNAP.payday.items) || []).filter(i => i.due && money(i.amount) !== null);
   const paidAtVisit = d => visitItems.some(i => i.due === d.date && money(d.amount) !== null && Math.abs(money(i.amount) - money(d.amount)) < 1);
   for (const d of due) {
@@ -1101,9 +971,6 @@ function upcoming() {
     const cut = d.what.search(/[:;]|\.\s/);
     const title = cut > 0 ? d.what.slice(0, cut) : d.what;
     let rest = cut > 0 ? d.what.slice(cut + 1).trim() : "";
-    // A bill paid through another charge (the tax through the Chexy charge on the 20th) reads as covered, and is
-    // struck through only once CRA's own account shows the payment (since 2026-09-15: before, once the 20th had
-    // passed, and July's instalment, which came back, would have read as paid).
     const via = /^(already )?paid (by|through) the Chexy charge on the (\d{1,2})(st|nd|rd|th)/i.exec(rest);
     let paid = false, viaNote = "";
     if (via) {
@@ -1116,8 +983,6 @@ function upcoming() {
         `via Chexy, ${chargeDay ? monthDay(isoOf(chargeDay)) : "the 20th"}`;
       rest = "";
     }
-    // Compact since 2026-09-14, at Alvin's request ("the coming up rows are very cramped"): the title on one line,
-    // when on the next, the amount at the right. The rest of the title, and the calendar's note, open on a tap.
     const est = (d.basis || "").startsWith("estimate") && !via;
     const detail = rest ? rest.replace(/^./, c => c.toUpperCase()).replace(/(^|[^$\d.,])(\d{1,3}(?:,\d{3})*\.\d{2})\b/g, "$1$$$2") : "";
     const more = !!detail || title.length > 30;
@@ -1125,8 +990,9 @@ function upcoming() {
       h("span", { class: "meta" }, h("span", { text: rel(d.date).replace(/^./, c => c.toUpperCase()) + (viaNote ? " · " + viaNote : "") }),
         more ? h("span", { class: "chev-d", "aria-hidden": "true" }, icon("chevR")) : null),
       detail ? h("span", { class: "detail", text: detail }) : null);
-    const amount = d.amount && Number(d.amount) ? h("span", { class: "amt" + (paid ? " paid" : via ? " covered" : "") },
-      est ? h("span", { class: "about", text: "about" }) : null, h("span", { text: "$" + Math.round(money(d.amount)).toLocaleString("en-CA") })) : h("span", {});
+    const incoming = d.direction === "in";
+    const amount = d.amount && Number(d.amount) ? h("span", { class: "amt" + (paid ? " paid" : via ? " covered" : "") + (incoming ? " in" : "") },
+      est ? h("span", { class: "about", text: "about" }) : null, h("span", { text: (incoming ? "+" : "") + "$" + Math.round(money(d.amount)).toLocaleString("en-CA") })) : h("span", {});
     const row = more ? h("button", { class: "row due", type: "button", "aria-expanded": "false" }, leaf, main, amount) : h("div", { class: "row due" }, leaf, main, amount);
     if (more) row.addEventListener("click", () => { const o = row.classList.toggle("open"); row.setAttribute("aria-expanded", String(o)); });
     ul.append(row);
@@ -1145,7 +1011,6 @@ function receiptRow(q, from, redraw) {
     h("span", { class: "main" }, h("span", { class: "title", text: r.what }), h("span", { class: "meta", text: r.problem }),
       keep ? h("button", { class: "btn small gray keep", type: "button", onclick: () => {
         const entry = keepWithout(q);
-        // In its place until the list is next drawn: what was done, and a way to take it back.
         row.replaceWith(h("div", { class: "row kept" }, leaf(),
           h("span", { class: "main" }, h("span", { class: "title", text: "Kept without a receipt" }), h("span", { class: "meta", text: `${r.what}, ${r.amount}` })),
           h("button", { class: "link", type: "button", onclick: () => { submit("withdraw", {}, entry.id, "Back on your list. Sending…"); redraw(); } }, "Undo")));
@@ -1210,7 +1075,6 @@ function renderQuestions() {
   return p;
 }
 
-/* ---------- Add ---------- */
 
 function startForm(kind, prefill, from) {
   const d = !prefill ? load("drafts", {})[kind] : null;
@@ -1325,9 +1189,7 @@ function summaryOf(e) {
   }
 }
 
-/* ---------- a form ---------- */
 
-// How each form's fields are grouped. A field the MacBook adds later, and no group names, goes at the end.
 const LAYOUT = {
   shift: [
     { h: "When", keys: [["date"], ["shift_start", "shift_end"]] },
@@ -1364,7 +1226,6 @@ function monthsAround() {
   for (let i = 0; i < 15; i++) { out.push({ value: `${d.getFullYear()}-${pad(d.getMonth() + 1)}`, label: d.toLocaleDateString("en-CA", { month: "long", year: "numeric" }) }); d.setMonth(d.getMonth() - 1); }
   return out;
 }
-// Plainer names for a few of the Work tab's column names.
 const LABELS = { description: "Which shift", pay_ffs: "Billing paid", ffs_billed: "Billing submitted", shadow_pct: "Shadow billing %", pay_shadow: "Shadow billing pay",
                  who_why: "Who was there, and why it was work", receipt: "Where the receipt photo is", balance: "Chequing balance you see now", sweep: "Sent to Questrade" };
 function labelOf(fld) { return LABELS[fld.key] || fld.label.replace(/\s*\(.*?\)\s*$/, ""); }
@@ -1430,8 +1291,6 @@ function buildForm(f) {
         if (r) {
           box.append(h("span", { class: "small muted", text: r.problem }), h("span", { class: "q", text: `${r.what}, ${r.amount}, on ${shortDate(r.date)}` }),
             h("span", { class: "small muted", text: "What was it, and how was it paid? If there is a receipt, say where it is." }));
-          // No receipt to be had: one tap keeps it on the statement alone, and nothing needs typing. Not offered
-          // while correcting an answer already sent.
           if (canKeepWithout(cur) && !VIEW.corrects) box.append(h("button", { class: "btn tinted wide", type: "button", onclick: () => {
             const d = load("drafts", {}); delete d.answer; save("drafts", d);
             keepWithout(cur); closeView();
@@ -1462,7 +1321,6 @@ function buildForm(f) {
       wrap.append(hidden, segs);
       inp = hidden;
     } else if (opts) {
-      // A fixed set of answers: a menu, as on the iPhone. The chosen answer shows; the arrows say it opens.
       inp = h("select", { id, name: fld.key });
       inp.append(h("option", { value: "" }, fld.type === "month" ? "Choose the month…" : "Choose…"));
       for (const o of opts) inp.append(h("option", { value: o.value, selected: o.value === v }, o.label.replace(/^[a-z0-9-]+:\s*/, "")));
@@ -1518,11 +1376,9 @@ function buildForm(f) {
         isQuestion ? rows : h("div", { class: "fields glass" }, rows), g.foot ? h("div", { class: "gf", text: g.foot }) : null));
     }
   }
-  // The answer form's "resolution" is sent only by its own button (keepWithout), never typed.
   const rest = f.fields.filter(x => !used.has(x.key) && !(f.kind === "answer" && x.key === "resolution"));
   if (rest.length) form.append(h("div", { class: "group" }, h("div", { class: "fields glass" }, rest.map(fieldEl))));
 
-  // A draft: what was typed and not sent is kept, locked in the vault, until it is sent or cleared.
   const drafts = load("drafts", {});
   const collect = () => {
     const out = {};
@@ -1537,8 +1393,6 @@ function buildForm(f) {
   };
   form._collect = collect;
   let draftTimer = null, sentAlready = false;
-  // A draft keeps its date, even today's, so one finished the next morning is not sent dated the new day; a form
-  // holding nothing but its date is no draft (since 2026-09-15; found by the data-flow audit, pres-17).
   const typedIn = c => Object.keys(c).some(k => k !== "date");
   const keepDraft = () => {
     if (VIEW && VIEW.corrects) return;
@@ -1557,10 +1411,7 @@ function buildForm(f) {
     form.prepend(h("div", { class: "draftbar" }, h("span", { text: "Your unsent draft is back." }),
       h("button", { class: "link", type: "button", onclick: () => { const d = load("drafts", {}); delete d[f.kind]; save("drafts", d); VIEW.prefill = null; VIEW.restored = false; render(true); } }, "Start again")));
   }
-  // (The "Fill in like your last one" row of the shift form before version 3 was taken out 2026-09-15 with its
-  // summary key: every form since has a place and remembers the last shift there; data-flow audit, web-13.)
 
-  // A field shown only when others have given answers (the tax year of an RRSP contribution).
   const syncShowIf = () => {
     for (const fld of f.fields) {
       if (!fld.show_if || !wraps[fld.key]) continue;
@@ -1569,7 +1420,6 @@ function buildForm(f) {
     }
   };
   form.addEventListener("change", syncShowIf); setTimeout(syncShowIf, 0);
-  // A reading of a value is in dollars; of the odometer, in kilometres.
   if (f.kind === "reading" && inputs.what && wraps.value) {
     const unitMark = h("span", { class: "unitmark", "aria-hidden": "true" });
     const ip = inputs.value; ip.before(unitMark);
@@ -1577,7 +1427,6 @@ function buildForm(f) {
     inputs.what.addEventListener("change", syncUnit); syncUnit();
   }
 
-  // A meal needs who and why: that box appears only for a meal.
   const syncMeal = () => {
     if (!wraps.who_why || !inputs.meal) return;
     wraps.who_why.hidden = inputs.meal.value !== "yes";
@@ -1604,6 +1453,7 @@ function buildForm(f) {
       if (bad && wraps[fld.key] && wraps[fld.key].classList) wraps[fld.key].classList.add("bad");
       if (val) fields[fld.key] = (fld.type === "money" || fld.type === "number") ? val.replace(/[,$\s]/g, "") : val;
     }
+    if (fields.receipt) fields.receipt = fields.receipt.replace(/^(\d{4})(\d{2})(\d{2})-(.+?)-(-?\d+(?:\.\d{2})?)(\.\w+)?$/, "$1-$2-$3 $4 - $5");
     if (f.kind === "expense" && fields.meal === "yes" && !fields.who_why) { problems.push("A meal needs who was there and why it was work"); if (wraps.who_why) wraps.who_why.classList.add("bad"); }
     const priv = privateIn(fields, f.fields);
     if (priv) { problems.push(PRIVATE_MSG); if (wraps[priv] && wraps[priv].classList) wraps[priv].classList.add("bad"); }
@@ -1617,12 +1467,6 @@ function buildForm(f) {
   return form;
 }
 
-/* ---------- a shift (the form's version 3, 2026-09-14, night) ---------- */
-// At Alvin's request: where he worked first (MGH, EDLP, Bochner, endoscopy, ABP), then the site where a
-// place has several, then the shift from those worked there before, or a new one typed, which from then on
-// is in the menu too. No start or end time, and no kinds of MGH shift to choose between: the MacBook works
-// the kind out from the shift's name (tools/parsers/web_entry_forms.py, work_type_of). Hours, patients and
-// pay can be added to a shift months later, from Your shifts.
 
 const SHIFT_LABELS = { hours: "Hours worked", travel_hours: "Travel hours", patients: "Patients", period: "The month these hours are for",
   amount: "Total pay", pay_base: "Base pay", pay_ffs: "Billing paid", ffs_billed: "Billing submitted", shadow_pct: "Shadow billing %",
@@ -1634,7 +1478,6 @@ const HOUR_KEYS = ["hours", "travel_hours", "patients", "period"];
 function shiftForm() { return formsList().find(x => x.kind === "shift"); }
 function placeList() { const f = shiftForm(), p = f && f.fields.find(x => x.key === "place"); return (p && p.options) || []; }
 function placeInfo(v) { return placeList().find(x => x.value === v) || null; }
-// An entry sent before the form's version 3 names a kind of work (mgh-ed-shift) instead of a place.
 function placeOfShift(fields) {
   if (!fields) return "";
   if (fields.place) return fields.place;
@@ -1647,12 +1490,10 @@ function shiftTitle(fields) {
   const site = pl && !pl.site ? fields.site : "";
   const name = pl ? pl.label.replace(" consulting", "") : "Shift";
   let d = fields.description || "";
-  // Not the place or site twice: "Rudd · Sedation list", not "Rudd · Endoscopy sedation list".
   for (const w of [site, name]) if (w && d.toLowerCase().startsWith(w.toLowerCase() + " ")) d = d.slice(w.length + 1).replace(/^./, c => c.toUpperCase());
   d = d.replace(/,\s*[^,]+$/, m => site && m.toLowerCase().includes(site.toLowerCase()) ? "" : m);
   return [name, site, d].filter(Boolean).join(" · ");
 }
-// The sites and shifts this device has sent, which the MacBook may not have filed yet: in the menus at once.
 function mineFor(place) {
   const out = { sites: [], shifts: [] };
   for (const e of load("outbox", []).concat(load("sent", []).map(x => x.entry))) {
@@ -1663,7 +1504,6 @@ function mineFor(place) {
   return out;
 }
 
-// A menu of what has been used before, with "New…" at its foot, which turns it into a text field.
 function combo(o) {
   const wrap = h("div", { class: "field menu combo" });
   const lab = h("label", { for: o.id, text: o.label });
@@ -1683,7 +1523,7 @@ function combo(o) {
       for (const v of vs) { parent.append(h("option", { value: v }, v)); all.add(v); }
       if (g) sel.append(parent);
     }
-    sel.append(h("option", { value: "__new__" }, o.newLabel || "New…"));
+    if (!o.noNew) sel.append(h("option", { value: "__new__" }, o.newLabel || "New…"));
   };
   const setTyping = on => {
     typing = on; txt.hidden = !on; sel.hidden = on; arrows.hidden = on; back.hidden = !on || !all.size;
@@ -1745,8 +1585,6 @@ function buildShiftForm(f) {
       h("button", { class: "link", type: "button", onclick: () => { const d = drafts(); delete d.shift; save("drafts", d); VIEW.prefill = null; VIEW.restored = false; render(true); } }, "Start again")));
   }
   let draftTimer = null, sent = false;
-  // Once sent, or once the form has left the screen, nothing more is kept as a draft: a late save would bring a
-  // sent shift back as a draft, and sending it again would count it twice (found 2026-09-14 by review).
   const keepDraft = () => {
     if (VIEW && VIEW.corrects) return;
     clearTimeout(draftTimer);
@@ -1760,10 +1598,8 @@ function buildShiftForm(f) {
   };
   const setVal = (k, v) => { vals[k] = v; keepDraft(); };
 
-  // When.
   const date = h("input", { id: "f-shift-date", name: "date", type: "date" });
   date.value = vals.date;
-  // One tap for the usual two: today, and yesterday (a night shift is often sent the morning after).
   const yday = h("button", { class: "btn small gray", type: "button" }, "Yesterday");
   const syncY = () => { yday.textContent = date.value === todayISO() ? "Yesterday" : "Today"; };
   yday.addEventListener("click", () => { const d = new Date(); if (date.value === todayISO()) d.setDate(d.getDate() - 1); date.value = isoOf(d); setVal("date", date.value); syncY(); });
@@ -1771,13 +1607,10 @@ function buildShiftForm(f) {
   date.addEventListener("change", () => { setVal("date", date.value); syncY(); });
   syncY();
   const dateWrap = h("div", { class: "field datefield" }, h("label", { for: "f-shift-date", text: "Date" }), h("div", { class: "daterow" }, date, yday));
-  // Adding details to a shift already sent opens on its hours, patients and pay; its date, place and shift,
-  // already right, are folded below them.
   const identity = h("div", { class: "shiftpart" });
   const moreBox = h("div", { class: "shiftpart" });
   identity.append(h("div", { class: "group" }, h("div", { class: "fields glass" }, dateWrap)));
 
-  // Where.
   const places = placeList();
   const pills = h("div", { class: "pills", role: "radiogroup", "aria-label": "Where you worked" });
   for (const pl of places) {
@@ -1787,9 +1620,7 @@ function buildShiftForm(f) {
       vals.place = pl.value;
       for (const x of pills.children) x.setAttribute("aria-checked", String(x === b));
       if (wraps.place) wraps.place.classList.remove("bad");
-      // A new place starts its own site and shift, where the last shift there was.
       vals.site = ""; vals.description = "";
-      // The site of the last shift there: the newest sent from this device, or else the MacBook's last.
       const fromLedger = ((SNAP && SNAP.defaults && SNAP.defaults.shift_by_place) || {})[pl.value];
       const mineLast = load("outbox", []).concat(load("sent", []).map(x => x.entry), ((SNAP && SNAP.shifts) || []).map(x => ({ kind: "shift", fields: x.fields })))
         .filter(e => e && e.kind === "shift" && e.fields && placeOfShift(e.fields) === pl.value && e.fields.site && !/stipend/i.test(e.fields.description || ""))
@@ -1804,7 +1635,6 @@ function buildShiftForm(f) {
   identity.append(h("div", { class: "group" }, h("div", { class: "gh", text: "Where" }), pills,
     h("div", { class: "gf", text: "Somewhere new? Send a note: it is set up on the MacBook, then appears here." })));
 
-  // Which site and shift, then the details: drawn for the chosen place.
   const rest = h("div", { class: "shiftpart" });
   identity.append(rest);
   if (VIEW.details) {
@@ -1826,18 +1656,17 @@ function buildShiftForm(f) {
     site = null; shift = null;
     for (const k of Object.keys(inputs)) delete inputs[k];
     if (!pl) return;
-    // A problem in the folded part opens it, so it is never hidden.
     const mine = mineFor(pl.value);
     const box = h("div", { class: "fields glass" });
     if (!pl.site) {
-      const sites = pl.sites.concat(mine.sites.filter(s2 => !pl.sites.includes(s2)));
-      site = combo({ id: "f-shift-site", name: "site", label: vals.siteAuto && vals.site ? "Site, as your last shift there" : "Site", groups: [[null, sites]], value: vals.site || "", newLabel: "A new site…", placeholder: "The town or clinic",
+      const sites = pl.sites.slice();
+      site = combo({ id: "f-shift-site", name: "site", label: vals.siteAuto && vals.site ? "Site, as your last shift there" : "Site", groups: [[null, sites]], value: vals.site || "", noNew: true, placeholder: "The town or clinic",
                      onChange: v => { setVal("site", v); if (shift) { const cur = shift.value; shift.el.replaceWith((shift = shiftCombo(pl, mine, cur)).el); } } });
       box.append(site.el);
+      box.append(h("p", { class: "foot", text: "A site not listed? Send a Note saying where: it is added on the MacBook, then appears here." }));
     }
     shift = shiftCombo(pl, mine, vals.description || "");
     box.append(shift.el);
-    // EDLP's monthly stipend belongs to a month, which is how it is matched to the Work tab: asked when chosen.
     stipendMonth = null;
     if (pl.value === "edlp") {
       stipendMonth = numField("period", vals.period, setVal, "The month the stipend is for");
@@ -1880,7 +1709,6 @@ function buildShiftForm(f) {
   }
   drawRest(false);
 
-  // What is sent: what is drawn, and anything an older entry held that this form no longer draws.
   const collect = () => {
     const out = {};
     const put = (k, v) => { v = String(v || "").trim(); if (v) out[k] = v; };
@@ -1932,14 +1760,24 @@ function buildShiftForm(f) {
       bad(inputs.amount && inputs.amount.closest(".field"), `Total pay is ${fmt$(fields.amount)} but the parts add up to ${fmt$(partsSum)}: leave the total blank, or make them agree`);
     const priv = privateIn(fields, (shiftForm() || {}).fields);
     if (priv) bad(inputs[priv] && inputs[priv].closest && inputs[priv].closest(".field"), PRIVATE_MSG);
-    // A shift dated today whose start is later than now was most often worked last night and sent this morning: said
-    // once, and a second Send keeps today (since 2026-09-15; found by the data-flow audit, pres-07).
     const st = /\b(\d{2})(\d{2})\b/.exec(fields.description || "");
-    if (!problems.length && st && fields.date === todayISO() && !form._lateOk && !VIEW.corrects) {
-      const now = new Date(), startMin = +st[1] * 60 + +st[2];
-      if (startMin < 24 * 60 && startMin > now.getHours() * 60 + now.getMinutes()) {
-        form._lateOk = true;
-        bad(date.closest(".field"), `This ${st[0]} shift starts later than now. If you worked it last night, tap Yesterday; to keep today, tap Send again`);
+    if (!problems.length && fields.date === todayISO() && !VIEW.corrects) {
+      const now = new Date(), nowMin = now.getHours() * 60 + now.getMinutes();
+      const startMin = st ? +st[1] * 60 + +st[2] : null;
+      if (startMin !== null && startMin < 24 * 60 && startMin > nowMin + 60) {
+        bad(date.closest(".field"), `This ${st[0]} shift starts more than an hour from now, so the MacBook would hold it. If you worked it last night, tap Yesterday; otherwise send it after it starts`);
+      } else if (startMin === null && /\bcall\b/i.test(fields.description || "") && now.getHours() < 12 && !form._callOk) {
+        form._callOk = true;
+        bad(date.closest(".field"), "A call sent this morning is usually last night's: tap Yesterday if so; tap Send again to keep today");
+      }
+    }
+    if (!problems.length && !VIEW.corrects && !form._dupOk && !/stipend/i.test(fields.description || "") && fields.place !== "abp") {
+      const norm = x => String(x || "").toLowerCase().replace(/\s*\b(we|covered)\b/g, "").replace(/\s+/g, " ").trim();
+      const twin = allShifts().find(x => x.fields.place === fields.place && x.fields.date === fields.date
+        && norm(x.fields.site) === norm(fields.site) && norm(x.fields.description) === norm(fields.description));
+      if (twin) {
+        form._dupOk = true;
+        bad(date.closest(".field"), `You already sent this ${fields.description} shift for ${shortDate(fields.date)}. To change it, open it under Your shifts. Tap Send again to send it anyway: the MacBook will hold it for a check`);
       }
     }
     if (problems.length) {
@@ -1957,20 +1795,14 @@ function buildShiftForm(f) {
   return form;
 }
 
-/* ---------- Your shifts ---------- */
 
-// Every shift sent from this page: the MacBook's list, then anything sent from here that it has not filed
-// yet. A newer version replaces the one it corrects; a deleted one goes.
 function allShifts() {
   const list = new Map(), gone = new Set();
-  // A held change is shown on the shift it changes, not as a shift of its own; Today offers to put it right.
   const heldFor = new Set();
   for (const x of (SNAP && SNAP.shifts) || []) {
     if (x.status === "held" && x.corrects) { heldFor.add(x.corrects); continue; }
     list.set(x.id, { id: x.id, fields: x.fields || {}, state: x.status === "held" ? "held" : "filed" });
   }
-  // The MacBook has received every shift in shifts_seen; one of those not in its current list has since been
-  // corrected or deleted, perhaps from another device, and is not shown again from this device's memory.
   const seen = new Set((SNAP && SNAP.shifts_seen) || []);
   const local = load("outbox", []).map(e => [e, "unsent"]).concat(load("sent", []).map(x => [x.entry, "sent"]));
   for (const [e, state] of local) {
@@ -2062,16 +1894,12 @@ function updateSweep(form) {
   const shortly = w => w.split(/[:;.]\s|, | about | for the /)[0].split(/[:;]/)[0];
   const lines = [];
   const isEst = it => (it.basis || "").startsWith("estimate");
-  // A bill whose day has come has left chequing already, so the balance typed above no longer holds it (the page
-  // may have been published days before the visit).
   const reserve = (pd.reserve || []).filter(r => !r.due || r.due > todayISO());
-  // Every estimate still in the sum, whether a payment not yet ticked or a bill kept back for.
   const estOpen = pd.items.filter(it => !ticked.has(it.id) && money(it.amount) && isEst(it)).concat(reserve.filter(r => money(r.amount) && isEst(r)));
   const itemName = w => { const m = /^Pay [^:]+: (?:the )?(.*)$/.exec(w); return m ? m[1].replace(/^./, c => c.toUpperCase()) : shortly(w); };
   for (const it of pd.items) if (!ticked.has(it.id) && money(it.amount)) lines.push([itemName(it.what) + ", not ticked yet", money(it.amount), isEst(it)]);
   for (const r of reserve) lines.push([shortly(r.what) + ", due " + shortDate(r.due), money(r.amount), isEst(r)]);
-  lines.push(["The cushion left in chequing", money(pd.cushion) || 0, false, true]);
-  // A card balance has no amount here: until it is ticked as paid, the balance above still holds it.
+  lines.push(["The cushion left in chequing" + (pd.cushion_source ? ` (${pd.cushion_source.replace(/^webpage\/config\.json, sweep_cushion_cad$/, "set in the page's settings file")})` : ""), money(pd.cushion) || 0, false, true]);
   const cardsOpen = pd.items.filter(it => !money(it.amount) && !ticked.has(it.id)).map(it => shortly(it.what).replace(/^Pay (the )?/i, "").replace(/ balance$/i, ""));
   const cardNames = cardsOpen.join(" and ") + (cardsOpen.length > 1 ? " balances" : " balance");
   box.append(h("h3", { text: "What to send to Questrade" }));
@@ -2089,7 +1917,6 @@ function updateSweep(form) {
   if (cardsOpen.length) box.append(h("div", { class: "line muted" }, h("span", { text: cardNames.replace(/^./, c => c.toUpperCase()) + ", not paid yet" }), h("span", { class: "amt", text: "not counted" })));
   const v = left > 0 ? Math.round(left * 100) / 100 : 0;
   const wait = cardsOpen.length > 0;
-  // An estimate still in the sum makes the answer approximate: whole dollars, rounded down, and labelled.
   const approx = !wait && estOpen.length > 0;
   const shown = approx ? Math.max(0, Math.floor(v)) : v;
   box.append(h("div", { class: "res" + (wait ? " wait" : "") }, h("span", { text: "Amount to send" }),
@@ -2108,10 +1935,6 @@ function updateSweep(form) {
   } else box.append(h("p", { class: "small muted", text: "Nothing to send this month: the balance does not cover what is still due plus the cushion." }));
 }
 
-/* ---------- Summary: Total, Personal, Corporation ---------- */
-// Redesigned 2026-09-14 (night), at Alvin's request: the Summary in three parts, each figure opening a page
-// that can be filtered by year and by place, and each card's label shown as a coloured dot at its top
-// right that explains itself when tapped, in place of the list of labels at the foot of the page.
 
 const BASIS_NAME = { verified: "Verified", derived: "Derived", recorded: "Recorded", measured: "Measured", estimate: "Estimate" };
 const MEANS_LONG = {
@@ -2123,8 +1946,6 @@ const MEANS_LONG = {
 };
 function basisOf(label) { const m = /^(verified|derived|recorded|measured|estimate)/.exec(String(label || "").trim()); return m ? m[1] : ""; }
 
-// A small coloured dot saying how sure a figure is. Tapping it opens a bubble that says what the colour
-// means, and where this figure comes from.
 function basisDot(basis, extra) {
   const b = basisOf(basis);
   if (!b) return null;
@@ -2159,37 +1980,30 @@ function explain(anchor, b, extra) {
   closePop.cleanup = () => { document.removeEventListener("pointerdown", off, true); document.removeEventListener("keydown", esc); window.removeEventListener("scroll", away); };
 }
 function closePop() {
+  if (ASIDE) return;            // a neighbour drawn aside for the swipe must not close a bubble on the screen (r2-page-01)
   for (const p of document.querySelectorAll(".pop")) p.remove();
   if (closePop.cleanup) closePop.cleanup();
   closePop.cleanup = null; closePop.anchor = null;
 }
-// The lines a figure's bubble adds under the colour's meaning: its date, where it comes from, its note.
 function whyLines(o) {
   return [o.as_of ? "As of " + (dateOf(o.as_of) ? prettyDates(o.as_of) : o.as_of) + "." : "",
           o.source ? plainSource(o.source) + "." : "", o.note ? o.note.replace(/\.?$/, ".") : "",
-          // Only for what the corporation is worth, not money coming into it (since 2026-09-15; found by the data-flow
-          // audit, pres-14: the Income card said it too).
           ["corp_market", "household"].includes(o.id || o.series) ? "Before the tax paid to take money out of the corporation." : ""];
 }
 
 function ov(id) { return ((SNAP && SNAP.overview) || []).find(o => (o.id || o.series) === id) || null; }
 
-// A card or row that opens something and holds a dot that opens its own bubble: the opening is a button laid
-// over the whole card and the dot sits above it, so neither is inside the other, and VoiceOver and the keyboard
-// reach both (found 2026-09-14 by review).
 function tapArea(host, label, fn) {
   host.classList.add("tap-host");
   host.prepend(h("button", { class: "tap-hit", type: "button", "aria-label": label, onclick: fn }));
   return host;
 }
 
-// A card for one figure. The whole card opens its page; the dot opens only its bubble.
 function figCard(o, opts) {
   opts = opts || {};
   const tap = !!opts.onOpen;
   const card = h("div", { class: "fig glass" + (opts.hero ? " hero" : "") + (opts.wide ? " wide" : "") + (tap ? " tappable" : "") });
   card.append(h("div", { class: "ftop" }, h("span", { class: "l", text: opts.label || o.label }), basisDot(opts.basis || o.basis, opts.why || whyLines(o))));
-  // An estimate says "about", small, before its figure.
   card.append(h("span", { class: "v rounded" + (opts.hero ? "" : " num") }, opts.about ? h("span", { class: "about", text: "about " }) : null, opts.value || wholeValue(o.value)));
   const ser = opts.series;
   card.append(opts.body ? h("span", { class: "spark" }, opts.body)
@@ -2199,14 +2013,12 @@ function figCard(o, opts) {
   if (tap) tapArea(card, `${opts.label || o.label}, ${opts.about ? "about " : ""}${opts.value || wholeValue(o.value)}. Open`, () => opts.onOpen());
   return card;
 }
-// A card left alone on the last row of a grid of two takes the whole row.
 function balance(grid) {
   const small = Array.from(grid.children).filter(c => !c.classList.contains("hero") && !c.classList.contains("wide"));
   if (small.length % 2) small[small.length - 1].classList.add("wide");
   return grid;
 }
 
-// A segmented control, as on the iPhone. `choices` is [[value, label], ...].
 function segControl(choices, value, onPick, label, cls) {
   const segs = h("div", { class: "segs" + (cls ? " " + cls : ""), role: "radiogroup", "aria-label": label });
   for (const [v, lab] of choices) {
@@ -2216,27 +2028,23 @@ function segControl(choices, value, onPick, label, cls) {
   }
   return segs;
 }
-// A row of choices that scrolls sideways when it does not fit: the years, the places.
 function chipRow(choices, value, onPick, label) {
   const row = h("div", { class: "chips", role: "radiogroup", "aria-label": label });
   for (const [v, lab] of choices) {
     const b = h("button", { class: "chip-b", type: "button", role: "radio", "aria-checked": String(v === value) }, lab);
     b.addEventListener("click", () => {
       for (const x of row.children) x.setAttribute("aria-checked", String(x === b));
-      // Chosen by a swipe, or half off the screen: brought into view.
       const r = b.getBoundingClientRect(), rr = row.getBoundingClientRect();
       if (r.left < rr.left) row.scrollLeft -= rr.left - r.left + 16; else if (r.right > rr.right) row.scrollLeft += r.right - rr.right + 16;
       onPick(v);
     });
     row.append(b);
   }
-  // When the row runs off the screen, its far edge fades, so it is plain there is more to the side.
   const edge = () => { row.classList.toggle("more-r", row.scrollLeft + row.clientWidth < row.scrollWidth - 4); row.classList.toggle("more-l", row.scrollLeft > 4); };
   row.addEventListener("scroll", edge, { passive: true });
   setTimeout(() => { const on = row.querySelector('[aria-checked="true"]'); if (on && on.offsetLeft + on.offsetWidth > row.clientWidth) row.scrollLeft = on.offsetLeft - 16; edge(); }, 0);
   return row;
 }
-// A bar split into parts, each in its own colour, with a gap between them.
 function meter(parts, total, cls) {
   const bar = h("div", { class: "meter" + (cls ? " " + cls : ""), role: "img",
                          "aria-label": parts.map(pt => `${pt.label} ${fmtWhole$(Math.round(pt.value))}`).join(", ") + (total ? ` of ${fmtWhole$(Math.round(total))}` : "") });
@@ -2246,7 +2054,6 @@ function meter(parts, total, cls) {
   if (total && rest > 0.5) bar.append(h("span", { class: "mseg rest", style: `flex-grow:${rest / whole}` }));
   return bar;
 }
-// Horizontal bars with their labels and values written out: comparing places.
 function hbars(rows, fmtV, onPick) {
   const max = Math.max(...rows.map(r => r.value), 1), anyOn = rows.some(r => r.on);
   const box = h("div", { class: "hbars" });
@@ -2258,12 +2065,9 @@ function hbars(rows, fmtV, onPick) {
   }
   return box;
 }
-// Pay per hour with the commute, or without it (Alvin, 2026-09-15: "Pay per hour includes the commute by default, with
-// a switch to see it without"). Each device remembers its own choice; nothing about it leaves the device.
 function withCommute() { return load("pph_commute", true) !== false; }
 const COMMUTE_WORDS = { measured: "measured by your phone", recorded: "typed by you", derived: "worked out from one leg the phone saw, or the usual round trip there",
                         estimate: "an estimate" };
-// "measured 60%, recorded 40%" as plain words: where the commute part of a figure came from.
 function commuteFrom(src) {
   const parts = String(src || "").split(",").map(x => x.trim()).filter(Boolean).map(x => {
     const m = /^(\w+) (\d+%)$/.exec(x); return m ? `${m[2]} ${COMMUTE_WORDS[m[1]] || m[1]}` : x;
@@ -2271,7 +2075,6 @@ function commuteFrom(src) {
   if (parts.length === 1) return parts[0].replace(/^100% /, "all ");
   return parts.length ? parts.join(", ") : "";
 }
-// The same, short, for a row of bars: "an estimate", "measured by your phone", or "mixed".
 function commuteShort(src) {
   const parts = String(src || "").split(",").map(x => x.trim()).filter(Boolean);
   const m = parts.length === 1 ? /^(\w+) /.exec(parts[0]) : null;
@@ -2304,8 +2107,6 @@ function openTrendOf(id) {
   if (o && o.series && SNAP.series && SNAP.series[o.series]) openView({ type: "trend", figId: id, title: o.label });
 }
 
-// The household's figure as late as the records reach: the MacBook's `now` (the corporation's latest month-end,
-// the three accounts at their last values plus what went in since), or else the last year end.
 function householdNow() {
   const nw = (SNAP && SNAP.networth) || {};
   if (nw.now) return { date: nw.now.date, total: money(nw.now.household), corp: money(nw.now.corporation), pers: money(nw.now.personal),
@@ -2324,9 +2125,6 @@ function summaryTotal() {
   const out = h("div", { class: "page" }), S = (SNAP && SNAP.series) || {}, nw = SNAP.networth || {};
   const n = householdNow();
   if (!n) return out;
-  // Rewritten 2026-09-14 at Alvin's request: the figure as current as the records allow, not the last year end;
-  // "Breakdown" in place of "What it is made of"; and the card "Since then", which he found unclear, folded into
-  // the figure's own line (how much it rose since the year end).
   const g = h("div", { class: "figs" });
   const up = nw.household && n.est ? Math.round((n.total - money(nw.household)) / 1000) * 1000 : null;
   g.append(figCard({ label: "Household net worth", basis: n.basis }, { hero: true, label: `Household net worth, ${prettyDates(n.date)}`, value: fmtWhole$(Math.round(n.total)), about: n.est,
@@ -2338,7 +2136,6 @@ function summaryTotal() {
   const row = (cls, label, sub, v, basis, why, part) => tapArea(h("div", { class: "row legendrow" },
     h("span", { class: "sw2 " + cls }), h("span", { class: "main" }, h("span", { class: "title", text: label }), h("span", { class: "meta", text: sub })),
     h("span", { class: "amt", text: fmtWhole$(Math.round(v)) }), basisDot(basis, why)), `${label}, ${fmtWhole$(Math.round(v))}. Show in detail`, () => { save("sumpart", part); render(); window.scrollTo(0, 0); });
-  // One date when the three accounts' last values share it (each Dec 31), else "latest values" (a reading typed since).
   const oneDate = new Set(Object.values(((SNAP.networth || {}).now || {}).personal_dates || { x: n.from })).size === 1;
   const valueWord = oneDate ? `${monthDay(n.from)} value` : "latest values";
   const persSub = n.since ? `${pct(n.pers)} · ${valueWord} + ${fmtWhole$(Math.round(n.since))} put in to ${monthDay(n.date)}` : `${pct(n.pers)} · ${valueWord}`;
@@ -2376,13 +2173,11 @@ function summaryCorp() {
   if (wh) g.append(figCard(wh, { label: wh.label.replace(/ · .*/, ""), value: wholeValue(wh.value) + " h", series: S.work_hours, onOpen: () => openView({ type: "work", metric: "hours" }),
     meta: [h("span", { class: "asof", text: lagNote(wh) || "By year, by place" })] }));
   if (pph) {
-    // With the commute unless this device chose without (since 2026-09-15); the card says which, and the MGH lag
-    // the Hours card beside it gives (found by the data-flow audit, web-06).
     const wc = withCommute() && pph.value_incl_travel;
     const from = commuteFrom(pph.travel_source);
     g.append(figCard(pph, { label: pph.label.replace(/ · .*/, ""), value: wholeValue(wc ? pph.value_incl_travel : pph.value) + "/h",
       basis: wc ? pph.basis_incl_travel : pph.basis, series: wc && S.pay_per_hour_incl_travel ? S.pay_per_hour_incl_travel : S.pay_per_hour,
-      why: whyLines(pph).concat(wc ? [`With the commute: the round trip to each shift counts as time worked. The commute part is ${from || "not known"}.`,
+      why: whyLines(wc ? Object.assign({}, pph, { note: pph.note_incl_travel || pph.note }) : pph).concat(wc ? [`With the commute: the round trip to each shift counts as time worked. The commute part is ${from || "not known"}.`,
                                       `Without it, ${wholeValue(pph.value)}/h.`]
                                    : [`Without the commute. With it, ${wholeValue(pph.value_incl_travel || pph.value)}/h.`]),
       onOpen: () => openView({ type: "work", metric: "rate" }),
@@ -2394,8 +2189,6 @@ function summaryCorp() {
   const tx = ov("tax_left");
   if (tx) g.append(figCard(tx, { label: "Tax instalments left this year", meta: [h("span", { class: "asof", text: tx.note || "As planned" })] }));
   out.append(balance(g));
-  // The card of cash in chequing at each month's end was taken off on 2026-09-14 at Alvin's request ("don't need
-  // this info"); the chequing still counts in the corporation's value above.
   const cards = [["invest", "Their value, and what they cost", ["invest_market", "invest_cost"]]].filter(c => c[2].every(k => S[k]));
   if (cards.length) {
     const sec = h("section", { class: "section" }, h("h2", { text: "Investments" }));
@@ -2423,8 +2216,6 @@ function summaryCorp() {
 
 const ACCOUNTS = [["qt-tfsa", "TFSA"], ["qt-rrsp", "RRSP"], ["qt-fhsa", "FHSA"]];
 function regOf(a) { return (SNAP && SNAP.registered && SNAP.registered.accounts && SNAP.registered.accounts[a]) || null; }
-// Room left is the year's room less what went in, so it is derived, whatever the room's own label.
-// Recorded, not derived (since 2026-09-15): the room is CRA's, but what went in this year is as you typed it.
 function leftBasis(acct) { return basisOf(acct.room_basis) === "estimate" ? "estimate" : "recorded"; }
 function roomWhy(acct) {
   return ["The year's room, less what has gone in this year." + (leftBasis(acct) === "estimate" ? " An estimate, because the year's limit is not yet confirmed on CRA's site." : ""),
@@ -2439,7 +2230,6 @@ function summaryPersonal() {
   const vals = ACCOUNTS.map(([a, n]) => [a, n, lastValue(regOf(a))]).filter(x => x[2]);
   if (vals.length) {
     const at = vals[0][2][0], total = vals.reduce((s2, x) => s2 + x[2][1], 0);
-    // A value read off Questrade and typed on this page counts from its date, so the three may differ.
     const same = vals.every(x => x[2][0] === at);
     const rows = h("div", { class: "list flat" }, vals.map(([a, n, v], i) => h("button", { class: "row legendrow", type: "button", onclick: ev => { ev.stopPropagation(); openView({ type: "account", account: a }); } },
       h("span", { class: "sw2 s" + i }), h("span", { class: "main" }, h("span", { class: "title", text: n })), h("span", { class: "amt", text: fmtWhole$(Math.round(v[1])) }), icon("chevR"))));
@@ -2452,9 +2242,6 @@ function summaryPersonal() {
         meta: [h("span", { class: "asof", text: (since > 0 ? `${fmtWhole$(Math.round(since))} more has gone in since, from your Personal tab and this page. `
                                                    : since < 0 ? `${fmtWhole$(Math.round(-since))} more has come out than gone in since. ` : "") + "Their value today waits for their statements." })] }));
   }
-  // What went in is counted to the Personal tab's last row, whichever account it was for (since 2026-09-15: each room
-  // card gave its own account's last row, so an account with no row this year read as counted to last December with the tab current to September;
-  // found by the data-flow audit, pres-15).
   const tabTo = ACCOUNTS.map(([a]) => (regOf(a) || {}).last_row || "").sort().pop();
   for (const [a, n] of ACCOUNTS) {
     const acct = regOf(a);
@@ -2475,7 +2262,6 @@ function summaryPersonal() {
   return out;
 }
 
-/* ---------- a registered account, full page ---------- */
 
 function renderAccount() {
   const a = VIEW.account, acct = regOf(a), y = new Date().getFullYear();
@@ -2491,7 +2277,6 @@ function renderAccount() {
       h("div", { class: "ftop" }, h("span", { class: "l", text: `Room left for ${y}` }), basisDot(leftBasis(acct), roomWhy(acct))),
       h("div", { class: "v rounded", text: fmtWhole$(Math.round(left)) }),
       h("div", { class: "fmeta" }, h("span", { class: "asof", text: `Counting what went in up to ${acct.last_row ? prettyDates(acct.last_row) : "now"}, the last row in your Personal tab${(acct.waiting || []).length ? ", and what you sent from here" : ""}.` + (tfsa ? " Check CRA My Account before putting money in: going over is taxed." : "") }))));
-    // First way: this year, the room against what has gone in.
     const card = h("section", { class: "card glass roomcard" }, h("h3", { text: `This year` }),
       meter([{ value: put, cls: "s0", label: "Put in" }], room),
       h("div", { class: "legend3" },
@@ -2502,14 +2287,12 @@ function renderAccount() {
     if (acct.waiting && acct.waiting.length) card.append(h("p", { class: "small muted", text: `Counted here and not yet in your Personal tab: ${acct.waiting.map(w => `${fmtWhole$(w.amount)} on ${shortDate(w.date)}`).join(", ")}.` }));
     p.append(card);
   }
-  // Second way: every year, what went in (and what came out), and the lifetime against its room.
   const years = acct.by_year || [];
   if (years.length) {
     const ser = { label: "Put in", unit: "$", form: "bars", basis: "recorded", source: src, points: years.map(r => [r[0], r[1]]) };
     const sec = h("section", { class: "card glass" }, h("div", { class: "ftop" }, h("h3", { text: "Every year" }), basisDot("recorded", [`${plainSource(src)}.`, "Each year's total of the rows you typed."])));
     sec.append(chart([ser], { form: "bars", unit: "$", height: 170, axis: true, hover: true }));
     const lifeRoom = tfsa ? money(acct.lifetime_limits) : acct.lifetime_limit ? money(acct.lifetime_limit) : null;
-    // Money moved in from an earlier institution is not a year's contribution, but it is room used (since 2026-09-15).
     const opening = (acct.opening || []).reduce((s2, o) => s2 + money(o.amount), 0);
     const net = money(acct.put_in) + opening - (tfsa ? money(acct.taken_out) : 0);
     const facts = [["Last year", fmtWhole$(Math.round(money(acct.last_year)))], ["This year", fmtWhole$(Math.round(put || 0))]];
@@ -2549,7 +2332,6 @@ function renderAccount() {
   return p;
 }
 
-/* ---------- income, full page ---------- */
 
 function renderIncome() {
   const I = (SNAP && SNAP.income) || {}, Y = I.years || {};
@@ -2595,8 +2377,6 @@ function renderIncome() {
     holder.append(top);
     const exp = v === now && I.expected && I.expected.year === v ? I.expected : null;
     if (exp) {
-      // What the year is likely to reach (added 2026-09-14 at Alvin's request): the chart runs on to December,
-      // the months to come drawn faint, and the card says how the sum is made.
       const first = exp.months.find(m => m[2] !== "arrived");
       const ser2 = { label: "Income", unit: "$", form: "bars", points: exp.months.map(m => [m[0], m[1]]), est_from: first ? first[0] : "" };
       holder.append(h("div", { class: "card glass chartcard" }, chart([ser2], { form: "bars", unit: "$", height: 220, axis: true, hover: true })));
@@ -2622,15 +2402,14 @@ function renderIncome() {
   return p;
 }
 
-// The year's expected income: the figure, a bar of what has arrived against what is to come, and the sum in words.
 function expectedCard(exp) {
   const total = money(exp.total), arrived = money(exp.arrived), usual = money(exp.usual_month), bonus = money(exp.bonus) || 0;
   const toCome = total - arrived, n = exp.to_come;
   const mon = k => keyLabel(k, true).replace(/ \d{4}$/, "");
   const last = exp.months.filter(m => m[2] === "arrived").pop();
   const why = ["What has arrived, from your year tab, plus each month still to come at your usual month" + (bonus ? ", plus MGH's active staff bonus in December" : "") + ".",
-               `Your usual month is the middle one of the ${plural(12, "month")} from ${keyLabel(exp.usual_from, true)} to ${keyLabel(exp.usual_to, true)}: a lump, such as December 2025's retro pay, or a payment that lands a month early or late, does not move it.`,
-               bonus ? `The bonus is taken as one month of MGH pay at ${exp.year}'s average so far (${plural(exp.bonus_months, "month")}), as you expect. Last December's retro pay and practice-plan points are not expected again.` : "",
+               `Your usual month is the middle one of the ${plural(12, "month")} from ${keyLabel(exp.usual_from, true)} to ${keyLabel(exp.usual_to, true)}: a lump, such as a December's retro pay, or a payment that lands a month early or late, does not move it.`,
+               bonus ? `The bonus is taken as one month of MGH pay at ${exp.year}'s average so far (${plural(exp.bonus_months, "month")}), as you expect. December's other lumps, such as retro pay, are not counted until they are known.` : "",
                (exp.assumptions || []).length ? `Written down as ${exp.assumptions.length > 1 ? "assumptions" : "assumption"} ${exp.assumptions.join(" and ")} in the Finance System (profile/assumptions.csv), each with the date it is checked again.` : ""];
   const rows = [[last ? `Arrived, January to ${mon(last[0])}` : "Arrived", arrived, "s0"],
                 [n ? `${plural(n, "month")} to come at your usual ${fmtWhole$(Math.round(usual))}` : "", usual * n, "later"],
@@ -2646,7 +2425,6 @@ function expectedCard(exp) {
     (exp.left_out || []).length ? h("p", { class: "small muted", text: "Not counted: " + exp.left_out.map(x => `${x.what.replace(/^./, c => c.toLowerCase())} (${x.why.replace(/ \(Q-[\d-]+\)$/, "")})`).join("; ") + "." }) : null);
 }
 
-/* ---------- hours and pay per hour, full page ---------- */
 
 function renderWork() {
   const W = (SNAP && SNAP.work) || {}, C = W.cells || {};
@@ -2663,7 +2441,6 @@ function renderWork() {
   const metricSeg = segControl([["hours", "Hours"], ["rate", "Pay per hour"]], metric, v => { VIEW.metric = v; render(); }, "Show", "partseg");
   p.append(metricSeg);
   swipeAlong(metricSeg, holder, BACK, null);
-  // With the commute or without, on pay per hour only; the device remembers (withCommute, 2026-09-15).
   const wc = withCommute();
   if (metric === "rate") p.append(segControl([["with", "With the commute"], ["without", "Without"]], wc ? "with" : "without",
     v => { save("pph_commute", v === "with"); render(); }, "Pay per hour, with the commute or without", "range wide"));
@@ -2672,8 +2449,6 @@ function renderWork() {
   p.append(holder);
   const nameOf = pl => pl === "all" ? "everywhere" : (places.find(x => x[0] === pl) || [pl, pl])[1];
   const cell = (y, pl, site) => C[[y, pl, site || ""].join("|")];
-  // The rate shown follows the switch; `other` is the one not shown. Each cell carries its own label (basis) and where its
-  // commute hours came from (since 2026-09-15), and the hours its rate divides by (paidHours).
   const rate = c => money(wc ? c.pay_per_hour_incl_travel : c.pay_per_hour), other = c => money(wc ? c.pay_per_hour : c.pay_per_hour_incl_travel);
   const rateBasis = c => (wc ? c.basis_incl_travel : c.basis) || "recorded";
   const paidHours = c => money(c.hours) - (money(c.hours_awaiting_pay) || 0) - (money(c.hours_no_pay_per_activity) || 0);
@@ -2684,7 +2459,6 @@ function renderWork() {
     clear(holder);
     const y = VIEW.year, pl = VIEW.place, c = cell(y, pl);
     const cur = y === String(new Date().getFullYear());
-    // Shifts go in when their pay details arrive, so each place is counted to a different day.
     let lagText = "";
     if ((cur || y === "all") && W.last) {
       if (pl !== "all") lagText = W.last[pl] ? `Counted to your last shift typed there, ${shortDate(W.last[pl])}.` : "";
@@ -2695,8 +2469,6 @@ function renderWork() {
     }
     const K = W.kinds || {};
     const kind = t => K[`${y}|${t}`];
-    // Each place's own word for a unit of work (since 2026-09-15: every place's were called "shifts", and EDLP's
-    // count took in its months of stipend).
     const unitWord = (place, n) => plural(n, ({ mgh: "shift or call", edlp: "shift", bochner: "list", endoscopy: "list", abp: "month" })[place] || "entry",
                                           ({ mgh: "shifts and calls", edlp: "shifts", bochner: "lists", endoscopy: "lists", abp: "months" })[place] || "entries");
     const unitsText = () => {
@@ -2711,12 +2483,7 @@ function renderWork() {
     };
     if (!c) { holder.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: `No work at ${nameOf(pl)} ${y === "all" ? "yet" : "in " + y}.` }))); return; }
     const hrs = money(c.hours), units = Number(c.units), tr = money(c.travel_hours);
-    // The usual length of that kind of shift, where no one typed the hours and the phone did not see it (since
-    // 2026-09-15; before, only the older assumption was counted, and the share read far too low).
     const est = money(c.assumed_hours !== undefined && c.assumed_hours !== "" ? c.assumed_hours : c.estimated_hours);
-    // MGH's practice plan: typed once a year for its whole cycle, so its hours are shared evenly over the
-    // cycle's months (models/work-hours, corrected 2026-09-14), and it is paid as points once a year, outside
-    // the Work tab, so its hours are left out of pay per hour.
     const ppHours = money(c.hours_no_pay_per_activity) || 0;
     const ppNote = `${Math.round(ppHours)} h of it is the practice plan, typed once a year and shared evenly over the months of its cycle`;
     const label = `${y === "all" ? "All years" : cur ? y + " so far" : y}, ${nameOf(pl)}` + (metric === "rate" && pl === "edlp" && kind("edlp-stipend") ? " with its stipend"
@@ -2729,10 +2496,14 @@ function renderWork() {
           est ? `${Math.round(est / hrs * 100)}% of the hours are the usual length of that kind of shift, not typed or measured` : ""].filter(Boolean).join(" · ") })),
         ppHours ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: ppNote })) : null,
         lagText ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: lagText })) : null));
-      // By month in a year; by year across all.
       let ser;
       if (y === "all") ser = { label: "Hours", unit: "h", form: "bars", points: years.slice().reverse().map(k => [k, cell(k, pl) ? money(cell(k, pl).hours) : 0]) };
       else ser = { label: "Hours", unit: "h", form: "bars", points: ((W.monthly || {})[pl] || []).filter(m => m[0].startsWith(y)).map(m => [m[0], m[1]]) };
+      if (y !== "all" && (pl === "all" || pl === "mgh") && (W.last || {}).mgh) {
+        const [ly, lm] = W.last.mgh.slice(0, 7).split("-").map(Number);
+        ser.est_from = lm === 12 ? `${ly + 1}-01` : `${ly}-${String(lm + 1).padStart(2, "0")}`;
+        ser.est_word = "so far: MGH's shifts not yet typed";
+      }
       if (ser.points.length >= 2) holder.append(h("div", { class: "card glass chartcard" }, chart([ser], { form: "bars", unit: "h", height: 200, axis: true, hover: true })));
       if (pl === "all") {
         const rows = (W.places || []).map(x => ({ key: x.value, label: x.label.replace(" consulting", ""), value: cell(y, x.value) ? money(cell(y, x.value).hours) : 0,
@@ -2751,33 +2522,28 @@ function renderWork() {
         c.travel_source && wc ? h("div", { class: "fmeta" }, h("span", { class: "asof commute-from" }, basisDot(c.basis_incl_travel || "recorded",
           ["Where the commute hours came from, by share.", "Measured: both legs of the round trip seen by your phone. Worked out: one leg seen and doubled, or the usual round trip for that place. Estimate: an assumption written down in profile/assumptions.csv, such as the Rudd walk and the Don Valley drive."]),
           ` The commute: ${commuteFrom(c.travel_source)}.`)) : null,
+        wc && (pl === "mgh" || pl === "all") && ((W.commute || {}).mgh || {}).median_round_trip_hours ? h("div", { class: "fmeta" }, h("span", { class: "asof",
+          text: `MGH's round trip, as your phone measured it: ${Math.round(Number(W.commute.mgh.median_round_trip_hours) * 60)} minutes, the middle of ${W.commute.mgh.round_trips_measured} trips from ${keyLabel(W.commute.mgh.from, true)} to ${keyLabel(W.commute.mgh.to, true)}` })) : null,
         h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${fmtWhole$(Math.round(other(c)))}/h ${wc ? "without" : "with"} the commute · ${fmtWhole$(Math.round(money(c.pay)))} over ${Math.round(paidHours(c)).toLocaleString("en-CA")} h` + (wc && tr ? ` and ${Math.round(tr).toLocaleString("en-CA")} h of commute` : "") +
           (money(c.hours_awaiting_pay) ? `; ${Math.round(money(c.hours_awaiting_pay))} h of shifts still waiting for their pay are left out` : "") +
           (ppHours ? `; the practice plan's ${Math.round(ppHours)} h are left out, since it is paid as points once a year, not per activity` : "") })),
         lagText ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: lagText })) : null));
-      // EDLP's figure counts its monthly stipend; say what the shifts alone pay, and what the stipend added.
-      // A place's figure counts EDLP's stipend (pay, no hours) and MGH's practice plan (hours, no pay per
-      // activity); say what the shifts alone pay, and what the other added.
       const sh = kind(pl + ":shifts");
       const st = pl === "edlp" || pl === "all" ? kind("edlp-stipend") : null, pp = pl === "mgh" || pl === "all" ? kind("mgh-practice-plan") : null;
-      // Only a stipend changes the figure now: the practice plan's hours are already left out of it.
       if (sh && st) holder.append(h("div", { class: "facts glass card" },
         h("div", {}, h("span", { class: "k", text: "Without EDLP's stipend" }), h("span", { class: "fv num", text: `${fmtWhole$(Math.round(rate(sh)))}/h` })),
         h("div", {}, h("span", { class: "k", text: `EDLP's stipend, ${plural(Number(st.units), "month")}` }), h("span", { class: "fv num", text: fmtWhole$(Math.round(money(st.pay))) })),
         pp ? h("div", {}, h("span", { class: "k", text: "Practice plan, left out" }), h("span", { class: "fv num", text: `${Math.round(money(pp.hours))} h` })) : null));
       if (pl === "all") {
-        // Place against place, like for like: the shifts alone where a place also has a stipend or practice plan.
         const rows = (W.places || []).map(x => {
           const alone = K[`${y}|${x.value}:shifts`], mixed = K[`${y}|edlp-stipend`] && x.value === "edlp" || K[`${y}|mgh-practice-plan`] && x.value === "mgh";
           const c2 = mixed && alone ? alone : cell(y, x.value);
-          // The hours its rate divides by, not all hours worked (since 2026-09-15; found by the data-flow audit, web-03).
           return { key: x.value, label: x.label.replace(" consulting", ""), value: c2 ? rate(c2) : 0, est: c2 ? estRow(c2) : false,
                    sub: c2 ? `${Math.round(paidHours(c2))} h` + (mixed && alone ? ", shifts alone" : "") : "" };
         }).filter(r => r.value > 0).sort((a1, b1) => b1.value - a1.value);
         if (rows.length) holder.append(h("section", { class: "section" }, h("h2", { text: "By place" }),
           h("div", { class: "card glass" }, hbars(rows, v => `${fmtWhole$(Math.round(v))}/h`, k => pickPlace(k)))));
       } else {
-        // The newest year first (Alvin, 2026-09-14), as the year choices above run.
         const rows = years.map(k => { const ck = cell(k, pl); return { label: k, value: ck ? rate(ck) : 0, on: k === y, est: ck ? estRow(ck) : false,
           sub: ck ? `${Math.round(paidHours(ck))} h` : "" }; }).filter(r => r.value > 0);
         if (rows.length > 1) holder.append(h("section", { class: "section" }, h("h2", { text: `${nameOf(pl)}, year by year` }), h("div", { class: "card glass" }, hbars(rows, v => `${fmtWhole$(Math.round(v))}/h`)),
@@ -2796,9 +2562,6 @@ function renderWork() {
     holder.append(h("p", { class: "foot", text: (metric === "rate" ? "Your pay for each shift, over its hours" + (wc ? " and the round trip to it" : "") + ". " : "") + "Hours are ones you typed, measured by your phone, or the usual length of that kind of shift." + (metric === "rate" && wc ? " A commute is measured where your phone saw both legs, doubled from one leg, or the usual round trip for that place: the Rudd walk and the Don Valley drive are estimates you gave." : "") + " Worked out in the work-hours workings, from your Work tab and the shifts sent from this page." }));
   };
   const pickPlace = k => { VIEW.place = k; render(); };
-  // A place's sites, for the year shown, with the sites worked only in other years named beneath and one tap
-  // from all years (Alvin, 2026-09-14: "how come EDLP hours by site doesn't show other sites beside Wiarton and
-  // Southampton? I've done Meaford etc": 2026, the year the page opens on, had only those two).
   function bySite(valOf, fmtV, subOf, note, estOf) {
     const y = VIEW.year, pl = VIEW.place;
     const keysOf = yy => Object.keys(C).filter(k => { const [a1, b1, s2] = k.split("|"); return a1 === yy && b1 === pl && s2; });
@@ -2816,7 +2579,6 @@ function renderWork() {
   return p;
 }
 
-// A figure for this year ("so far", or named by its year) draws only this year's months in its small chart.
 function sparkOf(ser, o) {
   const y = String(new Date().getFullYear());
   if (ser.form === "bars" && (/so far/.test(o.label || "") || (o.label || "").includes(y))) {
@@ -2828,9 +2590,6 @@ function sparkOf(ser, o) {
 function wholeValue(v) {
   return String(v || "").replace(/^(-?)\$([\d,]+)\.(\d\d)\b/, (m, sg, d, c) => sg + "$" + Math.round(Number(d.replace(/,/g, "")) + Number(c) / 100).toLocaleString("en-CA"));
 }
-// The corporation's rise is mostly pay it kept, not markets: what prices did is the change in the gap between its
-// investments' value and their cost, over the same months. A fund's reinvested distribution raises the cost, so it
-// sits with the money kept, and the words say so (since 2026-09-15; the page's code is public, so it names no figure of Alvin's). `ch` is the rise, already rounded to the thousand.
 function priceSplit(d0, d1, ch) {
   const S = (SNAP && SNAP.series) || {};
   if (!S.invest_market || !S.invest_cost || !ch) return "";
@@ -2840,12 +2599,7 @@ function priceSplit(d0, d1, ch) {
   const prices = Math.round(((m1[1] - b1[1]) - (m0[1] - b0[1])) / 1000) * 1000, kept = ch - prices;
   return ` Prices ${prices >= 0 ? "added" : "took away"} ${compact(Math.abs(prices), "$")}; ${kept >= 0 ? "the other " + compact(kept, "$") + " is money it kept from your work and its funds' reinvested distributions" : "money also went out"}.`;
 }
-// The change over the last twelve months, for a history of balances.
 function deltaOf(ser, sid) {
-  // A balance's change over one year: from the point closest to a year before the newest (350 to 380
-  // days back, or nothing is said), naming that date so it can be checked against the chart. In dollars
-  // and plain words, no arrow or colour. On the investments it says how much of the rise was money put
-  // in or distributions reinvested, so a rise is never read as earnings.
   if (!ser || ser.form !== "line" || ser.points.length < 6) return null;
   const pts = ser.points, last = pts[pts.length - 1], lastD = dateOf(last[0]);
   let prev = null, bestGap = Infinity;
@@ -2855,17 +2609,13 @@ function deltaOf(ser, sid) {
     if (days >= 350 && days <= 380 && Math.abs(days - 365) < bestGap) { bestGap = Math.abs(days - 365); prev = q; }
   }
   if (!prev) return null;
-  // Rounded once, to the thousand, so the parts shown always add up to the whole.
   const k1 = v => Math.round(v / 1000) * 1000;
   const ch = k1(last[1] - prev[1]);
   let text = ch === 0 ? `About the same since ${prettyDates(prev[0])}.` : `${ch > 0 ? "Up" : "Down"} ${compact(Math.abs(ch), ser.unit)} since ${prettyDates(prev[0])}.`;
   const S = (SNAP && SNAP.series) || {};
   if (sid === "invest_market" && S.invest_cost) {
-    // The rise, split honestly in every kind of year: what was added at cost, and what prices did.
     const c = S.invest_cost.points, c0 = c.find(q => q[0] === prev[0]), c1 = c.find(q => q[0] === last[0]);
     if (c0 && c1 && c1[1] - c0[1] > 0) {
-      // Prices first, rounded once, and the rest from the rounded rise, as priceSplit does, so this page and the
-      // corporation's card name the same figure for prices (since 2026-09-15: the two had differed by a thousand).
       const moved = k1((last[1] - c1[1]) - (prev[1] - c0[1])), put = ch - moved;
       text += ` ${compact(put, "$")} was money put in or distributions reinvested; ` + (moved === 0 ? "prices made little difference." : `prices ${moved > 0 ? "added" : "took away"} ${compact(Math.abs(moved), "$")}.`);
     } else if (c0 && c1 && c1[1] - c0[1] < 0) text += " Money was also taken out, so this is not what prices did.";
@@ -2874,7 +2624,6 @@ function deltaOf(ser, sid) {
   return h("span", { class: "delta", text });
 }
 
-/* ---------- a trend, full page ---------- */
 
 function renderTrend() {
   const S = (SNAP && SNAP.series) || {};
@@ -2882,8 +2631,6 @@ function renderTrend() {
   let keys, title, fig = null;
   if (VIEW.figId !== undefined) { fig = ov(VIEW.figId); keys = fig && fig.series ? [fig.series] : []; title = fig ? fig.label : ""; }
   else { keys = VIEW.keys || []; title = VIEW.title || ""; }
-  // The household: its year ends and its latest estimate, drawn over the corporation's month-ends, which are most
-  // of it and have a point every month (Alvin, 2026-09-14: "shouldn't we have multiple points since 2022?").
   const house = VIEW.figId === "household" ? householdNow() : null;
   if (house && S.corp_market) keys = keys.concat(["corp_market"]);
   const sers = keys.map(k => k === "corp_market" && house ? { ...S[k], label: "Corporation alone" } : k === "household" && house ? { ...S[k], label: "Household" } : S[k]).filter(Boolean);
@@ -2911,7 +2658,6 @@ function renderTrend() {
       "Once their monthly Questrade statements are filed, it will have one every month. Dec 31, 2023 is missing because the corporation's 2023 bank statements are not filed. The corporation alone has a point every month." }));
     return p;
   }
-  // The figure's own page gives it to the cent, so it can be matched to the workbook; its card rounds it.
   let lead = fig ? String(fig.value).replace(/\.00$/, "") : compact(last[1], main.unit, true), leadNote = null;
   if (!fig && keys[0] === "invest_market" && S.invest_cost) {
     const lc = S.invest_cost.points[S.invest_cost.points.length - 1];
@@ -2931,14 +2677,12 @@ function renderTrend() {
   if (leadNote) big.append(leadNote);
   const rise = deltaOf(main, keys[0]);
   if (rise) big.append(h("div", { class: "fmeta rise" }, rise));
-  // A value the corporation holds is before the tax paid to take it out.
   if (/corp_market|household/.test(keys[0])) big.append(h("div", { class: "fmeta" }, h("span", { class: "asof", text: "Before the tax paid to take money out of the corporation." })));
   p.append(big);
   const ranges = main.points.length > 14 ? [[12, "1 year"], [36, "3 years"], [0, "All"]] : [];
   const holder = h("div", { class: "card glass chartcard" });
   const draw = n => { clear(holder); holder.append(chart(sers, { form: main.form, unit: main.unit, height: 240, legend: sers.length > 1, axis: true, hover: true, range: n })); };
   if (ranges.length) {
-    // What is sent to CRA for payroll opens on its last year (Alvin, 2026-09-14); the rest on three.
     const rs = VIEW.range !== undefined ? VIEW.range : keys[0] === "remit" ? 12 : 36;
     const segs = h("div", { class: "segs range", role: "radiogroup", "aria-label": "How far back" });
     for (const [n, lab] of ranges) {
@@ -2951,7 +2695,6 @@ function renderTrend() {
     swipeAlong(segs, holder, BACK, null);
   } else draw(0);
   p.append(holder);
-  // The same numbers as a list, for reading exactly.
   const tbl = h("div", { class: "list glass", hidden: true });
   const rows = [];
   if (sers.length > 1) rows.push(h("div", { class: "row plain listhead" }, h("span", { text: "Month" }), h("span", { class: "amt" }, sers.map((s2, j) => h("span", { class: "tv" + j, text: s2.label })))));
@@ -2972,7 +2715,6 @@ function renderTrend() {
   return p;
 }
 
-/* ---------- charts: drawn as SVG, no library ---------- */
 
 const SVGNS = "http://www.w3.org/2000/svg";
 function sv(tag, attrs, ...kids) {
@@ -3005,14 +2747,10 @@ function niceTicks(lo, hi, n) {
   if (out[out.length - 1] < hi) out.push(out[out.length - 1] + step);
   return out;
 }
-// A point is an estimate from `est_from` on, or where the series names it (`estimate_keys`, since 2026-09-15: the years
-// whose pay per hour rests mostly on the usual length of a shift).
 function estAt(s2, k) { return !!((s2.est_from && String(k) >= s2.est_from) || (s2.estimate_keys && s2.estimate_keys.includes(String(k)))); }
 function motionOK() { return !(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches); }
 
-// One chart: a line (balances) or columns (amounts by month or year). Redrawn to its width.
 function chart(sers, o) {
-  // A chart read by sliding a finger along it is marked "scrub", so a sideways swipe begun on it is left to it.
   const box = h("div", { class: "chart" + (o.spark ? " spark-chart" : "") + (o.hover !== false && !o.spark ? " scrub" : "") });
   const tip = h("div", { class: "tip", hidden: true });
   if (!o.spark) box.append(tip);
@@ -3020,21 +2758,16 @@ function chart(sers, o) {
   const tOf = k => /^\d{4}$/.test(k) ? new Date(+k, 6, 1).getTime() : /^\d{4}-\d{2}$/.test(k) ? new Date(+k.slice(0, 4), +k.slice(5, 7) - 1, 15).getTime() : (dateOf(k) || new Date(0)).getTime();
   let lastW = 0, first = true;
   const draw = () => {
-    // A chart no longer on the screen is not drawn again (since 2026-09-15: the observer fired once more as each chart
-    // was taken off, and rebuilt it in the empty box at 300 wide; found by the data-flow audit, web-09).
     if (!box.isConnected && !first) return;
     const W = Math.round(box.clientWidth || 300), H = o.height || 160;
     if (!W || W === lastW) return;
     lastW = W;
     const old = box.querySelector("svg"); if (old) old.remove();
     const bars = o.form === "bars";
-    // A range keeps the last so many months by date, not by count.
     const lastT = Math.max(...sers.map(s2 => tOf(s2.points[s2.points.length - 1][0])));
     const fromT = o.range ? lastT - o.range * 30.44 * 864e5 - 15 * 864e5 : -Infinity;
     const S2 = sers.map(s2 => ({ ...s2, points: s2.points.filter(p2 => tOf(p2[0]) >= fromT) })).filter(s2 => s2.points.length);
     if (!S2.length) return;
-    // A line chart of several histories reads every date any of them has (the household's year ends over the
-    // corporation's months); columns keep the first history's.
     const keys = bars || S2.length === 1 ? S2[0].points.map(p2 => p2[0])
       : [...new Set(S2.flatMap(s2 => s2.points.map(p2 => p2[0])))].sort((a1, b1) => tOf(a1) - tOf(b1));
     const vals = S2.flatMap(s2 => s2.points.map(p2 => p2[1]));
@@ -3055,7 +2788,6 @@ function chart(sers, o) {
         svg.append(sv("line", { class: "grid", x1: L, x2: W - R, y1: y(t), y2: y(t) }));
         svg.append(sv("text", { class: "ax", x: L - 6, y: y(t) + 4, "text-anchor": "end" }, document.createTextNode(compact(t, S2[0].unit))));
       }
-      // The time axis: each January named by its year; within a single year, every other month.
       const monthly = keys.every(k => /^\d{4}-\d{2}$/.test(k)), yearly = keys.every(k => /^\d{4}$/.test(k));
       const span = (t1 - t0) / (30.44 * 864e5);
       const labs = [];
@@ -3096,12 +2828,9 @@ function chart(sers, o) {
           svg.append(bar);
         });
       } else {
-        // A gap of more than forty days in a monthly history is a break in the line, not a straight step.
-        // A gap is judged against the history's own spacing: months for a monthly one, a year for a yearly one.
         const steps = s2.points.slice(1).map((p2, i) => tOf(p2[0]) - tOf(s2.points[i][0])).sort((a1, b1) => a1 - b1);
         const usual = steps.length ? steps[Math.floor(steps.length / 2)] : 0;
         const segs = [[]];
-        // Points from `est_from` on are estimates: the line into them is dashed, and the last dot hollow.
         const ei = s2.est_from ? s2.points.findIndex(p2 => String(p2[0]) >= s2.est_from) : -1;
         const solidN = ei > 0 ? ei : s2.points.length;
         s2.points.slice(0, solidN).forEach((p2, i) => {
@@ -3116,7 +2845,6 @@ function chart(sers, o) {
           svg.append(sv("path", { class: "line s" + j + (anim ? " draw" : ""), d: dOf(seg) }));
         }
         if (estSeg) svg.append(sv("path", { class: "line est s" + j, d: dOf(estSeg) }));
-        // A history of a few points (the household's year ends) shows each one.
         if (s2.points.length <= 6 && !o.spark) for (const q of segs.flat()) svg.append(sv("circle", { class: "end s" + j, cx: q[0], cy: q[1], r: 3.2 }));
         const all = estSeg || segs[segs.length - 1], e = all[all.length - 1];
         if (!o.spark || j === 0) svg.append(sv("circle", { class: "end s" + j + (estSeg ? " est" : ""), cx: e[0], cy: e[1], r: o.spark ? 2.6 : 4 }));
@@ -3143,10 +2871,9 @@ function chart(sers, o) {
           const pt = s2.points.find(q => q[0] === keys[i]);
           if (!pt) return null;             // a history with no point on this date says nothing
           const est = estAt(s2, pt[0]);
-          return h("div", { class: "tr" }, S2.length > 1 ? h("span", { class: "sw s" + j }) : null, h("span", { text: (S2.length > 1 ? s2.label + ": " : "") + (est ? "about " : "") + compact(pt[1], s2.unit, true) }));
+          return h("div", { class: "tr" }, S2.length > 1 ? h("span", { class: "sw s" + j }) : null, h("span", { text: (S2.length > 1 ? s2.label + ": " : "") + (est && !s2.est_word ? "about " : "") + compact(pt[1], s2.unit, true) + (est && s2.est_word ? ", " + s2.est_word : "") }));
         }).filter(Boolean));
         tip.hidden = false;
-        // On the side away from the pointer, so it never covers the point being read.
         const tx = xs[i] / W * box.clientWidth, tw = tip.offsetWidth, cw = box.clientWidth;
         tip.style.left = (tx > cw / 2 ? Math.max(0, tx - tw - 14) : Math.min(cw - tw, tx + 14)) + "px";
       };
@@ -3155,7 +2882,6 @@ function chart(sers, o) {
       hit.addEventListener("pointerleave", hide); hit.addEventListener("pointercancel", hide);
     }
   };
-  // Redrawn on the next frame, so a redraw that changes the box's height never loops back into the observer.
   if (window.ResizeObserver) {
     const ro = new ResizeObserver(() => { if (!box.isConnected && !first) { ro.disconnect(); return; } requestAnimationFrame(draw); });
     ro.observe(box);
@@ -3164,18 +2890,14 @@ function chart(sers, o) {
   return box;
 }
 
-// Where a figure comes from, in words: the workings or the record it was read from.
 function plainSource(src) {
   const m = /^(models|ledger)\/([^/]+?)(?:\/|\.csv)/.exec(src || "");
   if (!m) return "From " + String(src || "").replace(/\s*\([^)]*\)\s*$/, "");
   const name = m[2].replace(/-/g, " ").replace(/\bqt\b/, "Questrade").replace(/\bcorp\b/, "corporate");
-  // What the source says after its file is kept: an assumption, or a month from a year tab (since 2026-09-15;
-  // found by the data-flow audit, pres-14).
   const more = /[;,]\s*(.+)$/.exec(String(src).slice(m.index + m[0].length));
   return (m[1] === "models" ? `Worked out in the ${name} workings` : `Read from the ${name} record`) + (more ? `; ${more[1].replace(/\.$/, "")}` : "");
 }
 
-/* ---------- Settings ---------- */
 
 function renderSettings() {
   const p = h("div", { class: "page narrow" });
@@ -3220,7 +2942,7 @@ function renderSettings() {
       h("div", { class: "fields" }, h("div", { class: "field" }, h("label", { for: "token", text: "New key" }), inp),
         h("button", { class: "row plain", type: "button", onclick: () => replaceKey(inp) }, h("span", { class: "title link", text: "Save the new key" }), h("span", {}))))),
     h("p", { class: "foot", text: "The key lets this page read your private mailbox on GitHub and post what you send to it, nothing else. One key per device: if a device is lost, delete its key on GitHub." }),
-    h("p", { class: "foot", text: "Only what you send from Add leaves this device. The MacBook collects it within 15 minutes of being open, and blacks out anything shaped like a card, account or SIN number before it is written down. Never type a password here." }),
+    h("p", { class: "foot", text: "Only what you send from Add leaves this device. This page refuses to send text holding a number shaped like a SIN, a card, an account or a phone number. What you send waits in your private mailbox until the MacBook collects it, within 15 minutes of being open, and blacks out anything of that shape it still finds before it is written down. Never type a password here." }),
   ));
 
   p.append(h("button", { class: "btn danger wide", type: "button", onclick: () => sheet("Erase this device's copy?",
@@ -3238,13 +2960,10 @@ async function replaceKey(inp) {
   toast(NET === "ok" ? "The key works." : NET_MSG);
 }
 function looksLikeKey(v) {
-  // A fine-grained GitHub key begins "github", "pat", joined by underscores. The prefix is built
-  // here rather than written out, so the repository's credential check never mistakes this line for a key.
   const prefix = ["github", "pat", ""].join("_");
   return v.startsWith(prefix) && /^[A-Za-z0-9_]{30,}$/.test(v);
 }
 
-/* ---------- the lock screen ---------- */
 
 let LOCK = { mode: "unlock", pin: "", first: "", msg: "", bad: false, busy: false, migrating: false };
 
@@ -3295,8 +3014,6 @@ function drawLock() {
   };
   const [t, s] = titles[LOCK.mode] || ["", ""];
   inner.append(h("h1", { text: t }));
-  // Built once for each step; a digit only lights a dot (updateLock). Until 2026-09-14 every digit rebuilt
-  // the whole screen, which replayed its entrance and made it flicker and jump (Alvin, 2026-09-14).
   const sub = h("p", { class: "sub" });
   const dots = h("div", { class: "dots", "aria-hidden": "true" });
   for (let i = 0; i < PIN_LEN; i++) dots.append(h("span", {}));
@@ -3322,8 +3039,6 @@ function drawLock() {
   updateLock();
 }
 
-// A key on the passcode pad answers as the finger lands, not when it lifts, and never counts twice for one
-// touch; the pad's CSS stops a quick second tap from zooming the page.
 function tapKey(b, fn) {
   let viaPointer = false;
   b.addEventListener("pointerdown", ev => { if (ev.button > 0 || b.disabled) return; viaPointer = true; ev.preventDefault(); fn(); });
@@ -3381,7 +3096,6 @@ async function complete() {
     afterUnlock(m === "setup-confirm");
     return;
   }
-  // unlock, or the first step of changing it
   const lo = lockout();
   if (lo.until > Date.now()) { LOCK.pin = ""; updateLock(); return; }
   LOCK.busy = true; LOCK.msg = "Checking…"; updateLock();
@@ -3417,8 +3131,14 @@ function afterUnlock(fresh) {
   if (!fresh || NET !== "ok") refresh().then(flush); else flush();
 }
 
+function dropNeighbours() {
+  NB = { ver: -1 }; clearTimeout(NB_TIMER);
+  for (const x of document.querySelectorAll("main.peek, .peek-part")) x.remove();
+}
 function lockNow() {
-  persist();
+  dropNeighbours();
+  const saved = persist();
+  if (NEW_PAGE) saved.then(() => location.reload());
   historyBack(STACK.length + (VIEW ? 1 : 0));    // the pages' history steps go with the pages
   GEN++;
   MEM = null; VKEY = null; VMETA = null; SNAP = null; SCHEMA = null; VIEW = null; STACK = [];
@@ -3426,12 +3146,10 @@ function lockNow() {
   lockScreen(hasVault() ? "unlock" : "setup-key");
 }
 
-/* Auto-lock: after the chosen minutes away from the page, or idle on it. */
-let LAST = Date.now(), HIDDEN_AT = 0;
+let LAST = Date.now(), HIDDEN_AT = 0, NEW_PAGE = false;
 function touch() { LAST = Date.now(); }
 function autolockMs() { return load("autolock", 5) * 60000; }
 function lockShowing() { return !document.getElementById("lock").hidden; }
-// Idle on the page: "At once" means on leaving it, so idleness still waits a minute.
 function checkIdle() { if (MEM && !lockShowing() && Date.now() - LAST > Math.max(autolockMs(), 60000)) lockNow(); }
 function awayCheck() {
   document.body.classList.remove("veiled");
@@ -3439,10 +3157,7 @@ function awayCheck() {
   return false;
 }
 
-/* ---------- start ---------- */
 
-// Locked, there is no vault key to fold old entries in with, so they are kept aside in memory until the
-// unlock, and the old names are removed from storage at once.
 let PENDING_OLD = [];
 function sweepOldAtStart() {
   try { const o = JSON.parse(rawGet(OLD.outbox) || "null"); if (Array.isArray(o)) PENDING_OLD = o; } catch (e) { /* ignore */ }
@@ -3465,7 +3180,10 @@ async function boot() {
   document.addEventListener("touchmove", gMove, { passive: false });
   document.addEventListener("touchend", gEnd, { passive: true });
   document.addEventListener("touchcancel", gEnd, { passive: true });
-  document.addEventListener("click", ev => { if (Date.now() < NO_CLICK_UNTIL) { ev.stopPropagation(); ev.preventDefault(); return; } neighboursStale(); }, true);
+  document.addEventListener("click", ev => {
+    if (Date.now() < NO_CLICK_UNTIL) { ev.stopPropagation(); ev.preventDefault(); return; }
+    if (!(ev.target && ev.target.closest && ev.target.closest(".bdot, .pop"))) neighboursStale();
+  }, true);
   if (window.ResizeObserver) new ResizeObserver(measureBar).observe(document.getElementById("bar"));
   window.addEventListener("resize", measureBar);
   window.addEventListener("popstate", () => {
@@ -3474,7 +3192,13 @@ async function boot() {
   });
   for (const ev of ["pointerdown", "keydown", "scroll", "touchstart"]) window.addEventListener(ev, touch, { passive: true });
   setInterval(checkIdle, 20000);
-  setInterval(() => { if (MEM && !lockShowing()) renderChrome(); }, 60000);   // "5 min ago" keeps counting
+  let wasStale = null;
+  setInterval(() => {
+    if (!MEM || lockShowing()) return;
+    const stale = !!(SNAP && hoursSince(SNAP.checked_at) > STALE_HOURS);
+    if (wasStale !== null && stale !== wasStale) quietRender(); else renderChrome();
+    wasStale = stale;
+  }, 60000);
   document.addEventListener("keydown", ev => {
     if (document.getElementById("lock").hidden || document.querySelector(".scrim") || LOCK.mode === "setup-key") return;
     if (ev.target && /^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName)) return;
@@ -3491,18 +3215,23 @@ async function boot() {
   window.addEventListener("pageshow", () => { awayCheck(); });
   window.addEventListener("online", () => { if (MEM) { flush(); refresh(); } });
 
-  // The settings saved last time open the passcode screen at once; the fresh copy is fetched meanwhile (since
-  // 2026-09-15: the screen waited on this fetch, one trip to GitHub and back). Only a first visit waits.
   const fresh = fetch("config.json", { cache: "no-store" }).then(r => r.json()).then(c => { CFG = c; save("cfg", c); }).catch(() => {});
   CFG = load("cfg", null);
   if (!CFG) await fresh;
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => { /* the page works without it, only not offline */ });
+  if ("serviceWorker" in navigator) {
+    const had = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!had) return;
+      if (!MEM && LOCK.mode === "unlock" && !LOCK.pin && !LOCK.busy) location.reload(); else NEW_PAGE = true;
+    });
+    navigator.serviceWorker.register("sw.js").then(reg => {
+      document.addEventListener("visibilitychange", () => { if (!document.hidden) reg.update().catch(() => {}); });
+    }).catch(() => { /* the page works without it, only not offline */ });
+  }
 
-  // Opening the page shows the passcode screen at once; it fades in only when the page locks itself later.
   document.getElementById("lock").classList.add("at-start");
   setTimeout(() => document.getElementById("lock").classList.remove("at-start"), 1000);
   if (hasVault()) { sweepOldAtStart(); lockScreen("unlock"); return; }
-  // Before the lock existed, the key and the rest sat in the clear. Move them into a vault now.
   const oldToken = (() => { try { return JSON.parse(rawGet(OLD.token) || "null"); } catch (e) { return null; } })();
   if (oldToken) {
     MEM = {};
