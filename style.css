@@ -1,6 +1,3 @@
-/* The Finance System web page. Apple's system font and colours, frosted glass over a soft coloured
-   ground, no accent borders. Light and dark follow the device. Phone: a tab bar at the bottom.
-   Wider than 900px: the tabs sit in the top bar and Today uses two columns. Redesigned 2026-09-13. */
 :root {
   --c0: #007AFF; --c1: #0E9F8A;
   --ground: #EEF1F6; --seg-on: rgba(255, 255, 255, .95); --scrim: rgba(0, 0, 0, .28);
@@ -37,7 +34,6 @@ body {
   font: 17px/1.42 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
   letter-spacing: -.01em; -webkit-font-smoothing: antialiased;
 }
-/* The coloured ground the glass sits on: three soft glows, fixed so they do not scroll away. */
 body::before {
   content: ""; position: fixed; inset: -20vmax; z-index: -1; pointer-events: none;
   background:
@@ -51,7 +47,6 @@ body::before {
   box-shadow: inset 0 1px 0 var(--glass-edge), var(--shadow);
 }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
-/* Small controls keep a 44-point target: an invisible margin around what shows. */
 .btn.small, .segs button, .seg button, .sync, .back, .link, .icon-btn { position: relative; }
 .btn.small::after, .segs button::after, .seg button::after, .sync::after, .back::after, .link::after { content: ""; position: absolute; inset: -7px -4px; }
 button:disabled { opacity: .45; cursor: default; }
@@ -63,10 +58,6 @@ button:disabled { opacity: .45; cursor: default; }
 .small { font-size: .82rem; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-/* ---------- the top bar ----------
-   Fixed, like the tab bar, since 2026-09-14: pulling down at the top of a page moves only the middle, never the
-   bar (Alvin: "the top navigation bar should still stay pinned, just like the bottom task bar"). The page is
-   pushed below it by its height, --bar-h, which app.js measures (measureBar). */
 .bar {
   position: fixed; top: 0; left: 0; right: 0; z-index: 20;
   padding: max(8px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left));
@@ -98,7 +89,6 @@ button:disabled { opacity: .45; cursor: default; }
 .sync.bad .dot { background: var(--red); }
 .sync.bad { color: var(--red); }
 
-/* ---------- the tabs: a segmented control on wide screens, a tab bar on the phone ---------- */
 .seg { display: none; }
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
@@ -113,16 +103,11 @@ button:disabled { opacity: .45; cursor: default; }
 .tabbar button { min-height: 50px; }
 body.in-form .tabbar { display: none; }
 
-/* ---------- pages ---------- */
 main {
   max-width: 1080px; margin: 0 auto; position: relative;
   padding: var(--bar-h, calc(max(8px, env(safe-area-inset-top)) + 60px)) max(16px, env(safe-area-inset-right)) calc(var(--tabbar-h) + 40px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
 }
 html { scroll-padding-top: calc(var(--bar-h, 64px) + 8px); }
-/* No overflow rule on #app, the box that holds the two fixed bars. One was added on 2026-09-14 so a page dragged
-   sideways could not widen the screen; on the iPhone it made both bars scroll away with the page (Alvin's screenshot
-   the same night): Safari clips overflow-x: clip in both directions, and ties fixed bars inside it to the page.
-   A sideways drag cannot scroll the screen anyway, since the swipe stops the browser's own panning. */
 body.in-form main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 .page { display: grid; gap: 22px; }
 .head { display: grid; gap: 2px; padding: 4px 4px 0; }
@@ -138,7 +123,6 @@ body.in-form main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 .card h3 { margin: 0; font-size: 1.05rem; font-weight: 650; letter-spacing: -.015em; }
 .card p { margin: 0; }
 
-/* Lists, in the style of an iPhone's settings: rows with hairline separators inside one glass card. */
 .list { border-radius: var(--radius); padding: 0; margin: 0; list-style: none; overflow: hidden; }
 .row {
   position: relative; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px;
@@ -162,7 +146,6 @@ button.row:active { background: var(--fill); }
 .row .detail svg { width: 12px; height: 12px; flex: none; margin-top: 4px; transform: rotate(90deg); color: var(--ink-3); }
 .row.open .detail svg { transform: rotate(-90deg); }
 
-/* A date shown as a small calendar leaf. */
 .day { width: 46px; border-radius: 11px; background: var(--fill); display: grid; justify-items: center; padding: 5px 0 6px; line-height: 1.05; }
 .day .wd { font-size: .64rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--red); }
 .day .dn { font-size: 1.2rem; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -174,7 +157,6 @@ button.row:active { background: var(--fill); }
 .ico.red { background: var(--red); } .ico.purple { background: var(--purple); } .ico.gray { background: var(--ink-3); }
 .ico.yellow { background: var(--yellow); }
 
-/* Things that need Alvin: tinted, never bordered. */
 .alert { border-radius: var(--radius); padding: 14px 16px; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-items: start; }
 .alert { background: var(--glass); -webkit-backdrop-filter: blur(28px) saturate(170%); backdrop-filter: blur(28px) saturate(170%); box-shadow: inset 0 1px 0 var(--glass-edge), var(--shadow); }
 .alert .ico { grid-row: span 4; }
@@ -185,7 +167,6 @@ button.row:active { background: var(--fill); }
 .alert .d { font-size: .9rem; color: var(--ink-2); }
 .alert .acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 
-/* Buttons. */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 12px 18px; border-radius: 14px; font-weight: 600; min-height: 48px; }
 .btn.primary { background: var(--accent); color: var(--accent-ink); }
 @media (hover: hover) { .btn.primary:hover { filter: brightness(1.06); } }
@@ -196,7 +177,6 @@ button.row:active { background: var(--fill); }
 .btn.wide { width: 100%; }
 .link { color: var(--accent); font-weight: 500; }
 
-/* The bank visit, the one recurring action on Today. */
 .visit { border-radius: 24px; padding: 20px; display: grid; gap: 14px; }
 .visit .top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 8px 16px; }
 
@@ -212,7 +192,6 @@ button.row:active { background: var(--fill); }
 .visit .item .amt { font-weight: 600; font-variant-numeric: tabular-nums; }
 .visit .item .onscreen { color: var(--ink-2); font-weight: 500; }
 
-/* Figures on Numbers. */
 .figs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: stretch; }
 .fig { border-radius: var(--radius); padding: 16px; display: grid; gap: 6px; align-content: start; text-align: left; width: 100%; }
 .fig.hero { grid-column: 1 / -1; padding: 22px; }
@@ -231,7 +210,6 @@ button.row:active { background: var(--fill); }
 .basis.recorded::before { background: var(--yellow); } .basis.estimate::before { background: var(--orange); }
 .basis.measured::before { background: var(--purple); }
 
-/* Add: the kinds of entry, as tiles. */
 .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .tile { border-radius: var(--radius); padding: 16px; display: grid; gap: 10px; align-content: start; text-align: left; min-height: 118px; }
 @media (hover: hover) { .tile:hover { background: var(--glass-strong); } }
@@ -245,7 +223,6 @@ button.row:active { background: var(--fill); }
 .chip.red { background: var(--red-soft); color: var(--red); }
 .chip.blue { background: var(--accent-soft); color: var(--accent); }
 
-/* ---------- forms ---------- */
 form { display: grid; gap: 22px; }
 .group { display: grid; gap: 6px; }
 .group > .gh { padding: 0 16px; font-size: .8rem; font-weight: 600; color: var(--ink-2); text-transform: uppercase; letter-spacing: .04em; }
@@ -271,13 +248,11 @@ form { display: grid; gap: 22px; }
 .pair + .field::before, .field + .pair::before, .pair + .pair::before { content: ""; position: absolute; top: 0; right: 0; left: 16px; height: 1px; background: var(--sep); transform: scaleY(.6); }
 .pair > .field + .field::before { top: 10px; bottom: 10px; left: 0; right: auto; width: 1px; height: auto; transform: scaleX(.6); }
 
-/* A segmented choice (Yes / No, How it was paid). */
 .segs { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; padding: 2px; border-radius: 10px; background: var(--fill); margin-top: 4px; }
 .segs button { padding: 7px 6px; border-radius: 8px; font-size: .9rem; font-weight: 600; color: var(--ink-2); }
 .segs { min-height: 38px; }
 .segs button[aria-checked="true"] { background: var(--seg-on); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
 
-/* A tick row (the bank visit's payments). */
 .tick { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 12px; padding: 13px 16px; width: 100%; text-align: left; position: relative; }
 .tick + .tick::before { content: ""; position: absolute; top: 0; right: 0; left: 16px; height: 1px; background: var(--sep); transform: scaleY(.6); }
 .tick .box { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink-3); color: transparent; }
@@ -285,7 +260,6 @@ form { display: grid; gap: 22px; }
 .tick[aria-checked="true"] .box { background: var(--green); box-shadow: none; color: #fff; }
 .tick[aria-checked="true"] .title { color: var(--ink-2); }
 
-/* Folded sections of a form. */
 details.more { border-radius: var(--radius); overflow: hidden; }
 .list details.more > summary { font-weight: 400; }
 .list > details.more { position: relative; border-radius: 0; }
@@ -315,7 +289,6 @@ details.more > .fields::before { content: ""; display: block; height: 1px; margi
 .question-card { border-radius: var(--radius); padding: 16px; display: grid; gap: 6px; }
 .question-card .q { font-weight: 600; font-size: 1.05rem; letter-spacing: -.01em; }
 
-/* The send button, fixed at the bottom of a form. */
 .formbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; justify-content: center;
   padding: 12px max(16px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
@@ -324,7 +297,6 @@ details.more > .fields::before { content: ""; display: block; height: 1px; margi
 }
 .formbar .btn { width: 100%; max-width: 640px; }
 
-/* ---------- sheets, toasts ---------- */
 .scrim { position: fixed; inset: 0; z-index: 40; background: var(--scrim); display: grid; align-items: end; justify-items: center; }
 .sheet {
   width: 100%; max-width: 560px; max-height: 86vh; overflow: auto; border-radius: 24px 24px 0 0;
@@ -341,7 +313,6 @@ details.more > .fields::before { content: ""; display: block; height: 1px; margi
   background: var(--glass-strong); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); box-shadow: var(--shadow);
 }
 
-/* ---------- the lock ---------- */
 .lock {
   position: fixed; inset: 0; z-index: 60; display: grid; justify-items: center; align-content: start; overflow: auto;
   padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
@@ -375,10 +346,8 @@ details.more > .fields::before { content: ""; display: block; height: 1px; margi
 .lock .keybox input::placeholder { color: var(--ink-2); }
 .lock .help { font-size: .8rem; color: var(--ink-2); }
 .lock .steps { font-size: .85rem; color: var(--ink-2); text-align: left; display: grid; gap: 6px; }
-/* While the page is away from the screen, nothing of it shows (the iPhone's app switcher takes a picture). */
 body.veiled #app { visibility: hidden; }
 
-/* ---------- wider screens: from 600px the tabs sit in the top bar; from 900px Today has two columns ---------- */
 @media (min-width: 600px) {
   .brand { display: block; }
 
@@ -416,13 +385,11 @@ body.veiled #app { visibility: hidden; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
-/* A choice with longer answers: the chosen row gets the tick, in the accent colour. */
 .tick.radio .box { background: transparent; box-shadow: none; }
 .tick.radio[aria-checked="true"] .box { background: transparent; color: var(--accent); }
 .tick.radio[aria-checked="true"] .title { color: var(--ink); }
 .ticks.bad, .field.bad { background: var(--red-soft); }
 
-/* Receipts to explain: a date leaf, what it was, the amount. */
 details.fold { display: grid; gap: 8px; }
 details.fold > summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 0 4px; font-size: 1.22rem; font-weight: 700; letter-spacing: -.02em; margin-top: 10px; }
 details.fold > summary::-webkit-details-marker { display: none; }
@@ -431,7 +398,6 @@ details.fold[open] > summary .when-closed, details.fold:not([open]) > summary .w
 .row .overdue { color: var(--red); }
 .row .title.link { color: var(--accent); }
 
-/* While typing a form, the bar holds only the way back. */
 @media (max-width: 599px) { body.in-form .bar-right { visibility: hidden; } }
 .bar-done { display: none; color: var(--accent); font-weight: 600; padding: 10px 2px; min-height: 44px; }
 body.in-settings .bar-done { display: inline-flex; align-items: center; }
@@ -442,7 +408,6 @@ body.in-settings main { padding-bottom: 60px; }
 .head.with-done { grid-template-columns: 1fr auto; align-items: end; }
 .head .done { color: var(--accent); font-weight: 600; font-size: 1.05rem; padding: 10px 2px; }
 
-/* The key is shown as dots without being a password field, so no browser offers to save it. */
 input.masked { -webkit-text-security: disc; }
 @media (min-width: 600px) and (max-width: 759px) { .brand { display: none !important; } }
 .visit .total .est { display: flex; align-items: center; gap: 6px; }
@@ -455,8 +420,6 @@ input.masked { -webkit-text-security: disc; }
 .sweep .res .v.approx { color: var(--ink); }
 .sweep .warnline { color: var(--orange); font-weight: 500; }
 
-/* ---------- 2026-09-14, second pass: menus, drafts, search, badges, the Summary's charts, motion ---------- */
-/* A fixed choice is a menu: the chosen answer, and the up-and-down arrows that say it opens. */
 .field.menu { position: relative; }
 .field.menu select { background-image: none; padding-right: 28px; color: var(--ink); }
 .field.menu .menu-arrows { position: absolute; right: 14px; bottom: 16px; width: 16px; height: 16px; color: var(--ink-3); pointer-events: none; }
@@ -473,7 +436,6 @@ input.masked { -webkit-text-security: disc; }
 .tabbar button, .seg button { position: relative; }
 .seg .tab-badge { position: static; margin-left: 6px; }
 
-/* The Summary: each figure with its trend. */
 .fig { grid-row: span 4; grid-template-rows: subgrid; }
 .fig .spark { display: block; min-height: 34px; }
 .fig.hero .spark { min-height: 56px; }
@@ -494,7 +456,6 @@ input.masked { -webkit-text-security: disc; }
 .trend-actions { display: flex; justify-content: flex-start; }
 .tv1 { margin-left: 12px; color: var(--ink-2); }
 
-/* Charts. Thin marks, one hue per series, recessive grid; text in text colours. */
 .chart { position: relative; width: 100%; }
 .chart svg { display: block; overflow: visible; touch-action: pan-y; }
 .chart .grid { stroke: var(--sep); stroke-width: 1; }
@@ -521,7 +482,6 @@ input.masked { -webkit-text-security: disc; }
 
 @media (min-width: 600px) { .trend-cards { grid-template-columns: 1fr 1fr; } }
 
-/* ---------- motion: quick, soft, and off when the device asks for less ---------- */
 @media (prefers-reduced-motion: no-preference) {
   .page.enter { animation: pageIn .32s cubic-bezier(.2, .8, .2, 1) backwards; }
   @keyframes pageIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
@@ -573,21 +533,16 @@ input.masked { -webkit-text-security: disc; }
 .fmeta.rise .basis { display: inline-flex; margin-right: 8px; vertical-align: 1px; }
 .fmeta.rise .delta { display: inline; font-weight: 500; }
 .fmeta.rise { font-weight: 500; }
-/* The search field's clear button: a grey circle with a cross, as on the iPhone. */
 .searchbox input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; cursor: pointer;
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%238A909C'/%3E%3Cpath d='M8.5 8.5l7 7M15.5 8.5l-7 7' stroke='white' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") center / 18px no-repeat; }
-/* The estimate label sits under its payment's name, in the same place on every row. */
 .visit .item .what { display: block; }
 .visit .item .what .chip { display: table; margin-top: 4px; }
 
-/* ---------- 2026-09-14, night: the Summary in three parts, the dots, the new shift form ---------- */
 :root { --c2: #8E5BD9; }
 @media (prefers-color-scheme: dark) { :root { --c2: #A874F0; } }
-/* The passcode pad: a digit answers as the finger lands, and a quick second tap never zooms the page. */
 .lock, .pad button { touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .pad button.txt { min-width: 76px; }
 
-/* A figure's top line: its name, and at the right the dot saying how sure it is. */
 .ftop { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; min-width: 0; }
 .ftop .l, .ftop h3 { min-width: 0; }
 .trend-top .ftop .l { font-size: .9rem; font-weight: 600; color: var(--ink-2); padding-top: 3px; }
@@ -608,13 +563,11 @@ input.masked { -webkit-text-security: disc; }
 @media (prefers-reduced-motion: no-preference) { .pop { animation: popIn .18s cubic-bezier(.2, .9, .25, 1) both; } }
 @keyframes popIn { from { opacity: 0; transform: translateY(-4px) scale(.97); } to { opacity: 1; transform: none; } }
 
-/* Cards that open a page. */
 .fig.tappable, .trendcard.tappable { cursor: pointer; }
 @media (hover: hover) { .fig.tappable:hover, .trendcard.tappable:hover { background: var(--glass-strong); } }
 .fig.hero .v { font-variant-numeric: normal; }
 .fig .fmeta:empty { display: none; }
 
-/* The Summary's three parts, and the filters on its pages. */
 .segs.partseg { max-width: 460px; width: 100%; justify-self: center; margin-top: 0; }
 .segs.partseg button { padding: 8px 6px; font-size: .92rem; }
 .segs.wide { max-width: none; }
@@ -626,7 +579,6 @@ input.masked { -webkit-text-security: disc; }
 @media (hover: hover) { .chip-b:not([aria-checked="true"]):hover { background: var(--sep); } }
 .fadein { animation: fadeIn .22s ease both; }
 
-/* A bar in parts: the household split, an account's room. A 2px gap between the parts. */
 .meter { display: flex; gap: 2px; height: 12px; border-radius: 6px; overflow: hidden; width: 100%; }
 .meter.thin { height: 8px; border-radius: 4px; }
 .meter .mseg { min-width: 3px; border-radius: 2px; }
@@ -642,7 +594,6 @@ input.masked { -webkit-text-security: disc; }
 .fig .spark .list.flat { margin-top: 6px; }
 .fig .spark .row.legendrow { padding-top: 9px; padding-bottom: 9px; min-height: 0; }
 
-/* Bars across, with their names and values written out: pay per hour by place, by year, by site. */
 .hbars { display: grid; gap: 4px; }
 .hb { display: grid; grid-template-columns: minmax(84px, 32%) minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 7px 0; text-align: left; width: 100%; }
 .hb.tap { grid-template-columns: minmax(84px, 32%) minmax(0, 1fr) auto 14px; border-radius: 10px; }
@@ -656,7 +607,6 @@ input.masked { -webkit-text-security: disc; }
 .hb-f.dim { opacity: .38; }
 .hb-v { font-weight: 650; font-size: .92rem; white-space: nowrap; }
 
-/* An account's page. */
 .roomcard { gap: 12px; }
 .legend3 { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .9rem; color: var(--ink); }
 .legend3 > span { display: inline-flex; align-items: center; gap: 6px; }
@@ -670,7 +620,6 @@ input.masked { -webkit-text-security: disc; }
 .life-h { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-size: .92rem; font-weight: 600; }
 .life-h b { font-weight: 700; }
 
-/* The shift form: where first, as a row of choices; then site and shift as menus. */
 .pills { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .pills button { min-height: 48px; padding: 10px 6px; border-radius: 14px; font-weight: 650; font-size: .98rem; background: var(--glass);
   -webkit-backdrop-filter: blur(28px) saturate(170%); backdrop-filter: blur(28px) saturate(170%); box-shadow: inset 0 1px 0 var(--glass-edge), var(--shadow); }
@@ -702,7 +651,6 @@ details.identity .fields.glass, details.identity .pills button { box-shadow: ins
 .pop .pop-all > span.on { color: var(--ink); font-weight: 650; }
 .pop .pop-all .bd { width: 7px; height: 7px; box-shadow: none; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .hb-f.dim { opacity: .55; } }
-/* A card that opens something: the button laid over it, the dot above that. */
 .tap-host { position: relative; }
 .tap-hit { position: absolute; inset: 0; z-index: 1; width: 100%; border-radius: inherit; cursor: pointer; }
 .tap-hit:focus-visible { outline-offset: -3px; }
@@ -710,18 +658,12 @@ details.identity .fields.glass, details.identity .pills button { box-shadow: ins
 @media (hover: hover) { .row.tap-host:hover { background: var(--fill); } }
 .row.tap-host:has(.tap-hit:active) { background: var(--fill); }
 .fig.tap-host:has(.tap-hit:active), .trendcard.tap-host:has(.tap-hit:active) { transform: scale(.992); }
-/* Estimate is a ring, not a dot: it must never be mistaken for recorded's gold, and it is the one to heed. */
 .bdot.estimate .d, .bd.estimate { background: transparent; box-shadow: inset 0 0 0 3px var(--orange), 0 0 0 2.5px var(--glass-strong); }
 .pop .pop-all .bd.estimate { box-shadow: inset 0 0 0 1.8px var(--orange); }
 .field .money { gap: 4px; }
 .foot.warnline { color: var(--orange); }
-/* A card across the whole row lines its rows up with no neighbour, so it sizes itself. WebKit (iPhone Safari)
-   sized a full-width card's rows from the grid instead, and the Personal card's account rows spilled out of it
-   (Alvin's screenshot, 2026-09-14). */
 .fig.hero, .fig.wide { grid-row: auto; grid-template-rows: none; }
 
-/* ---------- 2026-09-14, late: pull to refresh, sideways swipes, a calmer month-end card, keeping a charge without a receipt ---------- */
-/* Pull to refresh: the circle sits in the gap the pull opens between the fixed bar and the page. */
 .ptr { position: fixed; left: 0; right: 0; top: var(--bar-h, 60px); height: 110px; z-index: 15; display: grid; justify-items: center; align-items: start; overflow: hidden; pointer-events: none; }
 .ptr-i { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; opacity: 0; color: var(--ink-2);
   background: var(--glass-strong); box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 4px 14px rgba(20, 30, 60, .14); }
@@ -730,7 +672,6 @@ details.identity .fields.glass, details.identity .pills button { box-shadow: ins
 .ptr.busy .ptr-i svg { animation: ptrSpin .8s linear infinite; }
 @keyframes ptrSpin { to { transform: rotate(360deg); } }
 main.settle, .ptr.settle .ptr-i { transition: transform .3s cubic-bezier(.2, .9, .25, 1), opacity .3s; }
-/* A page, or a part of one, reached by a swipe slides in from the side the finger came from. */
 @media (prefers-reduced-motion: no-preference) {
   .enter-r { animation: fromRight .3s cubic-bezier(.2, .8, .2, 1) backwards; }
   .enter-l { animation: fromLeft .3s cubic-bezier(.2, .8, .2, 1) backwards; }
@@ -738,7 +679,6 @@ main.settle, .ptr.settle .ptr-i { transition: transform .3s cubic-bezier(.2, .9,
   @keyframes fromLeft { from { opacity: 0; transform: translateX(-44px); } to { opacity: 1; transform: none; } }
 }
 
-/* The month-end card: when on one line, the total, one line per payment. */
 .visit { gap: 12px; }
 .visit .when-line { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .visit .when-line .when { font-size: 1.08rem; font-weight: 650; letter-spacing: -.015em; line-height: 1.2; }
@@ -755,16 +695,10 @@ main.settle, .ptr.settle .ptr-i { transition: transform .3s cubic-bezier(.2, .9,
 .visit .total .bd.estimate { width: 11px; height: 11px; box-shadow: inset 0 0 0 2.6px var(--orange); }
 .visit-foot { margin: -2px 0 0; display: flex; align-items: center; gap: 7px; font-size: .8rem; color: var(--ink-2); }
 
-/* A charge with no receipt: its button to keep it without one sits above the row's own tap. */
 .row .keep { position: relative; z-index: 2; justify-self: start; margin-top: 8px; min-height: 30px; padding: 4px 12px; font-size: .84rem; }
 .row.kept .title { color: var(--green); }
 .row.kept { grid-template-columns: auto 1fr auto; }
 
-/* ---------- 2026-09-14, later: the phone's heading, the sliding swipe, compact Coming up, expected income ---------- */
-/* On the three tabs the phone has no top bar: the title sits at the top of the screen, with when the figures were
-   updated and the gear at its right (Alvin: "a lot of wasted space in the header for just the settings icon").
-   A slim bar with the page's name fades in only once the title has scrolled away. Pages opened from a tab keep the
-   bar, for its way back. */
 .head.with-status { grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 10px; }
 .head.with-status .sub { grid-column: 1 / -1; }
 .head-right { display: flex; align-items: center; gap: 2px; min-width: 0; }
@@ -781,9 +715,6 @@ main.settle, .ptr.settle .ptr-i { transition: transform .3s cubic-bezier(.2, .9,
 }
 @media (min-width: 600px) { .head-right { display: none; } .head.with-status { grid-template-columns: 1fr; } }
 
-/* The swipe (2026-09-15): the page a swipe leads to, drawn just off the edge of the screen, moves with the finger
-   (app.js, "The swipe"). A whole page sits in a <main> of its own, fixed, so it takes the page's own padding;
-   a part of a page sits exactly beside the part it replaces. Neither can be pressed. */
 main.peek { position: fixed; left: 0; right: 0; z-index: 5; pointer-events: none; will-change: transform; }
 .peek-part { position: fixed; z-index: 5; pointer-events: none; margin: 0; will-change: transform; }
 @media (max-width: 599px) {
@@ -791,7 +722,6 @@ main.peek { position: fixed; left: 0; right: 0; z-index: 5; pointer-events: none
   body.toplevel main.peek.peek-sub { padding-top: var(--bar-h, calc(max(8px, env(safe-area-inset-top)) + 60px)); }
 }
 
-/* Coming up: one line for what, one for when, the amount at the right; the rest opens on a tap. */
 .row.due { grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; padding: 10px 16px; min-height: 0; align-items: center; }
 .row.due .day { width: 40px; padding: 4px 0 5px; border-radius: 10px; }
 .row.due .day .dn { font-size: 1.08rem; }
@@ -806,7 +736,6 @@ main.peek { position: fixed; left: 0; right: 0; z-index: 5; pointer-events: none
 .row.due .amt { display: grid; justify-items: end; line-height: 1.15; }
 .row.due .amt .about { font-size: .68rem; font-weight: 500; color: var(--ink-2); text-transform: none; }
 
-/* Expected income: the figure, arrived against to come, and the sum in words. */
 .expectcard { gap: 10px; }
 .expectcard .ftop .l { font-size: .9rem; font-weight: 600; color: var(--ink-2); }
 .expectcard .v { font-size: 1.9rem; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; }
@@ -815,12 +744,11 @@ main.peek { position: fixed; left: 0; right: 0; z-index: 5; pointer-events: none
 .row.legendrow2 .title { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; font-size: .92rem; }
 .expect { display: inline-flex; align-items: center; gap: 6px; }
 .expect .bd.estimate { width: 8px; height: 8px; box-shadow: inset 0 0 0 2px var(--orange); }
-/* An estimate in a chart: a faint column, a dashed line, a hollow last dot. */
 .chart .bar.est { fill-opacity: .32; }
 .chart .line.est { stroke-dasharray: 5 5; }
 .chart .end.est.s0 { fill: var(--glass-strong); stroke: var(--c0); stroke-width: 2.2; }
 .fig .v .about { font-size: .5em; font-weight: 600; color: var(--ink-2); letter-spacing: 0; margin-right: 2px; }
 
-/* Pay per hour with the commute or without (2026-09-15): the card says which it shows, and where the commute came from. */
 .fmeta .which { font-weight: 600; color: var(--ink-2); }
 .asof.commute-from { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.row.due .amt.in { color: var(--green, #1f9d55); }
