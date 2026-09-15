@@ -44,7 +44,8 @@ let NET_MSG = "", NET_DETAIL = "";
 let TAB = "today";
 let VIEW = null;               // null, or { type: "form" | "settings" | "questions", ... }
 let MEM = null, VKEY = null, VMETA = null;   // the unlocked vault: its contents, its key, its salt
-let GEN = 0;                   // bumped by every lock, passcode change and erase: a save or a fetch begun before is dropped
+let GEN = 0;                   // bumped by every lock, passcode change and erase: a fetch begun before is dropped
+let VGEN = 0;                  // bumped by a passcode change and an erase only: a save begun before is dropped
 
 /* ---------- storage ---------- */
 
@@ -52,11 +53,13 @@ function rawGet(k) { try { return localStorage.getItem(P + k); } catch (e) { ret
 function rawSet(k, v) { try { localStorage.setItem(P + k, v); } catch (e) { /* storage blocked */ } }
 function rawDrop(k) { try { localStorage.removeItem(P + k); } catch (e) { /* ignore */ } }
 function load(k, d) {
+  if (ASIDE && Object.prototype.hasOwnProperty.call(ASIDE.store, k)) return ASIDE.store[k];
   if (SECRET.has(k)) return MEM && MEM[k] !== undefined ? MEM[k] : d;
   const v = rawGet(k);
   try { return v === null ? d : JSON.parse(v); } catch (e) { return d; }
 }
 function save(k, v) {
+  if (ASIDE) { ASIDE.store[k] = v; return; }        // a neighbour drawn aside changes nothing (the swipe)
   if (SECRET.has(k)) { if (MEM) { MEM[k] = v; persist(); } return; }
   rawSet(k, JSON.stringify(v));
 }
@@ -79,14 +82,23 @@ async function seal(key, meta, text) {
   const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, enc.encode(text)));
   return JSON.stringify({ v: 1, salt: meta.salt, iter: meta.iter, iv: b64(iv), ct: b64(ct) });
 }
-let persisting = Promise.resolve();
+// Saves made in one moment are sealed once, with the newest contents (since 2026-09-15: a summary arriving sealed
+// the whole store three times over, for itself, the forms and a count). Locking no longer drops a save still
+// being sealed: until 2026-09-15 it bumped GEN, which this checked, so an entry typed just before a lock could
+// miss the vault. Only a passcode change or an erase (VGEN) drops one now.
+let persisting = Promise.resolve(), SEAL_NEXT = null;
 function persist() {
-  if (!MEM || !VKEY) return;
-  const key = VKEY, meta = VMETA, text = JSON.stringify(MEM), gen = GEN;
-  persisting = persisting.then(() => seal(key, meta, text)).then(v => {
-    if (gen !== GEN) return;                       // a passcode change or an erase came after
-    try { localStorage.setItem(P + "vault", v); }
-    catch (e) { toast("This device would not save. Keep the page open until what you typed has sent."); }
+  if (!MEM || !VKEY) return persisting;
+  const queued = !!SEAL_NEXT;
+  SEAL_NEXT = { key: VKEY, meta: VMETA, text: JSON.stringify(MEM), vgen: VGEN };
+  if (queued) return persisting;
+  persisting = persisting.then(() => {
+    const job = SEAL_NEXT; SEAL_NEXT = null;
+    return seal(job.key, job.meta, job.text).then(v => {
+      if (job.vgen !== VGEN) return;                // a passcode change or an erase came after
+      try { localStorage.setItem(P + "vault", v); }
+      catch (e) { toast("This device would not save. Keep the page open until what you typed has sent."); }
+    });
   }).catch(() => { /* kept in memory */ });
   return persisting;
 }
@@ -102,7 +114,7 @@ async function unlockWith(pin) {
   return true;
 }
 async function setPasscode(pin) {
-  GEN++; await persisting;                          // nothing saved under the old passcode may land after
+  GEN++; VGEN++; SEAL_NEXT = null; await persisting;   // nothing saved under the old passcode may land after
   const salt = rand(16);
   VKEY = await deriveKey(pin, salt, ITERATIONS);
   VMETA = { salt: b64(salt), iter: ITERATIONS };
@@ -112,7 +124,7 @@ async function setPasscode(pin) {
 }
 function hasVault() { return !!rawGet("vault"); }
 function eraseDevice() {
-  GEN++;
+  GEN++; VGEN++; SEAL_NEXT = null;
   MEM = null; VKEY = null; VMETA = null; SNAP = null; SCHEMA = null;
   persisting.then(() => dropAll());
   dropAll();
@@ -278,7 +290,9 @@ function when(iso) {
   return new Date(t).toLocaleString("en-CA", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).replace(/,/g, "");
 }
 function newId() {
-  const abc = "abcdefghjkmnpqrstuvwxyz23456789", a = rand(14);
+  // Letters only (since 2026-09-15): a run of seven digits in a serial number looked like an account number to the
+  // scrubber, which held the entry (found by the data-flow audit, intake-06). Old serials with digits still count.
+  const abc = "abcdefghjkmnpqrstuvwxyz", a = rand(14);
   return Array.from(a, x => abc[x % abc.length]).join("");
 }
 function device() { return /iPhone|iPad|iPod/.test(navigator.userAgent) ? "iPhone" : "MacBook"; }
@@ -347,6 +361,7 @@ const repo = () => `/repos/${encodeURIComponent(CFG.github_owner)}/${encodeURICo
 // settings or a search being typed in: it would wipe what is typed and close the keyboard. Those get only the
 // top bar and badges.
 function quietRender() {
+  if (SIDE_ANIM || (GS && GS.side)) { setTimeout(quietRender, 400); return; }   // never under a finger mid-swipe
   if (VIEW && ["form", "settings", "questions"].includes(VIEW.type)) renderChrome(); else render();
 }
 
@@ -360,11 +375,20 @@ async function refresh() {
     ]);
     const issues = await gh(repo() + "/issues?state=open&per_page=100").then(r => r.json());
     if (gen !== GEN || !MEM) return;                // locked while the answer was on its way
-    if (s && s.format === "finance-system-webpage-summary") { SNAP = s; save("snap", s); }
-    if (f && f.forms) { SCHEMA = f; save("schema", f); }
+    // Only what changed is saved, and the page is drawn again only when something on it did (since 2026-09-15:
+    // every summary arriving redrew the page and sealed the store, though most carry only a new checked_at).
+    const was = { snap: SNAP, schema: SCHEMA, waiting: load("waiting", 0), net: NET };
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const bare = x => x ? Object.assign({}, x, { checked_at: "" }) : x;
+    let redraw = false;
+    if (s && s.format === "finance-system-webpage-summary" && !same(s, SNAP)) { redraw = !same(bare(s), bare(SNAP)); SNAP = s; save("snap", s); }
+    if (f && f.forms && !same(f, SCHEMA)) { SCHEMA = f; save("schema", f); redraw = true; }
     const waiting = issues.filter(i => !i.pull_request && typeof i.body === "string" && i.body.indexOf(MARKER) >= 0).length;
-    save("waiting", waiting);
+    if (waiting !== was.waiting) { save("waiting", waiting); redraw = true; }
     NET = "ok"; NET_MSG = "";
+    if (was.net !== "ok" && was.net !== "unknown") redraw = true;   // a warning about the connection goes
+    if (MEM) { if (redraw) quietRender(); else renderChrome(); }
+    return;
   } catch (e) {
     if (gen !== GEN) return;
     NET = e.kind || "error"; NET_MSG = e.message; NET_DETAIL = e.detail || "";
@@ -376,8 +400,9 @@ let flushing = false;
 async function flush() {
   if (flushing || !MEM) return;
   flushing = true;
+  let box = load("outbox", []);
+  const had = box.length;
   try {
-    let box = load("outbox", []);
     while (box.length && MEM) {
       const entry = box[0];
       try {
@@ -390,16 +415,30 @@ async function flush() {
         save("outbox", box);
         save("waiting", load("waiting", 0) + 1);
       } catch (e) {
-        NET = e.kind || "error"; NET_MSG = e.message; NET_DETAIL = e.detail || ""; NET_DETAIL = e.detail || "";
+        NET = e.kind || "error"; NET_MSG = e.message; NET_DETAIL = e.detail || "";
         break;
       }
     }
   } finally {
     flushing = false;
-    if (MEM) quietRender();
+    if (MEM && had) quietRender();                  // an empty outbox changes nothing on the page
   }
 }
 
+// A number shaped like a SIN, a card, an account or a phone number, in anything typed as text. The MacBook's scrubber
+// takes such numbers out when it collects, but an entry waits in the mailbox until then, and its copy stays on this
+// device, so the page asks for it to come out before it is sent (since 2026-09-15; found by the data-flow audit,
+// intake-15). Money and hours are numbers of their own and are not looked at.
+const LOOKS_PRIVATE = [/\b\d{3}[ -]?\d{3}[ -]?\d{3}\b/, /\b(?:\d[ -]?){12,18}\d\b/, /\d{7,}/, /\(?\b\d{3}\)?[ .-]\d{3}[ .-]\d{4}\b/];
+function privateIn(fields, formFields) {
+  const numeric = new Set((formFields || []).filter(f => ["money", "number", "date", "month", "time"].includes(f.type)).map(f => f.key));
+  for (const [k, v] of Object.entries(fields || {})) {
+    if (numeric.has(k) || typeof v !== "string") continue;
+    if (LOOKS_PRIVATE.some(re => re.test(v))) return k;
+  }
+  return "";
+}
+const PRIVATE_MSG = "Something typed looks like a SIN, a card, an account or a phone number. Take it out before sending: the last four digits are enough to name an account";
 function submit(kind, fields, corrects, said) {
   const entry = { format: MARKER, id: newId(), kind, typed_at: typedAt(), device: device(), fields };
   if (corrects) entry.corrects = corrects;
@@ -430,9 +469,12 @@ const KINDS = {
 };
 function kindOf(k) { return KINDS[k] || { name: k, desc: "", icon: "pencil", color: "gray" }; }
 function formsList() { return (SCHEMA && SCHEMA.forms) || []; }
-// The expense ledger's questions are all one shape: "2026-02-03 - Uber - $18.40 has no receipt. ..."
+// The expense ledger's questions are all one shape: "<date> - <what> - $<amount> has no receipt. ..."
 const RECEIPT = /^(\d{4}-\d{2}-\d{2}) - (.+) - (-?\$[\d,]+(?:\.\d\d)?)(:| has no receipt)/;
 function receiptOf(q) {
+  // A meal's question (who was there, and why) has the same shape as a receipt's; its id says which (since 2026-09-15,
+  // found by the data-flow audit, pres-09).
+  if (/^meal-/.test(String(q.id || ""))) return null;
   const m = RECEIPT.exec(q.text || "");
   if (!m) return null;
   return { date: m[1], what: m[2], amount: m[3], problem: m[4] === ":" ? "No card or bank charge found for it" : "No receipt filed" };
@@ -539,12 +581,25 @@ function head(title, sub, withStatus) {
 }
 
 function render(animate) {
+  // Drawing a neighbour aside for the swipe: the page is made, and kept, but nothing on the screen changes.
+  if (ASIDE) { SWIPE = null; const pg = pageFor(); ASIDE.out = { page: pg, swipe: SWIPE }; return; }
   closePop();
   // Never draw Alvin's figures behind the lock, except while he changes the passcode from Settings.
   if (!MEM || (!document.getElementById("lock").hidden && !LOCK.mode.startsWith("change"))) return;
   renderChrome();
   const main = clear(document.getElementById("main"));
   SWIPE = null;                 // each page says what a sideways swipe does on it, as it is drawn
+  const page = pageFor();
+  // A page reached sideways slides in from that side; any other fades up.
+  const cls = ENTER === "none" ? "" : ENTER ? "enter-" + ENTER : "enter";
+  ENTER = "";
+  if (animate && cls && motionOK()) { page.classList.add(cls); page.addEventListener("animationend", () => page.classList.remove(cls), { once: true }); }
+  main.append(page);
+  onScroll();
+  neighboursStale();
+}
+// The page for where things stand (TAB, VIEW), with what a sideways swipe does on it (SWIPE).
+function pageFor() {
   let page;
   if (VIEW && VIEW.type === "form") page = renderForm();
   else if (VIEW && VIEW.type === "settings") page = renderSettings();
@@ -562,12 +617,7 @@ function render(animate) {
   }
   if (!SWIPE) SWIPE = VIEW ? (["form", "settings"].includes(VIEW.type) ? null : { el: page, prev: () => BACK(), next: null })
                            : { el: page, prev: () => tabStep(-1), next: () => tabStep(1) };
-  // A page reached sideways slides in from that side; any other fades up.
-  const cls = ENTER === "none" ? "" : ENTER ? "enter-" + ENTER : "enter";
-  ENTER = "";
-  if (animate && cls && motionOK()) { page.classList.add(cls); page.addEventListener("animationend", () => page.classList.remove(cls), { once: true }); }
-  main.append(page);
-  onScroll();
+  return page;
 }
 
 // Pages open inside pages (Summary › Income; Add › Your shifts › a shift). STACK holds the pages under the
@@ -576,7 +626,7 @@ function render(animate) {
 // popstate must not close a second page.
 let STACK = [], OWN_BACKS = 0;
 function historyBack(n) {
-  if (!n) return;
+  if (!n || ASIDE) return;
   OWN_BACKS += 1;
   try { history.go(-n); } catch (e) { OWN_BACKS -= 1; }
 }
@@ -593,7 +643,7 @@ function go(tab) {
 function openView(v) {
   if (VIEW) { VIEW.scroll = window.scrollY; STACK.push(VIEW); }
   VIEW = v;
-  try { history.pushState({ view: v.type }, ""); } catch (e) { /* ignore */ }
+  if (!ASIDE) try { history.pushState({ view: v.type }, ""); } catch (e) { /* ignore */ }
   render(true); window.scrollTo(0, 0);
 }
 function closeView(fromPop) {
@@ -635,7 +685,9 @@ function measureBar() {
  * opened from another, back. A swipe that starts on a chart (which is read by sliding a finger along it) or on
  * a row of choices that scrolls sideways is left alone. In Safari and Brave a swipe from the very edge of the
  * screen belongs to the browser (back and forward); on the Home Screen icon, which has no such gesture, a
- * swipe in from the left edge goes back. */
+ * swipe in from the left edge goes back.
+ * Since 2026-09-15 the page a swipe leads to follows the finger (below, "The swipe"), and both gestures move
+ * the page by transform only, so nothing is laid out again while a finger moves. */
 const PULL_AT = 64, PULL_MAX = 110, PULL_HOLD = 54;
 let SWIPE = null;              // { el, prev, next }: prev and next give { run, whole } or null
 let GS = null;                 // the touch being followed
@@ -663,13 +715,14 @@ function ptrEls() { return { main: document.getElementById("main"), ptr: documen
 
 function gStart(ev) {
   if (GS && GS.mode) gEnd({ type: "touchcancel" });     // a second finger: put back what the first had moved
+  if (SIDE_ANIM) SIDE_ANIM.end();                        // a swipe still settling finishes at once
   GS = null;
   if (ev.touches.length !== 1 || !MEM || lockShowing() || document.querySelector(".scrim")) return;
   const t = ev.touches[0], tg = ev.target, a = document.activeElement;
   if (tg.closest && tg.closest("input, textarea, select, .tabbar, .formbar")) return;
   if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;          // the keyboard is up
   const edge = t.clientX < 22 ? "l" : t.clientX > window.innerWidth - 22 ? "r" : "";
-  GS = { x: t.clientX, y: t.clientY, t: Date.now(), mode: null, dx: 0, dy: 0, el: null, top: window.scrollY <= 0, edge,
+  GS = { x: t.clientX, y: t.clientY, t: Date.now(), mode: null, dx: 0, dy: 0, side: null, trail: [[ev.timeStamp || performance.now(), t.clientX]], top: window.scrollY <= 0, edge,
          noSide: !!(tg.closest && tg.closest(".chips, .chart.scrub, .bar, .pad")) || (edge && !standalone()) };
 }
 // What a sideways swipe of `dx` would do: the page's own, or, from the left edge on the Home Screen icon, back.
@@ -682,6 +735,8 @@ function gMove(ev) {
   if (!GS || ev.touches.length !== 1) return;
   const t = ev.touches[0], dx = t.clientX - GS.x, dy = t.clientY - GS.y;
   GS.dx = dx; GS.dy = dy;
+  GS.trail.push([ev.timeStamp || performance.now(), t.clientX]);
+  if (GS.trail.length > 12) GS.trail.shift();
   if (!GS.mode) {
     if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
     // Taken only while the browser still lets it be: once it has begun scrolling, the touch is its own.
@@ -704,14 +759,17 @@ function gEnd(ev) {
 // The pull: the middle follows the finger at half its speed, to a limit; the circle turns as it goes and
 // turns blue when letting go will refresh.
 function pullOffset(dy) { return Math.max(0, Math.min(PULL_MAX, dy * 0.5)); }
+// By transform and opacity alone since 2026-09-15 (was top and height, which laid the page out again every frame):
+// the page moves down by the pull, and the circle, in a strip of fixed height, sits in the middle of the gap.
+let PULL_Y = 0;
 function pullSet(off, settle) {
   const { main, ptr } = ptrEls(), i = ptr.firstChild;
   main.classList.toggle("settle", !!settle); ptr.classList.toggle("settle", !!settle);
-  main.style.top = off ? off + "px" : "";
-  ptr.style.height = off + "px";
-  const k = Math.min(1, off / PULL_AT);
+  PULL_Y = off;
+  main.style.transform = off ? `translate3d(0,${off}px,0)` : "";
+  const k = Math.min(1, off / PULL_AT), y = `translate3d(0,${(off / 2 - 16).toFixed(1)}px,0)`;
   i.style.opacity = String(k);
-  if (!ptr.classList.contains("busy")) i.style.transform = `scale(${(.6 + .4 * k).toFixed(3)}) rotate(${Math.round(k * 300)}deg)`;
+  i.style.transform = ptr.classList.contains("busy") ? y : `${y} scale(${(.6 + .4 * k).toFixed(3)}) rotate(${Math.round(k * 300)}deg)`;
   ptr.classList.toggle("armed", off >= PULL_AT);
 }
 function pullTo(dy) {
@@ -724,7 +782,7 @@ async function pullRelease(dy) {
   if (pullOffset(dy) < PULL_AT || PULLING) { pullSet(0, true); return; }
   PULLING = true;
   pullSet(PULL_HOLD, true);
-  ptr.classList.add("busy"); ptr.firstChild.style.transform = "";
+  ptr.classList.add("busy"); ptr.firstChild.style.transform = `translate3d(0,${PULL_HOLD / 2 - 16}px,0)`;
   const t0 = Date.now();
   try { await flush(); await refresh(); } finally {
     await new Promise(r => setTimeout(r, Math.max(0, 650 - (Date.now() - t0))));   // long enough to be seen
@@ -735,78 +793,178 @@ async function pullRelease(dy) {
   }
 }
 
-// The swipe: what moves is the part of the page that will change (the whole page for a new tab or going back),
-// at the finger's speed, or held back hard where there is nothing further that way.
-function sideEl(tg) { return tg && tg.whole ? document.getElementById("main") : (SWIPE && SWIPE.el) || document.getElementById("main"); }
-function sidePlace(el, off, settle) {
-  const isMain = el.id === "main";
-  el.classList.toggle("side-settle", !!settle);
-  if (isMain) el.style.left = off ? off + "px" : ""; else el.style.transform = off ? `translateX(${off}px)` : "";
-  el.style.opacity = off ? String(1 - Math.min(.4, Math.abs(off) / window.innerWidth * .7)) : "";
+// The swipe. Rewritten 2026-09-15 at Alvin's request ("the next page follows my finger when I swipe"): once a
+// sideways swipe is recognised, the page it leads to is drawn just off the edge of the screen and both pages move
+// with the finger, pixel for pixel, by transform alone (nothing is laid out again while the finger moves). Where
+// nothing lies that way, the page gives less and less the further it is pulled, like a rubber band. On letting go it
+// finishes or springs back, by how far and how fast the finger went, and carries on at the finger's speed.
+// The neighbour is "drawn aside" (drawAside): the page's state is copied, the drawing runs on the copy, and
+// everything is put back, so nothing the page remembers changes until the swipe is finished. Neighbours are drawn
+// ahead while the page is idle (prepNeighbours), so recognising a swipe costs nothing.
+let ASIDE = null;              // while drawing aside: { store, out }: save() writes to store, render() draws into out
+let NB = { ver: -1 };          // the neighbours drawn ahead: { ver, prev, next }
+let NB_VER = 0;                // bumped by every drawing and every tap: a neighbour drawn before is stale
+let NB_TIMER = 0;
+let SIDE_ANIM = null;          // a finish or spring-back still running: { end() } completes it at once
+
+function drawAside(fn) {
+  const keep = { TAB, VIEW, STACK, SWIPE, ENTER, NO_CLICK_UNTIL, OWN_BACKS }, scrollTo = window.scrollTo;
+  const copy = v => (v === null || v === undefined) ? v : JSON.parse(JSON.stringify(v));
+  ASIDE = { store: {}, out: null };
+  VIEW = copy(VIEW); STACK = copy(STACK);
+  window.scrollTo = () => {};
+  try { return fn(); } catch (e) { return null; }
+  finally {
+    window.scrollTo = scrollTo;
+    ({ TAB, VIEW, STACK, SWIPE, ENTER, NO_CLICK_UNTIL, OWN_BACKS } = keep);
+    ASIDE = null;
+  }
 }
+// Animations that play when something is first drawn: off for a neighbour, and for the page that takes its place.
+function stillen(root) {
+  const cls = ["fadein", "enter", "enter-l", "enter-r", "draw", "grow", "fade"];
+  for (const el of [root, ...root.querySelectorAll(".fadein, .enter, .enter-l, .enter-r, .draw, .grow, .fade")]) el.classList.remove(...cls);
+  return root;
+}
+// What a swipe toward `dir` ("prev", finger moving right, or "next") would show: { whole, page, scroll } or null.
+function neighbour(dir, edgeBack) {
+  if (!MEM || (VIEW && ["form", "settings"].includes(VIEW.type) && !edgeBack)) return null;
+  return drawAside(() => {
+    let tg = edgeBack ? BACK() : SWIPE && SWIPE[dir] && SWIPE[dir]();
+    if (!tg) return null;
+    if (!tg.whole) {
+      // A step along a row of choices presses a choice on the page: press it on a fresh copy instead.
+      render();
+      const now = ASIDE.out;
+      tg = now && now.swipe && now.swipe[dir] && now.swipe[dir]();
+      if (!tg) return null;
+      ASIDE.out = null;
+      tg.run();
+      const got = ASIDE.out || now;       // the choice redrew the whole page, or changed the copy in place
+      const part = got.swipe && got.swipe.el;
+      return part ? { whole: false, page: stillen(part), host: got.page } : null;
+    }
+    tg.run();
+    const got = ASIDE.out;
+    return got ? { whole: true, page: stillen(got.page), scroll: (VIEW && VIEW.scroll) || 0, top: !VIEW } : null;
+  });
+}
+function neighboursStale() {
+  NB_VER += 1;
+  clearTimeout(NB_TIMER);
+  NB_TIMER = setTimeout(prepNeighbours, 450);
+}
+// Drawn one at a time, only while no finger is down, so a tap or a scroll never waits behind them.
+function prepNeighbours() {
+  if (!MEM || document.hidden || lockShowing()) return;
+  if (GS) { NB_TIMER = setTimeout(prepNeighbours, 300); return; }
+  if (NB.ver !== NB_VER) NB = { ver: NB_VER };
+  const dir = !("prev" in NB) ? "prev" : !("next" in NB) ? "next" : null;
+  if (!dir) return;
+  NB[dir] = neighbour(dir, false);
+  NB_TIMER = setTimeout(prepNeighbours, 60);
+}
+function neighbourFor(dir, edgeBack) {
+  if (edgeBack) return neighbour("prev", true);
+  if (NB.ver === NB_VER && dir in NB) return NB[dir];
+  if (NB.ver !== NB_VER) NB = { ver: NB_VER };
+  return (NB[dir] = neighbour(dir, false));
+}
+
+// The pieces that move: the page, or its part, under the finger (el), and the neighbour, laid in a layer of its own.
+function sideLayer(nb, el) {
+  const W = window.innerWidth;
+  let layer;
+  if (nb.whole) {
+    layer = document.createElement("main");
+    layer.className = "peek" + (nb.top ? " peek-top" : " peek-sub");
+    layer.style.top = -nb.scroll + "px";
+    layer.append(nb.page);
+  } else {
+    const r = el.getBoundingClientRect();
+    layer = h("div", { class: "peek-part " + ((el.parentNode && el.parentNode.className) || "") });
+    layer.style.top = r.top + "px"; layer.style.left = r.left + "px"; layer.style.width = r.width + "px";
+    layer.append(nb.page);
+  }
+  layer.setAttribute("aria-hidden", "true");
+  layer.style.transform = `translate3d(${W}px,0,0)`;
+  document.body.append(layer);
+  // A row of choices shows its chosen one, as it would once drawn for real.
+  for (const row of layer.querySelectorAll(".chips")) { const on = row.querySelector('[aria-checked="true"]'); if (on && on.offsetLeft + on.offsetWidth > row.clientWidth) row.scrollLeft = on.offsetLeft - 16; }
+  return layer;
+}
+const rubber = (dx, W) => Math.sign(dx) * (1 - 1 / (Math.abs(dx) * 0.55 / W + 1)) * W;
+function sideEl(whole) { return whole ? document.getElementById("main") : (SWIPE && SWIPE.el) || document.getElementById("main"); }
+// The page keeps any offset a pull to refresh still holds it at.
+function place(el, x) {
+  const y = el.id === "main" ? PULL_Y : 0;
+  el.style.transform = x || y ? `translate3d(${x}px,${y}px,0)` : "";
+}
+
+// Following the finger: the direction decides the neighbour; crossing back over the start swaps it for the other side's.
 function sideTo(dx) {
-  const tg = sideTarget(dx), el = sideEl(tg);
-  if (GS.el && GS.el !== el) sidePlace(GS.el, 0, false);
-  GS.el = el;
-  sidePlace(el, tg ? dx : dx * 0.2, false);
+  const S = GS.side || (GS.side = { dir: null });
+  const dir = dx > 0 ? "prev" : "next";
+  if (dir !== S.dir) {
+    if (S.layer) S.layer.remove();
+    if (S.el) place(S.el, 0);
+    const edgeBack = GS.edge === "l" && dx > 0 && standalone() && !!VIEW;
+    const nb = neighbourFor(dir, edgeBack);
+    S.dir = dir; S.nb = nb;
+    S.el = sideEl(!nb || nb.whole);
+    S.el.style.willChange = "transform";
+    S.layer = nb ? sideLayer(nb, S.el) : null;
+    S.W = window.innerWidth;
+    document.body.classList.add("swiping");
+  }
+  const x = S.nb ? dx : rubber(dx, S.W);
+  S.x = x;
+  place(S.el, x);
+  if (S.layer) S.layer.style.transform = `translate3d(${x - Math.sign(dx) * S.W}px,0,0)`;
+}
+// The finger's speed over its last tenth of a second, in pixels a millisecond.
+function speedOf(g) {
+  const s = g.trail, n = s.length;
+  if (n < 2) return 0;
+  let i = n - 1;
+  while (i > 0 && s[n - 1][0] - s[i - 1][0] < 100) i -= 1;
+  const dt = s[n - 1][0] - s[i][0];
+  return dt > 0 ? (s[n - 1][1] - s[i][1]) / dt : 0;
 }
 function sideRelease(g, cancel) {
-  const tg = cancel ? null : sideTarget(g.dx), el = g.el || sideEl(tg);
-  const fast = Math.abs(g.dx) > 30 && Math.abs(g.dx) / Math.max(1, Date.now() - g.t) > 0.45;
-  // Set after the swipe's own action, which may press a choice itself.
-  const guard = () => { NO_CLICK_UNTIL = Date.now() + 400; };
-  if (!tg || !(fast || Math.abs(g.dx) > Math.min(100, window.innerWidth * .25))) {
-    guard();
-    sidePlace(el, 0, true);
-    setTimeout(() => el.classList.remove("side-settle"), 300);
-    return;
-  }
-  const from = g.dx < 0 ? "r" : "l";
-  // Since 2026-09-14, at Alvin's request ("the next page should animate scrolling into view"): the page, or the
-  // part of it, being left carries on off the screen with the finger, and the next slides in behind it from the
-  // other edge, both at once, as an iPhone's pages do. What leaves is a still copy of it (a "ghost"), laid
-  // exactly where it was; the new one is drawn in its place and starts a screen's width away.
-  const ghost = motionOK() ? ghostOf(el) : null;
-  sidePlace(el, 0, false);
-  if (tg.whole) { ENTER = "none"; tg.run(); } else tg.run();
-  guard();
-  const el2 = tg.whole ? document.getElementById("main") : (SWIPE && SWIPE.el);
-  if (!ghost) return;
-  const w = window.innerWidth, left = Math.max(0, w - Math.abs(g.dx));
-  const speed = Math.abs(g.dx) / Math.max(1, Date.now() - g.t);                 // px per ms, as the finger went
-  const ms = Math.round(Math.max(200, Math.min(340, left / Math.max(speed, 1.6))));
-  const sign = g.dx < 0 ? -1 : 1;
-  ghost.el.style.transform = `translateX(${g.dx}px)`;
-  if (el2) { el2.style.transition = "none"; el2.style.transform = `translateX(${-sign * left}px)`; }
-  void ghost.el.offsetWidth;
-  const ease = `transform ${ms}ms cubic-bezier(.25, .8, .25, 1)`;
-  ghost.el.style.transition = ease + `, opacity ${ms}ms ease`;
-  ghost.el.style.transform = `translateX(${sign * w}px)`;
-  ghost.el.style.opacity = ".6";
-  if (el2) { el2.style.transition = ease; el2.style.transform = "translateX(0)"; }
-  setTimeout(() => {
-    ghost.el.remove();
-    if (el2) { el2.style.transition = ""; el2.style.transform = ""; }
-  }, ms + 40);
-  void from;
+  const S = g.side;
+  document.body.classList.remove("swiping");
+  NO_CLICK_UNTIL = Date.now() + 400;
+  if (!S || !S.el) return;
+  const W = S.W, x = S.x || 0, sign = x > 0 ? 1 : -1, v = speedOf(g);
+  const going = !cancel && S.nb && x !== 0 && (Math.abs(x) > W * 0.5 ? v * sign > -0.2 : v * sign > 0.3 && Math.abs(x) > 16);
+  const to = going ? sign * W : 0;
+  const finish = () => {
+    SIDE_ANIM = null;
+    S.el.style.transition = ""; S.el.style.willChange = ""; place(S.el, 0);
+    if (going) {
+      // Drawn for real, in the neighbour's place and without its entry animation; then the neighbour goes.
+      const tg = S.dir === "prev" ? (g.edge === "l" && standalone() && VIEW ? BACK() : sideTargetOf("prev")) : sideTargetOf("next");
+      if (tg) {
+        if (tg.whole) { ENTER = "none"; tg.run(); stillen(document.getElementById("main")); }
+        else { tg.run(); if (SWIPE && SWIPE.el) stillen(SWIPE.el); }
+        NO_CLICK_UNTIL = Date.now() + 400;
+      }
+    }
+    if (S.layer) S.layer.remove();
+  };
+  if (!motionOK() || Math.abs(to - x) < 1) { finish(); return; }
+  // As long as the rest of the way takes at the finger's speed, within reason; the curve starts at that speed.
+  const rest = Math.abs(to - x), speed = Math.abs(v);
+  const ms = Math.round(Math.max(160, Math.min(360, speed > 0.05 ? rest / speed : 360)));
+  const slope = speed * ms / rest, x1 = 0.2, y1 = Math.max(0.05, Math.min(1, x1 * slope));
+  const ease = `transform ${ms}ms cubic-bezier(${x1}, ${y1.toFixed(3)}, 0.25, 1)`;
+  S.el.style.transition = ease; place(S.el, to);
+  if (S.layer) { S.layer.style.transition = ease; S.layer.style.transform = `translate3d(${to - sign * W}px,0,0)`; }
+  const t = setTimeout(finish, ms + 30);
+  SIDE_ANIM = { end: () => { clearTimeout(t); finish(); } };
 }
-// A still copy of an element, fixed where it sits on the screen, for it to slide away while the new one comes in.
-function ghostOf(el) {
-  if (!el || !el.isConnected) return null;
-  const r = el.getBoundingClientRect();
-  const c = el.cloneNode(true);
-  c.removeAttribute("id");
-  for (const x of c.querySelectorAll("[id]")) x.removeAttribute("id");
-  c.classList.add("ghost");
-  c.setAttribute("aria-hidden", "true");
-  // Where the original sits before the finger dragged it: the copy is moved by its own transform instead.
-  const dragged = (parseFloat(el.style.left) || 0) + Number((/translateX\((-?[\d.]+)px\)/.exec(el.style.transform || "") || [0, 0])[1]);
-  c.style.position = "fixed"; c.style.top = r.top + "px"; c.style.left = (r.left - dragged) + "px"; c.style.width = r.width + "px";
-  c.style.margin = "0"; c.style.opacity = ""; c.style.pointerEvents = "none"; c.style.zIndex = "12";
-  c.classList.remove("side-settle", "settle", "enter", "enter-l", "enter-r");
-  document.body.append(c);
-  return { el: c };
-}
+function sideTargetOf(dir) { return SWIPE && SWIPE[dir] ? SWIPE[dir]() : null; }
 
 /* ---------- Today ---------- */
 
@@ -866,6 +1024,9 @@ function lastBusinessDay(y, m) {
   return d;
 }
 function visitDate(pd) {
+  // The visit the MacBook worked the items out for (since 2026-09-15), while it is still to come: on a month-end
+  // weekend the device's own reckoning pointed a month late (found by the data-flow audit, pres-01).
+  if (pd.visit && pd.visit >= todayISO()) return pd.visit;
   const t = new Date(), lbd = lastBusinessDay(t.getFullYear(), t.getMonth());
   t.setHours(0, 0, 0, 0);
   return t <= lbd ? isoOf(lbd) : (pd.next_visit || isoOf(lastBusinessDay(t.getFullYear(), t.getMonth() + 1)));
@@ -1285,25 +1446,6 @@ function buildForm(f) {
       return holder;
     }
     const opts = fld.type === "choice" ? (fld.options || []) : fld.type === "month" ? monthsAround() : null;
-    if (false) {
-      // Longer answers: a list with a tick beside the chosen one, as in the iPhone's settings.
-      const hidden = h("input", { type: "hidden", id, name: fld.key });
-      hidden.value = v || "";
-      const list = h("div", { class: "ticks", role: "radiogroup", "aria-label": fld.label });
-      for (const o of opts) {
-        const b = h("button", { class: "tick radio", type: "button", role: "radio", "aria-checked": String(o.value === hidden.value), "data-value": o.value },
-          h("span", { class: "title", text: o.label }), h("span", {}), h("span", { class: "box" }, icon("check")));
-        b.addEventListener("click", () => {
-          hidden.value = o.value;
-          for (const x of list.children) x.setAttribute("aria-checked", String(x === b));
-          form.dispatchEvent(new Event("change"));
-        });
-        list.append(b);
-      }
-      const holder = h("div", {}, hidden, list);
-      inputs[fld.key] = hidden; wraps[fld.key] = list;
-      return holder;
-    }
     if (opts && opts.length <= 2 && opts.every(o => o.label.length <= 16)) {
       const hidden = h("input", { type: "hidden", id, name: fld.key });
       hidden.value = v || "";
@@ -1389,19 +1531,22 @@ function buildForm(f) {
       if (!inp) continue;
       if (fld.type === "checklist") { const t = Array.from(inp.querySelectorAll('.tick[aria-checked="true"]')).map(x => x.dataset.id); if (t.length) out[fld.key] = t; continue; }
       const val = String(inp.value || "").trim();
-      if (val && !(fld.type === "date" && val === todayISO())) out[fld.key] = val;
+      if (val) out[fld.key] = val;
     }
     return out;
   };
   form._collect = collect;
   let draftTimer = null, sentAlready = false;
+  // A draft keeps its date, even today's, so one finished the next morning is not sent dated the new day; a form
+  // holding nothing but its date is no draft (since 2026-09-15; found by the data-flow audit, pres-17).
+  const typedIn = c => Object.keys(c).some(k => k !== "date");
   const keepDraft = () => {
     if (VIEW && VIEW.corrects) return;
     clearTimeout(draftTimer);
     draftTimer = setTimeout(() => {
       if (sentAlready || !form.isConnected) return;
       const d = load("drafts", {}), c = collect();
-      if (Object.keys(c).length) d[f.kind] = c; else delete d[f.kind];
+      if (typedIn(c)) d[f.kind] = c; else delete d[f.kind];
       save("drafts", d);
     }, 400);
   };
@@ -1412,20 +1557,8 @@ function buildForm(f) {
     form.prepend(h("div", { class: "draftbar" }, h("span", { text: "Your unsent draft is back." }),
       h("button", { class: "link", type: "button", onclick: () => { const d = load("drafts", {}); delete d[f.kind]; save("drafts", d); VIEW.prefill = null; VIEW.restored = false; render(true); } }, "Start again")));
   }
-  // A shift like the last one of the same kind: the site, the label and the times, in one tap.
-  const byType = (SNAP && SNAP.defaults && SNAP.defaults.shift_by_type) || {};
-  if (f.kind === "shift" && inputs.type && Object.keys(byType).length) {
-    const same = h("button", { class: "row plain samerow", type: "button", hidden: true },
-      h("span", { class: "title link", text: "Fill in like your last one" }), h("span", { class: "meta", text: "site, shift and times" }));
-    same.addEventListener("click", () => {
-      const last = byType[inputs.type.value] || {};
-      for (const [k, v] of Object.entries(last)) if (inputs[k] && !inputs[k].value) inputs[k].value = v;
-      keepDraft(); toast("Filled in as your last one of this kind.");
-    });
-    const showSame = () => { same.hidden = !byType[inputs.type.value]; };
-    inputs.type.addEventListener("change", showSame); showSame();
-    if (wraps.type) wraps.type.after(same);
-  }
+  // (The "Fill in like your last one" row of the shift form before version 3 was taken out 2026-09-15 with its
+  // summary key: every form since has a place and remembers the last shift there; data-flow audit, web-13.)
 
   // A field shown only when others have given answers (the tax year of an RRSP contribution).
   const syncShowIf = () => {
@@ -1448,7 +1581,6 @@ function buildForm(f) {
   const syncMeal = () => {
     if (!wraps.who_why || !inputs.meal) return;
     wraps.who_why.hidden = inputs.meal.value !== "yes";
-    void 0;
   };
   form.addEventListener("change", syncMeal); syncMeal();
 
@@ -1473,6 +1605,8 @@ function buildForm(f) {
       if (val) fields[fld.key] = (fld.type === "money" || fld.type === "number") ? val.replace(/[,$\s]/g, "") : val;
     }
     if (f.kind === "expense" && fields.meal === "yes" && !fields.who_why) { problems.push("A meal needs who was there and why it was work"); if (wraps.who_why) wraps.who_why.classList.add("bad"); }
+    const priv = privateIn(fields, f.fields);
+    if (priv) { problems.push(PRIVATE_MSG); if (wraps[priv] && wraps[priv].classList) wraps[priv].classList.add("bad"); }
     if (problems.length) { errors.textContent = problems.join(". ") + "."; errors.hidden = false; window.scrollTo({ top: 0, behavior: "smooth" }); return; }
     sentAlready = true; clearTimeout(draftTimer);
     const d = load("drafts", {}); delete d[f.kind]; save("drafts", d);
@@ -1764,7 +1898,6 @@ function buildShiftForm(f) {
       if ((k === "shift_start" || k === "shift_end") && (vals.place !== origPlace || (out.description || "") !== origDesc)) continue;
       put(k, v);
     }
-    void pl;
     return out;
   };
   form._collect = collect;
@@ -1797,6 +1930,18 @@ function buildShiftForm(f) {
     const partsSum = PAID_KEYS.slice(1).filter(k => fields[k] !== undefined).reduce((a1, k) => a1 + Number(fields[k]), 0);
     if (fields.amount !== undefined && PAID_KEYS.slice(1).some(k => fields[k] !== undefined) && Math.abs(partsSum - Number(fields.amount)) > 0.01)
       bad(inputs.amount && inputs.amount.closest(".field"), `Total pay is ${fmt$(fields.amount)} but the parts add up to ${fmt$(partsSum)}: leave the total blank, or make them agree`);
+    const priv = privateIn(fields, (shiftForm() || {}).fields);
+    if (priv) bad(inputs[priv] && inputs[priv].closest && inputs[priv].closest(".field"), PRIVATE_MSG);
+    // A shift dated today whose start is later than now was most often worked last night and sent this morning: said
+    // once, and a second Send keeps today (since 2026-09-15; found by the data-flow audit, pres-07).
+    const st = /\b(\d{2})(\d{2})\b/.exec(fields.description || "");
+    if (!problems.length && st && fields.date === todayISO() && !form._lateOk && !VIEW.corrects) {
+      const now = new Date(), startMin = +st[1] * 60 + +st[2];
+      if (startMin < 24 * 60 && startMin > now.getHours() * 60 + now.getMinutes()) {
+        form._lateOk = true;
+        bad(date.closest(".field"), `This ${st[0]} shift starts later than now. If you worked it last night, tap Yesterday; to keep today, tap Send again`);
+      }
+    }
     if (problems.length) {
       errors.textContent = problems.join(". ") + "."; errors.hidden = false;
       const first = form.querySelector(".bad");
@@ -2022,7 +2167,9 @@ function closePop() {
 function whyLines(o) {
   return [o.as_of ? "As of " + (dateOf(o.as_of) ? prettyDates(o.as_of) : o.as_of) + "." : "",
           o.source ? plainSource(o.source) + "." : "", o.note ? o.note.replace(/\.?$/, ".") : "",
-          /corporation|net worth/i.test(o.label || "") ? "Before the tax paid to take money out of the corporation." : ""];
+          // Only for what the corporation is worth, not money coming into it (since 2026-09-15; found by the data-flow
+          // audit, pres-14: the Income card said it too).
+          ["corp_market", "household"].includes(o.id || o.series) ? "Before the tax paid to take money out of the corporation." : ""];
 }
 
 function ov(id) { return ((SNAP && SNAP.overview) || []).find(o => (o.id || o.series) === id) || null; }
@@ -2106,10 +2253,29 @@ function hbars(rows, fmtV, onPick) {
   for (const r of rows) {
     const inner = [h("span", { class: "hb-lab" }, h("span", { class: "hb-l", text: r.label }), r.sub ? h("span", { class: "hb-s", text: r.sub }) : null),
                    h("span", { class: "hb-t" }, h("span", { class: "hb-f" + (anyOn && !r.on ? " dim" : ""), style: `width:${Math.max(1.5, r.value / max * 100)}%` })),
-                   h("span", { class: "hb-v num", text: fmtV(r.value) }), onPick && r.key ? icon("chevR") : null];
+                   h("span", { class: "hb-v num", text: (r.est ? "about " : "") + fmtV(r.value) }), onPick && r.key ? icon("chevR") : null];
     box.append(onPick && r.key ? h("button", { class: "hb tap", type: "button", onclick: () => onPick(r.key) }, inner) : h("div", { class: "hb" }, inner));
   }
   return box;
+}
+// Pay per hour with the commute, or without it (Alvin, 2026-09-15: "Pay per hour includes the commute by default, with
+// a switch to see it without"). Each device remembers its own choice; nothing about it leaves the device.
+function withCommute() { return load("pph_commute", true) !== false; }
+const COMMUTE_WORDS = { measured: "measured by your phone", recorded: "typed by you", derived: "worked out from one leg the phone saw, or the usual round trip there",
+                        estimate: "an estimate" };
+// "measured 60%, recorded 40%" as plain words: where the commute part of a figure came from.
+function commuteFrom(src) {
+  const parts = String(src || "").split(",").map(x => x.trim()).filter(Boolean).map(x => {
+    const m = /^(\w+) (\d+%)$/.exec(x); return m ? `${m[2]} ${COMMUTE_WORDS[m[1]] || m[1]}` : x;
+  });
+  if (parts.length === 1) return parts[0].replace(/^100% /, "all ");
+  return parts.length ? parts.join(", ") : "";
+}
+// The same, short, for a row of bars: "an estimate", "measured by your phone", or "mixed".
+function commuteShort(src) {
+  const parts = String(src || "").split(",").map(x => x.trim()).filter(Boolean);
+  const m = parts.length === 1 ? /^(\w+) /.exec(parts[0]) : null;
+  return m ? (COMMUTE_WORDS[m[1]] || m[1]).replace(/, or the usual round trip there$/, "") : parts.length ? "mixed" : "none";
 }
 function sumPart() { const v = load("sumpart", "total"); return ["total", "personal", "corporation"].includes(v) ? v : "total"; }
 
@@ -2209,12 +2375,24 @@ function summaryCorp() {
   const lagNote = o => daysFrom(o.mgh_through || o.as_of) < -35 ? `MGH counted to ${monthDay(o.mgh_through || o.as_of)}` : "";
   if (wh) g.append(figCard(wh, { label: wh.label.replace(/ · .*/, ""), value: wholeValue(wh.value) + " h", series: S.work_hours, onOpen: () => openView({ type: "work", metric: "hours" }),
     meta: [h("span", { class: "asof", text: lagNote(wh) || "By year, by place" })] }));
-  if (pph) g.append(figCard(pph, { label: pph.label.replace(/ · .*/, ""), value: wholeValue(pph.value) + "/h", series: S.pay_per_hour, onOpen: () => openView({ type: "work", metric: "rate" }),
-    meta: [h("span", { class: "asof", text: pph.note || "By year, by place and site" })] }));
+  if (pph) {
+    // With the commute unless this device chose without (since 2026-09-15); the card says which, and the MGH lag
+    // the Hours card beside it gives (found by the data-flow audit, web-06).
+    const wc = withCommute() && pph.value_incl_travel;
+    const from = commuteFrom(pph.travel_source);
+    g.append(figCard(pph, { label: pph.label.replace(/ · .*/, ""), value: wholeValue(wc ? pph.value_incl_travel : pph.value) + "/h",
+      basis: wc ? pph.basis_incl_travel : pph.basis, series: wc && S.pay_per_hour_incl_travel ? S.pay_per_hour_incl_travel : S.pay_per_hour,
+      why: whyLines(pph).concat(wc ? [`With the commute: the round trip to each shift counts as time worked. The commute part is ${from || "not known"}.`,
+                                      `Without it, ${wholeValue(pph.value)}/h.`]
+                                   : [`Without the commute. With it, ${wholeValue(pph.value_incl_travel || pph.value)}/h.`]),
+      onOpen: () => openView({ type: "work", metric: "rate" }),
+      meta: [h("span", { class: "asof" }, h("span", { class: "which", text: wc ? "With the commute" : "Without the commute" }),
+               " · " + ([lagNote(pph), (wc ? pph.note_incl_travel : pph.note)].filter(Boolean).join(" · ") || "By year, by place and site"))] }));
+  }
   const rm = ov("remit");
   if (rm) g.append(figCard(rm, { series: S.remit, onOpen: () => openTrendOf("remit"), meta: [h("span", { class: "asof", text: "Due by the 15th of the next month" })] }));
   const tx = ov("tax_left");
-  if (tx) g.append(figCard(tx, { label: "Tax instalments left this year", meta: [h("span", { class: "asof", text: "Paid through Chexy on the Amex" })] }));
+  if (tx) g.append(figCard(tx, { label: "Tax instalments left this year", meta: [h("span", { class: "asof", text: tx.note || "As planned" })] }));
   out.append(balance(g));
   // The card of cash in chequing at each month's end was taken off on 2026-09-14 at Alvin's request ("don't need
   // this info"); the chequing still counts in the corporation's value above.
@@ -2274,6 +2452,10 @@ function summaryPersonal() {
         meta: [h("span", { class: "asof", text: (since > 0 ? `${fmtWhole$(Math.round(since))} more has gone in since, from your Personal tab and this page. `
                                                    : since < 0 ? `${fmtWhole$(Math.round(-since))} more has come out than gone in since. ` : "") + "Their value today waits for their statements." })] }));
   }
+  // What went in is counted to the Personal tab's last row, whichever account it was for (since 2026-09-15: each room
+  // card gave its own account's last row, so an account with no row this year read as counted to last December with the tab current to September;
+  // found by the data-flow audit, pres-15).
+  const tabTo = ACCOUNTS.map(([a]) => (regOf(a) || {}).last_row || "").sort().pop();
   for (const [a, n] of ACCOUNTS) {
     const acct = regOf(a);
     if (!acct || acct.room_this_year === undefined) continue;
@@ -2282,7 +2464,7 @@ function summaryPersonal() {
     g.append(figCard({ label: `${n} room left, ${y}`, basis: leftBasis(acct) },
       { value: fmtWhole$(Math.round(left)), onOpen: () => openView({ type: "account", account: a }), why: roomWhy(acct),
         body: meter([{ value: put, cls: "s0", label: "Put in" }], room, "thin"),
-        meta: [h("span", { class: "asof", text: `${fmtWhole$(Math.round(put))} put in of ${fmtWhole$(Math.round(room))}` + (acct.last_row ? `, counted to ${monthDay(acct.last_row)}` : "") })] }));
+        meta: [h("span", { class: "asof", text: `${fmtWhole$(Math.round(put))} put in of ${fmtWhole$(Math.round(room))}` + (tabTo ? `, counted to ${monthDay(tabTo)}` : "") })] }));
   }
   const sal = ov("salary");
   if (sal) g.append(figCard(sal, { label: sal.label.replace("Salary paid", "Your salary"), series: S.salary, onOpen: () => openTrendOf("salary"),
@@ -2449,7 +2631,7 @@ function expectedCard(exp) {
   const why = ["What has arrived, from your year tab, plus each month still to come at your usual month" + (bonus ? ", plus MGH's active staff bonus in December" : "") + ".",
                `Your usual month is the middle one of the ${plural(12, "month")} from ${keyLabel(exp.usual_from, true)} to ${keyLabel(exp.usual_to, true)}: a lump, such as December 2025's retro pay, or a payment that lands a month early or late, does not move it.`,
                bonus ? `The bonus is taken as one month of MGH pay at ${exp.year}'s average so far (${plural(exp.bonus_months, "month")}), as you expect. Last December's retro pay and practice-plan points are not expected again.` : "",
-               "Written down as assumptions A-2026-09-14-01 and A-2026-09-14-02 in the Finance System (profile/assumptions.csv), to be checked at the January review."];
+               (exp.assumptions || []).length ? `Written down as ${exp.assumptions.length > 1 ? "assumptions" : "assumption"} ${exp.assumptions.join(" and ")} in the Finance System (profile/assumptions.csv), each with the date it is checked again.` : ""];
   const rows = [[last ? `Arrived, January to ${mon(last[0])}` : "Arrived", arrived, "s0"],
                 [n ? `${plural(n, "month")} to come at your usual ${fmtWhole$(Math.round(usual))}` : "", usual * n, "later"],
                 [bonus ? "MGH's active staff bonus, in December" : "", bonus, "later"]].filter(r => r[0]);
@@ -2481,12 +2663,21 @@ function renderWork() {
   const metricSeg = segControl([["hours", "Hours"], ["rate", "Pay per hour"]], metric, v => { VIEW.metric = v; render(); }, "Show", "partseg");
   p.append(metricSeg);
   swipeAlong(metricSeg, holder, BACK, null);
+  // With the commute or without, on pay per hour only; the device remembers (withCommute, 2026-09-15).
+  const wc = withCommute();
+  if (metric === "rate") p.append(segControl([["with", "With the commute"], ["without", "Without"]], wc ? "with" : "without",
+    v => { save("pph_commute", v === "with"); render(); }, "Pay per hour, with the commute or without", "range wide"));
   p.append(h("div", { class: "filters" }, chipRow(yearC, VIEW.year, v => { VIEW.year = v; draw(); }, "Which year"),
     chipRow(places, VIEW.place, v => { VIEW.place = v; draw(); }, "Which place")));
   p.append(holder);
   const nameOf = pl => pl === "all" ? "everywhere" : (places.find(x => x[0] === pl) || [pl, pl])[1];
   const cell = (y, pl, site) => C[[y, pl, site || ""].join("|")];
-  const rate = c => money(c.pay_per_hour), rateT = c => money(c.pay_per_hour_incl_travel);
+  // The rate shown follows the switch; `other` is the one not shown. Each cell carries its own label (basis) and where its
+  // commute hours came from (since 2026-09-15), and the hours its rate divides by (paidHours).
+  const rate = c => money(wc ? c.pay_per_hour_incl_travel : c.pay_per_hour), other = c => money(wc ? c.pay_per_hour : c.pay_per_hour_incl_travel);
+  const rateBasis = c => (wc ? c.basis_incl_travel : c.basis) || "recorded";
+  const paidHours = c => money(c.hours) - (money(c.hours_awaiting_pay) || 0) - (money(c.hours_no_pay_per_activity) || 0);
+  const estRow = c => rateBasis(c) === "estimate";
   const why = () => ["Your pay for each shift over its hours. Hours are ones you typed, measured by your phone, or the usual length of that kind of shift.",
                      plainSource(W.source) + "."];
   const draw = () => {
@@ -2529,10 +2720,10 @@ function renderWork() {
     const ppHours = money(c.hours_no_pay_per_activity) || 0;
     const ppNote = `${Math.round(ppHours)} h of it is the practice plan, typed once a year and shared evenly over the months of its cycle`;
     const label = `${y === "all" ? "All years" : cur ? y + " so far" : y}, ${nameOf(pl)}` + (metric === "rate" && pl === "edlp" && kind("edlp-stipend") ? " with its stipend"
-                  : metric === "rate" && pl === "all" && kind("all:shifts") ? ", all work" : "");
+                  : metric === "rate" && pl === "all" && kind("all:shifts") ? ", all work" : "") + (metric === "rate" ? (wc ? ", with the commute" : ", without the commute") : "");
     if (metric === "hours") {
       holder.append(h("div", { class: "trend-top" },
-        h("div", { class: "ftop" }, h("span", { class: "l", text: label }), basisDot("recorded", why())),
+        h("div", { class: "ftop" }, h("span", { class: "l", text: label }), basisDot(c.basis || "recorded", why())),
         h("div", { class: "v rounded", text: `${Math.round(hrs).toLocaleString("en-CA")} h` }),
         h("div", { class: "fmeta" }, h("span", { class: "asof", text: [unitsText(), tr ? `${Math.round(tr)} h of travel besides` : "",
           est ? `${Math.round(est / hrs * 100)}% of the hours are the usual length of that kind of shift, not typed or measured` : ""].filter(Boolean).join(" · ") })),
@@ -2554,9 +2745,13 @@ function renderWork() {
       }
     } else {
       holder.append(h("div", { class: "trend-top" },
-        h("div", { class: "ftop" }, h("span", { class: "l", text: label }), basisDot("recorded", why())),
-        h("div", { class: "v rounded", text: `${fmtWhole$(Math.round(rate(c)))}/h` }),
-        h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${fmtWhole$(Math.round(rateT(c)))}/h with travel time · ${fmtWhole$(Math.round(money(c.pay)))} over ${Math.round(hrs - (money(c.hours_awaiting_pay) || 0) - ppHours).toLocaleString("en-CA")} h` +
+        h("div", { class: "ftop" }, h("span", { class: "l", text: label }), basisDot(rateBasis(c), why().concat(
+          [rateBasis(c) === "estimate" ? "An estimate: more of it rests on the usual length of a shift, or on a commute not measured, than on hours typed or measured." : ""]))),
+        h("div", { class: "v rounded" }, estRow(c) ? h("span", { class: "about", text: "about " }) : null, `${fmtWhole$(Math.round(rate(c)))}/h`),
+        c.travel_source && wc ? h("div", { class: "fmeta" }, h("span", { class: "asof commute-from" }, basisDot(c.basis_incl_travel || "recorded",
+          ["Where the commute hours came from, by share.", "Measured: both legs of the round trip seen by your phone. Worked out: one leg seen and doubled, or the usual round trip for that place. Estimate: an assumption written down in profile/assumptions.csv, such as the Rudd walk and the Don Valley drive."]),
+          ` The commute: ${commuteFrom(c.travel_source)}.`)) : null,
+        h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${fmtWhole$(Math.round(other(c)))}/h ${wc ? "without" : "with"} the commute · ${fmtWhole$(Math.round(money(c.pay)))} over ${Math.round(paidHours(c)).toLocaleString("en-CA")} h` + (wc && tr ? ` and ${Math.round(tr).toLocaleString("en-CA")} h of commute` : "") +
           (money(c.hours_awaiting_pay) ? `; ${Math.round(money(c.hours_awaiting_pay))} h of shifts still waiting for their pay are left out` : "") +
           (ppHours ? `; the practice plan's ${Math.round(ppHours)} h are left out, since it is paid as points once a year, not per activity` : "") })),
         lagText ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: lagText })) : null));
@@ -2567,7 +2762,7 @@ function renderWork() {
       const st = pl === "edlp" || pl === "all" ? kind("edlp-stipend") : null, pp = pl === "mgh" || pl === "all" ? kind("mgh-practice-plan") : null;
       // Only a stipend changes the figure now: the practice plan's hours are already left out of it.
       if (sh && st) holder.append(h("div", { class: "facts glass card" },
-        h("div", {}, h("span", { class: "k", text: "The shifts alone" }), h("span", { class: "fv num", text: `${fmtWhole$(Math.round(money(sh.pay_per_hour)))}/h` })),
+        h("div", {}, h("span", { class: "k", text: "Without EDLP's stipend" }), h("span", { class: "fv num", text: `${fmtWhole$(Math.round(rate(sh)))}/h` })),
         h("div", {}, h("span", { class: "k", text: `EDLP's stipend, ${plural(Number(st.units), "month")}` }), h("span", { class: "fv num", text: fmtWhole$(Math.round(money(st.pay))) })),
         pp ? h("div", {}, h("span", { class: "k", text: "Practice plan, left out" }), h("span", { class: "fv num", text: `${Math.round(money(pp.hours))} h` })) : null));
       if (pl === "all") {
@@ -2575,36 +2770,39 @@ function renderWork() {
         const rows = (W.places || []).map(x => {
           const alone = K[`${y}|${x.value}:shifts`], mixed = K[`${y}|edlp-stipend`] && x.value === "edlp" || K[`${y}|mgh-practice-plan`] && x.value === "mgh";
           const c2 = mixed && alone ? alone : cell(y, x.value);
-          return { key: x.value, label: x.label.replace(" consulting", ""), value: c2 ? rate(c2) : 0,
-                   sub: c2 ? `${Math.round(money(c2.hours))} h` + (mixed && alone ? ", shifts alone" : "") : "" };
+          // The hours its rate divides by, not all hours worked (since 2026-09-15; found by the data-flow audit, web-03).
+          return { key: x.value, label: x.label.replace(" consulting", ""), value: c2 ? rate(c2) : 0, est: c2 ? estRow(c2) : false,
+                   sub: c2 ? `${Math.round(paidHours(c2))} h` + (mixed && alone ? ", shifts alone" : "") : "" };
         }).filter(r => r.value > 0).sort((a1, b1) => b1.value - a1.value);
         if (rows.length) holder.append(h("section", { class: "section" }, h("h2", { text: "By place" }),
           h("div", { class: "card glass" }, hbars(rows, v => `${fmtWhole$(Math.round(v))}/h`, k => pickPlace(k)))));
       } else {
         // The newest year first (Alvin, 2026-09-14), as the year choices above run.
-        const rows = years.map(k => ({ label: k, value: cell(k, pl) ? rate(cell(k, pl)) : 0, on: k === y, sub: cell(k, pl) ? `${Math.round(money(cell(k, pl).hours))} h` : "" })).filter(r => r.value > 0);
+        const rows = years.map(k => { const ck = cell(k, pl); return { label: k, value: ck ? rate(ck) : 0, on: k === y, est: ck ? estRow(ck) : false,
+          sub: ck ? `${Math.round(paidHours(ck))} h` : "" }; }).filter(r => r.value > 0);
         if (rows.length > 1) holder.append(h("section", { class: "section" }, h("h2", { text: `${nameOf(pl)}, year by year` }), h("div", { class: "card glass" }, hbars(rows, v => `${fmtWhole$(Math.round(v))}/h`)),
           pl === "edlp" ? h("p", { class: "foot", text: "Each year counts the monthly stipend with the shifts' pay, over the shifts' hours." }) : null));
-        bySite(k => rate(C[k]), v => `${fmtWhole$(Math.round(v))}/h`, k => `${plural(Number(C[k].units), "shift")}, ${Math.round(money(C[k].hours))} h`,
-               pl === "edlp" ? "The shifts alone: the monthly stipend belongs to no site." : "");
+        bySite(k => rate(C[k]), v => `${fmtWhole$(Math.round(v))}/h`, k => `${unitWord(pl, Number(C[k].units))}, ${Math.round(paidHours(C[k]))} h`
+               + (wc && C[k].travel_source ? `; commute ${commuteShort(C[k].travel_source)}` : ""),
+               pl === "edlp" ? "The shifts alone: the monthly stipend belongs to no site." : "", k => estRow(C[k]));
       }
     }
-    if (metric === "hours" && pl !== "all") bySite(k => money(C[k].hours), v => `${Math.round(v).toLocaleString("en-CA")} h`, k => plural(Number(C[k].units), "shift"), "");
+    if (metric === "hours" && pl !== "all") bySite(k => money(C[k].hours), v => `${Math.round(v).toLocaleString("en-CA")} h`, k => unitWord(pl, Number(C[k].units)), "");
     const stEnd = W.last && W.last["edlp-stipend"], shEnd = W.last && W.last.edlp;
     if (metric === "rate" && (pl === "edlp" || pl === "all") && kind("edlp-stipend") && stEnd && shEnd && stEnd.slice(0, 7) > shEnd.slice(0, 7) && (cur || y === "all"))
       holder.append((W.seen && W.seen.edlp && W.seen.edlp > shEnd)
         ? h("p", { class: "foot warnline", text: `EDLP's stipend is counted to ${monthDay(stEnd)}, its shifts to ${monthDay(shEnd)}, and your phone saw EDLP work on ${monthDay(W.seen.edlp)}. Until those shifts are typed, the figure with the stipend is too high; the shifts alone are not affected.` })
         : h("p", { class: "foot", text: `EDLP's stipend is counted to ${monthDay(stEnd)}, its shifts to ${monthDay(shEnd)}; your phone saw no EDLP shift after that${W.seen_to ? ` (to ${monthDay(W.seen_to)})` : ""}, so the months since are stipend with no hours, which lifts the figure with the stipend.` }));
-    holder.append(h("p", { class: "foot", text: (metric === "rate" ? "Your pay for each shift, over its hours. " : "") + "Hours are ones you typed, measured by your phone, or the usual length of that kind of shift. Worked out in the work-hours workings, from your Work tab and the shifts sent from this page." }));
+    holder.append(h("p", { class: "foot", text: (metric === "rate" ? "Your pay for each shift, over its hours" + (wc ? " and the round trip to it" : "") + ". " : "") + "Hours are ones you typed, measured by your phone, or the usual length of that kind of shift." + (metric === "rate" && wc ? " A commute is measured where your phone saw both legs, doubled from one leg, or the usual round trip for that place: the Rudd walk and the Don Valley drive are estimates you gave." : "") + " Worked out in the work-hours workings, from your Work tab and the shifts sent from this page." }));
   };
   const pickPlace = k => { VIEW.place = k; render(); };
   // A place's sites, for the year shown, with the sites worked only in other years named beneath and one tap
   // from all years (Alvin, 2026-09-14: "how come EDLP hours by site doesn't show other sites beside Wiarton and
   // Southampton? I've done Meaford etc": 2026, the year the page opens on, had only those two).
-  function bySite(valOf, fmtV, subOf, note) {
+  function bySite(valOf, fmtV, subOf, note, estOf) {
     const y = VIEW.year, pl = VIEW.place;
     const keysOf = yy => Object.keys(C).filter(k => { const [a1, b1, s2] = k.split("|"); return a1 === yy && b1 === pl && s2; });
-    const here = keysOf(y).map(k => ({ label: k.split("|")[2], value: valOf(k), sub: subOf(k) })).filter(r => r.value > 0).sort((a1, b1) => b1.value - a1.value);
+    const here = keysOf(y).map(k => ({ label: k.split("|")[2], value: valOf(k), sub: subOf(k), est: estOf ? estOf(k) : false })).filter(r => r.value > 0).sort((a1, b1) => b1.value - a1.value);
     const others = keysOf("all").map(k => k.split("|")[2]).filter(s2 => !here.some(r => r.label === s2)).sort();
     if (!here.length && !others.length) return;
     const sec = h("section", { class: "section" }, h("h2", { text: `By site, ${y === "all" ? "all years" : y}` }));
@@ -2632,7 +2830,7 @@ function wholeValue(v) {
 }
 // The corporation's rise is mostly pay it kept, not markets: what prices did is the change in the gap between its
 // investments' value and their cost, over the same months. A fund's reinvested distribution raises the cost, so it
-// sits with the money kept, and the words say so (since 2026-09-15: $11,281 of VEQT's in January 2026). `ch` is the rise, already rounded to the thousand.
+// sits with the money kept, and the words say so (since 2026-09-15; the page's code is public, so it names no figure of Alvin's). `ch` is the rise, already rounded to the thousand.
 function priceSplit(d0, d1, ch) {
   const S = (SNAP && SNAP.series) || {};
   if (!S.invest_market || !S.invest_cost || !ch) return "";
@@ -2667,7 +2865,7 @@ function deltaOf(ser, sid) {
     const c = S.invest_cost.points, c0 = c.find(q => q[0] === prev[0]), c1 = c.find(q => q[0] === last[0]);
     if (c0 && c1 && c1[1] - c0[1] > 0) {
       // Prices first, rounded once, and the rest from the rounded rise, as priceSplit does, so this page and the
-      // corporation's card name the same figure for prices (since 2026-09-15: $181K here, $182K there).
+      // corporation's card name the same figure for prices (since 2026-09-15: the two had differed by a thousand).
       const moved = k1((last[1] - c1[1]) - (prev[1] - c0[1])), put = ch - moved;
       text += ` ${compact(put, "$")} was money put in or distributions reinvested; ` + (moved === 0 ? "prices made little difference." : `prices ${moved > 0 ? "added" : "took away"} ${compact(Math.abs(moved), "$")}.`);
     } else if (c0 && c1 && c1[1] - c0[1] < 0) text += " Money was also taken out, so this is not what prices did.";
@@ -2807,6 +3005,9 @@ function niceTicks(lo, hi, n) {
   if (out[out.length - 1] < hi) out.push(out[out.length - 1] + step);
   return out;
 }
+// A point is an estimate from `est_from` on, or where the series names it (`estimate_keys`, since 2026-09-15: the years
+// whose pay per hour rests mostly on the usual length of a shift).
+function estAt(s2, k) { return !!((s2.est_from && String(k) >= s2.est_from) || (s2.estimate_keys && s2.estimate_keys.includes(String(k)))); }
 function motionOK() { return !(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches); }
 
 // One chart: a line (balances) or columns (amounts by month or year). Redrawn to its width.
@@ -2819,6 +3020,9 @@ function chart(sers, o) {
   const tOf = k => /^\d{4}$/.test(k) ? new Date(+k, 6, 1).getTime() : /^\d{4}-\d{2}$/.test(k) ? new Date(+k.slice(0, 4), +k.slice(5, 7) - 1, 15).getTime() : (dateOf(k) || new Date(0)).getTime();
   let lastW = 0, first = true;
   const draw = () => {
+    // A chart no longer on the screen is not drawn again (since 2026-09-15: the observer fired once more as each chart
+    // was taken off, and rebuilt it in the empty box at 300 wide; found by the data-flow audit, web-09).
+    if (!box.isConnected && !first) return;
     const W = Math.round(box.clientWidth || 300), H = o.height || 160;
     if (!W || W === lastW) return;
     lastW = W;
@@ -2885,9 +3089,9 @@ function chart(sers, o) {
         const bw = Math.max(2, Math.min(24, band - 2));
         s2.points.forEach((p2, i) => {
           const x0 = x(i, p2[0]) - bw / 2, y0 = y(Math.max(0, p2[1])), hh = Math.max(0, y(0) - y0), r = Math.min(4, bw / 2, hh);
-          if (hh <= 0) { if (!o.spark || true) svg.append(sv("line", { class: "zero", x1: x0 + 1, x2: x0 + bw - 1, y1: y(0) - .5, y2: y(0) - .5 })); return; }
+          if (hh <= 0) { svg.append(sv("line", { class: "zero", x1: x0 + 1, x2: x0 + bw - 1, y1: y(0) - .5, y2: y(0) - .5 })); return; }
           const d = `M${x0},${y(0)} V${y0 + r} Q${x0},${y0} ${x0 + r},${y0} H${x0 + bw - r} Q${x0 + bw},${y0} ${x0 + bw},${y0 + r} V${y(0)} Z`;
-          const bar = sv("path", { class: "bar s" + j + (anim ? " grow" : "") + (s2.est_from && String(p2[0]) >= s2.est_from ? " est" : ""), d });
+          const bar = sv("path", { class: "bar s" + j + (anim ? " grow" : "") + (estAt(s2, p2[0]) ? " est" : ""), d });
           if (anim) bar.style.setProperty("--d", `${Math.min(i * 12, 400)}ms`);
           svg.append(bar);
         });
@@ -2938,7 +3142,7 @@ function chart(sers, o) {
         tip.append(h("div", { class: "tk", text: keyLabel(keys[i], true) }), ...S2.map((s2, j) => {
           const pt = s2.points.find(q => q[0] === keys[i]);
           if (!pt) return null;             // a history with no point on this date says nothing
-          const est = s2.est_from && String(pt[0]) >= s2.est_from;
+          const est = estAt(s2, pt[0]);
           return h("div", { class: "tr" }, S2.length > 1 ? h("span", { class: "sw s" + j }) : null, h("span", { text: (S2.length > 1 ? s2.label + ": " : "") + (est ? "about " : "") + compact(pt[1], s2.unit, true) }));
         }).filter(Boolean));
         tip.hidden = false;
@@ -2952,7 +3156,10 @@ function chart(sers, o) {
     }
   };
   // Redrawn on the next frame, so a redraw that changes the box's height never loops back into the observer.
-  if (window.ResizeObserver) new ResizeObserver(() => requestAnimationFrame(draw)).observe(box);
+  if (window.ResizeObserver) {
+    const ro = new ResizeObserver(() => { if (!box.isConnected && !first) { ro.disconnect(); return; } requestAnimationFrame(draw); });
+    ro.observe(box);
+  }
   setTimeout(draw, 0);
   return box;
 }
@@ -2962,7 +3169,10 @@ function plainSource(src) {
   const m = /^(models|ledger)\/([^/]+?)(?:\/|\.csv)/.exec(src || "");
   if (!m) return "From " + String(src || "").replace(/\s*\([^)]*\)\s*$/, "");
   const name = m[2].replace(/-/g, " ").replace(/\bqt\b/, "Questrade").replace(/\bcorp\b/, "corporate");
-  return m[1] === "models" ? `Worked out in the ${name} workings` : `Read from the ${name} record`;
+  // What the source says after its file is kept: an assumption, or a month from a year tab (since 2026-09-15;
+  // found by the data-flow audit, pres-14).
+  const more = /[;,]\s*(.+)$/.exec(String(src).slice(m.index + m[0].length));
+  return (m[1] === "models" ? `Worked out in the ${name} workings` : `Read from the ${name} record`) + (more ? `; ${more[1].replace(/\.$/, "")}` : "");
 }
 
 /* ---------- Settings ---------- */
@@ -3255,7 +3465,7 @@ async function boot() {
   document.addEventListener("touchmove", gMove, { passive: false });
   document.addEventListener("touchend", gEnd, { passive: true });
   document.addEventListener("touchcancel", gEnd, { passive: true });
-  document.addEventListener("click", ev => { if (Date.now() < NO_CLICK_UNTIL) { ev.stopPropagation(); ev.preventDefault(); } }, true);
+  document.addEventListener("click", ev => { if (Date.now() < NO_CLICK_UNTIL) { ev.stopPropagation(); ev.preventDefault(); return; } neighboursStale(); }, true);
   if (window.ResizeObserver) new ResizeObserver(measureBar).observe(document.getElementById("bar"));
   window.addEventListener("resize", measureBar);
   window.addEventListener("popstate", () => {
@@ -3281,10 +3491,16 @@ async function boot() {
   window.addEventListener("pageshow", () => { awayCheck(); });
   window.addEventListener("online", () => { if (MEM) { flush(); refresh(); } });
 
-  try { CFG = await fetch("config.json", { cache: "no-store" }).then(r => r.json()); save("cfg", CFG); }
-  catch (e) { CFG = load("cfg", null); }
+  // The settings saved last time open the passcode screen at once; the fresh copy is fetched meanwhile (since
+  // 2026-09-15: the screen waited on this fetch, one trip to GitHub and back). Only a first visit waits.
+  const fresh = fetch("config.json", { cache: "no-store" }).then(r => r.json()).then(c => { CFG = c; save("cfg", c); }).catch(() => {});
+  CFG = load("cfg", null);
+  if (!CFG) await fresh;
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => { /* the page works without it, only not offline */ });
 
+  // Opening the page shows the passcode screen at once; it fades in only when the page locks itself later.
+  document.getElementById("lock").classList.add("at-start");
+  setTimeout(() => document.getElementById("lock").classList.remove("at-start"), 1000);
   if (hasVault()) { sweepOldAtStart(); lockScreen("unlock"); return; }
   // Before the lock existed, the key and the rest sat in the clear. Move them into a vault now.
   const oldToken = (() => { try { return JSON.parse(rawGet(OLD.token) || "null"); } catch (e) { return null; } })();
