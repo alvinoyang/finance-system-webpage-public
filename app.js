@@ -940,15 +940,19 @@ function upcoming() {
     const cut = d.what.search(/[:;]|\.\s/);
     const title = cut > 0 ? d.what.slice(0, cut) : d.what;
     let rest = cut > 0 ? d.what.slice(cut + 1).trim() : "";
-    // A bill paid through another charge (the tax through the Chexy charge on the 20th) reads as covered,
-    // and is struck through only once that charge's day has passed.
+    // A bill paid through another charge (the tax through the Chexy charge on the 20th) reads as covered, and is
+    // struck through only once CRA's own account shows the payment (since 2026-09-15: before, once the 20th had
+    // passed, and July's instalment, which came back, would have read as paid).
     const via = /^(already )?paid (by|through) the Chexy charge on the (\d{1,2})(st|nd|rd|th)/i.exec(rest);
     let paid = false, viaNote = "";
     if (via) {
       const dd = dateOf(d.date), chargeDay = dd ? new Date(dd.getFullYear(), dd.getMonth(), +via[3]) : null;
       const t = new Date(); t.setHours(0, 0, 0, 0);
-      paid = chargeDay && chargeDay <= t;
-      viaNote = paid ? "paid via Chexy" : `via Chexy, ${chargeDay ? monthDay(isoOf(chargeDay)) : "the 20th"}`;
+      const from = chargeDay ? isoOf(new Date(chargeDay.getTime() - 3 * 864e5)) : d.date;
+      const cra = (SNAP.cra_tax && SNAP.cra_tax.payments) || [];
+      paid = cra.some(p => p.date >= from && p.date <= d.date && Math.abs(money(p.amount) - money(d.amount)) < 1);
+      viaNote = paid ? "paid via Chexy" : chargeDay && chargeDay <= t ? "via Chexy, not yet confirmed" :
+        `via Chexy, ${chargeDay ? monthDay(isoOf(chargeDay)) : "the 20th"}`;
       rest = "";
     }
     // Compact since 2026-09-14, at Alvin's request ("the coming up rows are very cramped"): the title on one line,
@@ -1913,11 +1917,14 @@ function updateSweep(form) {
   const shortly = w => w.split(/[:;.]\s|, | about | for the /)[0].split(/[:;]/)[0];
   const lines = [];
   const isEst = it => (it.basis || "").startsWith("estimate");
+  // A bill whose day has come has left chequing already, so the balance typed above no longer holds it (the page
+  // may have been published days before the visit).
+  const reserve = (pd.reserve || []).filter(r => !r.due || r.due > todayISO());
   // Every estimate still in the sum, whether a payment not yet ticked or a bill kept back for.
-  const estOpen = pd.items.filter(it => !ticked.has(it.id) && money(it.amount) && isEst(it)).concat((pd.reserve || []).filter(r => money(r.amount) && isEst(r)));
+  const estOpen = pd.items.filter(it => !ticked.has(it.id) && money(it.amount) && isEst(it)).concat(reserve.filter(r => money(r.amount) && isEst(r)));
   const itemName = w => { const m = /^Pay [^:]+: (?:the )?(.*)$/.exec(w); return m ? m[1].replace(/^./, c => c.toUpperCase()) : shortly(w); };
   for (const it of pd.items) if (!ticked.has(it.id) && money(it.amount)) lines.push([itemName(it.what) + ", not ticked yet", money(it.amount), isEst(it)]);
-  for (const r of pd.reserve || []) lines.push([shortly(r.what) + ", due " + shortDate(r.due), money(r.amount), isEst(r)]);
+  for (const r of reserve) lines.push([shortly(r.what) + ", due " + shortDate(r.due), money(r.amount), isEst(r)]);
   lines.push(["The cushion left in chequing", money(pd.cushion) || 0, false, true]);
   // A card balance has no amount here: until it is ticked as paid, the balance above still holds it.
   const cardsOpen = pd.items.filter(it => !money(it.amount) && !ticked.has(it.id)).map(it => shortly(it.what).replace(/^Pay (the )?/i, "").replace(/ balance$/i, ""));
@@ -2138,7 +2145,7 @@ function householdNow() {
   if (nw.now) return { date: nw.now.date, total: money(nw.now.household), corp: money(nw.now.corporation), pers: money(nw.now.personal),
                        since: money(nw.now.personal_since), from: nw.now.personal_from, basis: "estimate", corpBasis: nw.now.corporation_label, note: nw.now.note, est: true };
   if (nw.household) return { date: nw.date, total: money(nw.household), corp: money(nw.corporation), pers: money(nw.personal), since: 0, from: nw.date,
-                             basis: "derived", corpBasis: nw.corporation_label, est: false };
+                             basis: "recorded", corpBasis: nw.corporation_label, est: false };
   return null;
 }
 function householdWhy(n) {
@@ -2203,7 +2210,7 @@ function summaryCorp() {
   if (wh) g.append(figCard(wh, { label: wh.label.replace(/ · .*/, ""), value: wholeValue(wh.value) + " h", series: S.work_hours, onOpen: () => openView({ type: "work", metric: "hours" }),
     meta: [h("span", { class: "asof", text: lagNote(wh) || "By year, by place" })] }));
   if (pph) g.append(figCard(pph, { label: pph.label.replace(/ · .*/, ""), value: wholeValue(pph.value) + "/h", series: S.pay_per_hour, onOpen: () => openView({ type: "work", metric: "rate" }),
-    meta: [h("span", { class: "asof", text: "By year, by place and site" })] }));
+    meta: [h("span", { class: "asof", text: pph.note || "By year, by place and site" })] }));
   const rm = ov("remit");
   if (rm) g.append(figCard(rm, { series: S.remit, onOpen: () => openTrendOf("remit"), meta: [h("span", { class: "asof", text: "Paid each month, by the 15th" })] }));
   const tx = ov("tax_left");
@@ -2239,7 +2246,8 @@ function summaryCorp() {
 const ACCOUNTS = [["qt-tfsa", "TFSA"], ["qt-rrsp", "RRSP"], ["qt-fhsa", "FHSA"]];
 function regOf(a) { return (SNAP && SNAP.registered && SNAP.registered.accounts && SNAP.registered.accounts[a]) || null; }
 // Room left is the year's room less what went in, so it is derived, whatever the room's own label.
-function leftBasis(acct) { return basisOf(acct.room_basis) === "estimate" ? "estimate" : "derived"; }
+// Recorded, not derived (since 2026-09-15): the room is CRA's, but what went in this year is as you typed it.
+function leftBasis(acct) { return basisOf(acct.room_basis) === "estimate" ? "estimate" : "recorded"; }
 function roomWhy(acct) {
   return ["The year's room, less what has gone in this year." + (leftBasis(acct) === "estimate" ? " An estimate, because the year's limit is not yet confirmed on CRA's site." : ""),
           `The room is ${BASIS_NAME[basisOf(acct.room_basis)] ? BASIS_NAME[basisOf(acct.room_basis)].toLowerCase() : acct.room_basis}: ${acct.room_note || ""}`,
@@ -2319,7 +2327,9 @@ function renderAccount() {
     const sec = h("section", { class: "card glass" }, h("div", { class: "ftop" }, h("h3", { text: "Every year" }), basisDot("recorded", [`${plainSource(src)}.`, "Each year's total of the rows you typed."])));
     sec.append(chart([ser], { form: "bars", unit: "$", height: 170, axis: true, hover: true }));
     const lifeRoom = tfsa ? money(acct.lifetime_limits) : acct.lifetime_limit ? money(acct.lifetime_limit) : null;
-    const net = money(acct.put_in) - (tfsa ? money(acct.taken_out) : 0);
+    // Money moved in from an earlier institution is not a year's contribution, but it is room used (since 2026-09-15).
+    const opening = (acct.opening || []).reduce((s2, o) => s2 + money(o.amount), 0);
+    const net = money(acct.put_in) + opening - (tfsa ? money(acct.taken_out) : 0);
     const facts = [["Last year", fmtWhole$(Math.round(money(acct.last_year)))], ["This year", fmtWhole$(Math.round(put || 0))]];
     if (!lifeRoom) facts.push(["Every year", fmtWhole$(Math.round(money(acct.put_in)))]);
     sec.append(h("div", { class: "facts" }, facts.map(([k, v]) => h("div", {}, h("span", { class: "k", text: k }), h("span", { class: "fv num", text: v })))));
@@ -2328,9 +2338,12 @@ function renderAccount() {
         h("div", { class: "life-h" }, h("span", { text: tfsa ? `Over its life, since ${acct.room_since}` : "Over its life" }),
           h("span", { class: "num" }, h("b", { text: fmtWhole$(Math.round(net)) }), ` of ${fmtWhole$(Math.round(lifeRoom))}`)),
         meter([{ value: net, cls: "s1", label: tfsa ? "In, less what came out" : "Put in" }], lifeRoom, "thin"),
-        tfsa ? h("div", { class: "legend3" }, h("span", {}, "Put in ", h("b", { text: fmtWhole$(Math.round(money(acct.put_in))) })), h("span", {}, "Taken out ", h("b", { text: fmtWhole$(Math.round(money(acct.taken_out))) })),
+        tfsa ? h("div", { class: "legend3" }, h("span", {}, "Put in ", h("b", { text: fmtWhole$(Math.round(money(acct.put_in))) })),
+          opening ? h("span", {}, `Moved in, ${(acct.opening[0].date || "").slice(0, 4)} `, h("b", { text: fmtWhole$(Math.round(opening)) })) : null,
+          h("span", {}, "Taken out ", h("b", { text: fmtWhole$(Math.round(money(acct.taken_out))) })),
           h("span", { class: "muted" }, "Room since " + acct.room_since + " ", h("b", { text: fmtWhole$(Math.round(lifeRoom)) }))) : null,
         h("p", { class: "small muted", text: tfsa ? "The bar is what went in, less what came out, against every year's limit added up. A year can take more than its own limit: room not used carries forward, and what comes out is room again the next January."
+                                                    + (opening ? " Moved in is the account brought over from an earlier institution: what went in there, less what came out, not a year's contribution." : "")
                                                    : `An FHSA takes ${fmtWhole$(Math.round(lifeRoom))} over its life, at most $8,000 a year.` })));
     }
     const list = h("div", { class: "list flat", hidden: true },
@@ -2376,7 +2389,7 @@ function renderIncome() {
       holder.append(h("div", { class: "trend-top" },
         h("div", { class: "ftop" }, h("span", { class: "l", text: `Since ${ys[0]}` }), basisDot(basis, [ys.map(y => `${y}: ${BASIS_NAME[Y[y].basis].toLowerCase()}, ${Y[y].note}.`).join(" "), plainSource(I.source) + "."])),
         h("div", { class: "v rounded", text: fmtWhole$(Math.round(total)) }),
-        h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${ys.length} years with a year tab; 2022, the corporation's first months, has none.` +
+        h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${ys.length} years with a year tab; 2022 has none of its own, and its last days, from December 23, are counted in 2023.` +
           (Y[now] && Y[now].so_far ? ` ${now} counts ${keyLabel(`${now}-01`, true).replace(/ \d{4}$/, "")} to ${keyLabel(Y[now].through, true).replace(/ \d{4}$/, "")} only.` : "") }))));
       const ser = { label: "Income", unit: "$", form: "bars", points: ys.map(y => [y, money(Y[y].total)]) };
       holder.append(h("div", { class: "card glass chartcard" }, chart([ser], { form: "bars", unit: "$", height: 220, axis: true, hover: true })));
@@ -2491,15 +2504,23 @@ function renderWork() {
     }
     const K = W.kinds || {};
     const kind = t => K[`${y}|${t}`];
+    // Each place's own word for a unit of work (since 2026-09-15: every place's were called "shifts", and EDLP's
+    // count took in its months of stipend).
+    const unitWord = (place, n) => plural(n, ({ mgh: "shift or call", edlp: "shift", bochner: "list", endoscopy: "list", abp: "month" })[place] || "entry",
+                                          ({ mgh: "shifts and calls", edlp: "shifts", bochner: "lists", endoscopy: "lists", abp: "months" })[place] || "entries");
     const unitsText = () => {
       if (pl === "edlp") { const sh = kind("edlp-shift"); return sh ? plural(Number(sh.units), "shift") : ""; }
       const ppk = (pl === "mgh" || pl === "all") && kind("mgh-practice-plan");   // its activities are not shifts
-      const n = units - (ppk ? Number(ppk.units) : 0);
+      const stk = pl === "all" && kind("edlp-stipend");                          // nor is a month's stipend (since 2026-09-15)
+      const n = units - (ppk ? Number(ppk.units) : 0) - (stk ? Number(stk.units) : 0);
       return plural(n, ({ mgh: "shift or call", bochner: "list", endoscopy: "list", abp: "month's entry", all: "shift or list" })[pl] || "entry",
                     ({ mgh: "shifts and calls", bochner: "lists", endoscopy: "lists", abp: "months' entries", all: "shifts and lists" })[pl] || "entries");
     };
     if (!c) { holder.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: `No work at ${nameOf(pl)} ${y === "all" ? "yet" : "in " + y}.` }))); return; }
-    const hrs = money(c.hours), units = Number(c.units), est = money(c.estimated_hours), tr = money(c.travel_hours);
+    const hrs = money(c.hours), units = Number(c.units), tr = money(c.travel_hours);
+    // The usual length of that kind of shift, where no one typed the hours and the phone did not see it (since
+    // 2026-09-15; before, only the older assumption was counted, and the share read far too low).
+    const est = money(c.assumed_hours !== undefined && c.assumed_hours !== "" ? c.assumed_hours : c.estimated_hours);
     // MGH's practice plan: typed once a year for its whole cycle, so its hours are shared evenly over the
     // cycle's months (models/work-hours, corrected 2026-09-14), and it is paid as points once a year, outside
     // the Work tab, so its hours are left out of pay per hour.
@@ -2512,7 +2533,7 @@ function renderWork() {
         h("div", { class: "ftop" }, h("span", { class: "l", text: label }), basisDot("derived", why())),
         h("div", { class: "v rounded", text: `${Math.round(hrs).toLocaleString("en-CA")} h` }),
         h("div", { class: "fmeta" }, h("span", { class: "asof", text: [unitsText(), tr ? `${Math.round(tr)} h of travel besides` : "",
-          est ? `${Math.round(est / hrs * 100)}% of the hours are the usual length, not measured` : ""].filter(Boolean).join(" · ") })),
+          est ? `${Math.round(est / hrs * 100)}% of the hours are the usual length of that kind of shift, not typed or measured` : ""].filter(Boolean).join(" · ") })),
         ppHours ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: ppNote })) : null,
         lagText ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: lagText })) : null));
       // By month in a year; by year across all.
@@ -2522,7 +2543,9 @@ function renderWork() {
       if (ser.points.length >= 2) holder.append(h("div", { class: "card glass chartcard" }, chart([ser], { form: "bars", unit: "h", height: 200, axis: true, hover: true })));
       if (pl === "all") {
         const rows = (W.places || []).map(x => ({ key: x.value, label: x.label.replace(" consulting", ""), value: cell(y, x.value) ? money(cell(y, x.value).hours) : 0,
-                                                 sub: cell(y, x.value) ? plural(Number(cell(y, x.value).units) - (x.value === "mgh" && kind("mgh-practice-plan") ? Number(kind("mgh-practice-plan").units) : 0), "shift")
+                                                 sub: cell(y, x.value) ? unitWord(x.value, Number(cell(y, x.value).units)
+                                                        - (x.value === "mgh" && kind("mgh-practice-plan") ? Number(kind("mgh-practice-plan").units) : 0)
+                                                        - (x.value === "edlp" && kind("edlp-stipend") ? Number(kind("edlp-stipend").units) : 0))
                                                       + (x.value === "mgh" && kind("mgh-practice-plan") ? ", and the practice plan" : "") : "" })).filter(r => r.value > 0).sort((a1, b1) => b1.value - a1.value);
         if (rows.length > 1) holder.append(h("section", { class: "section" }, h("h2", { text: "By place" }),
           h("div", { class: "card glass" }, hbars(rows, v => `${Math.round(v).toLocaleString("en-CA")} h`, k => pickPlace(k)))));
@@ -2604,7 +2627,8 @@ function wholeValue(v) {
   return String(v || "").replace(/^(-?)\$([\d,]+)\.(\d\d)\b/, (m, sg, d, c) => sg + "$" + Math.round(Number(d.replace(/,/g, "")) + Number(c) / 100).toLocaleString("en-CA"));
 }
 // The corporation's rise is mostly pay it kept, not markets: what prices did is the change in the gap between its
-// investments' value and their cost, over the same months. `ch` is the rise, already rounded to the thousand.
+// investments' value and their cost, over the same months. A fund's reinvested distribution raises the cost, so it
+// sits with the money kept, and the words say so (since 2026-09-15: $11,281 of VEQT's in January 2026). `ch` is the rise, already rounded to the thousand.
 function priceSplit(d0, d1, ch) {
   const S = (SNAP && SNAP.series) || {};
   if (!S.invest_market || !S.invest_cost || !ch) return "";
@@ -2612,7 +2636,7 @@ function priceSplit(d0, d1, ch) {
   const m0 = at(S.invest_market, d0), m1 = at(S.invest_market, d1), b0 = at(S.invest_cost, d0), b1 = at(S.invest_cost, d1);
   if (!(m0 && m1 && b0 && b1)) return "";
   const prices = Math.round(((m1[1] - b1[1]) - (m0[1] - b0[1])) / 1000) * 1000, kept = ch - prices;
-  return ` Prices ${prices >= 0 ? "added" : "took away"} ${compact(Math.abs(prices), "$")}; ${kept >= 0 ? "the other " + compact(kept, "$") + " is money it kept from your work" : "money also went out"}.`;
+  return ` Prices ${prices >= 0 ? "added" : "took away"} ${compact(Math.abs(prices), "$")}; ${kept >= 0 ? "the other " + compact(kept, "$") + " is money it kept from your work and its funds' reinvested distributions" : "money also went out"}.`;
 }
 // The change over the last twelve months, for a history of balances.
 function deltaOf(ser, sid) {
@@ -2677,7 +2701,7 @@ function renderTrend() {
       const est = main.est_from && String(pt[0]) >= main.est_from;
       return h("div", { class: "row plain" }, h("span", { class: "main" }, h("span", { class: "title", text: prettyDates(pt[0]) }),
         h("span", { class: "meta", text: est ? "Latest, an estimate" : "Year end" })),
-        h("span", { class: "est-wrap" }, h("span", { class: "amt", text: (est ? "about " : "") + fmtWhole$(Math.round(pt[1])) }), basisDot(est ? "estimate" : "derived", est ? householdWhy(house) : ["The corporation at market plus the TFSA, RRSP and FHSA as you typed them for that year end."])));
+        h("span", { class: "est-wrap" }, h("span", { class: "amt", text: (est ? "about " : "") + fmtWhole$(Math.round(pt[1])) }), basisDot(est ? "estimate" : "recorded", est ? householdWhy(house) : ["The corporation at market plus the TFSA, RRSP and FHSA as you typed them for that year end."])));
     }))));
     p.append(h("p", { class: "foot", text: "The household has a point only where the TFSA, RRSP and FHSA have a value: the year ends you typed in the workbook's Overview, and the latest estimate. " +
       "Once their monthly Questrade statements are filed, it will have one every month. Dec 31, 2023 is missing because the corporation's 2023 bank statements are not filed. The corporation alone has a point every month." }));
