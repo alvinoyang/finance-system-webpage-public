@@ -547,7 +547,7 @@ input.masked { -webkit-text-security: disc; }
   @keyframes grow { from { transform: scaleY(0); } to { transform: none; } }
   .tabbar button[aria-current="page"] svg { animation: pop .3s cubic-bezier(.3, 1.6, .5, 1); }
   @keyframes pop { 50% { transform: scale(1.12); } }
-  .lock:not([hidden]) .lock-inner { animation: pageIn .35s ease both; }
+  .lock:not([hidden]):not(.at-start) .lock-inner { animation: pageIn .35s ease both; }
   .segs button, .seg button { transition: background .18s, color .18s, box-shadow .18s; }
 }
 .fig.hero .spark.none { min-height: 0; }
@@ -722,16 +722,14 @@ details.identity .fields.glass, details.identity .pills button { box-shadow: ins
 
 /* ---------- 2026-09-14, late: pull to refresh, sideways swipes, a calmer month-end card, keeping a charge without a receipt ---------- */
 /* Pull to refresh: the circle sits in the gap the pull opens between the fixed bar and the page. */
-.ptr { position: fixed; left: 0; right: 0; top: var(--bar-h, 60px); height: 0; z-index: 15; display: grid; place-items: center; overflow: hidden; pointer-events: none; }
+.ptr { position: fixed; left: 0; right: 0; top: var(--bar-h, 60px); height: 110px; z-index: 15; display: grid; justify-items: center; align-items: start; overflow: hidden; pointer-events: none; }
 .ptr-i { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; opacity: 0; color: var(--ink-2);
   background: var(--glass-strong); box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 4px 14px rgba(20, 30, 60, .14); }
 .ptr-i svg { width: 18px; height: 18px; }
 .ptr.armed .ptr-i, .ptr.busy .ptr-i { color: var(--accent); }
 .ptr.busy .ptr-i svg { animation: ptrSpin .8s linear infinite; }
 @keyframes ptrSpin { to { transform: rotate(360deg); } }
-main.settle, .ptr.settle { transition: top .3s cubic-bezier(.2, .9, .25, 1), height .3s cubic-bezier(.2, .9, .25, 1); }
-main.side-settle { transition: left .26s cubic-bezier(.2, .9, .25, 1), opacity .26s; }
-.side-settle { transition: transform .26s cubic-bezier(.2, .9, .25, 1), opacity .26s; }
+main.settle, .ptr.settle .ptr-i { transition: transform .3s cubic-bezier(.2, .9, .25, 1), opacity .3s; }
 /* A page, or a part of one, reached by a swipe slides in from the side the finger came from. */
 @media (prefers-reduced-motion: no-preference) {
   .enter-r { animation: fromRight .3s cubic-bezier(.2, .8, .2, 1) backwards; }
@@ -783,10 +781,15 @@ main.side-settle { transition: left .26s cubic-bezier(.2, .9, .25, 1), opacity .
 }
 @media (min-width: 600px) { .head-right { display: none; } .head.with-status { grid-template-columns: 1fr; } }
 
-/* The swipe: the page being left is a still copy sliding away; nothing inside it moves on its own. */
-.ghost, .ghost * { animation: none !important; }
-.ghost .line.draw { stroke-dasharray: none; stroke-dashoffset: 0; }
-.ghost .bar.grow { transform: none; }
+/* The swipe (2026-09-15): the page a swipe leads to, drawn just off the edge of the screen, moves with the finger
+   (app.js, "The swipe"). A whole page sits in a <main> of its own, fixed, so it takes the page's own padding;
+   a part of a page sits exactly beside the part it replaces. Neither can be pressed. */
+main.peek { position: fixed; left: 0; right: 0; z-index: 5; pointer-events: none; will-change: transform; }
+.peek-part { position: fixed; z-index: 5; pointer-events: none; margin: 0; will-change: transform; }
+@media (max-width: 599px) {
+  main.peek.peek-top { padding-top: calc(max(10px, env(safe-area-inset-top)) + 8px); }
+  body.toplevel main.peek.peek-sub { padding-top: var(--bar-h, calc(max(8px, env(safe-area-inset-top)) + 60px)); }
+}
 
 /* Coming up: one line for what, one for when, the amount at the right; the rest opens on a tap. */
 .row.due { grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; padding: 10px 16px; min-height: 0; align-items: center; }
@@ -817,3 +820,7 @@ main.side-settle { transition: left .26s cubic-bezier(.2, .9, .25, 1), opacity .
 .chart .line.est { stroke-dasharray: 5 5; }
 .chart .end.est.s0 { fill: var(--glass-strong); stroke: var(--c0); stroke-width: 2.2; }
 .fig .v .about { font-size: .5em; font-weight: 600; color: var(--ink-2); letter-spacing: 0; margin-right: 2px; }
+
+/* Pay per hour with the commute or without (2026-09-15): the card says which it shows, and where the commute came from. */
+.fmeta .which { font-weight: 600; color: var(--ink-2); }
+.asof.commute-from { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
