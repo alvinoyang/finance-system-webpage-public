@@ -2181,7 +2181,7 @@ function summaryTotal() {
       meter([{ value: n.corp, cls: "s0", label: "Corporation" }, { value: n.pers, cls: "s1", label: "TFSA, RRSP, FHSA" }]),
       h("div", { class: "list flat" },
         row("s0", "Corporation", `${pct(n.corp)} · at market, ${monthDay(n.date)}`, n.corp, n.corpBasis,
-            [`At ${prettyDates(n.date)}.`, "Its investments and chequing, less what it owes on its Visa.", "Before the tax paid to take money out of the corporation."], "corporation"),
+            [`At ${prettyDates(n.date)}.`, "Its investments and chequing, plus money on its way from chequing to Questrade, less what it owes on its Visa.", "Before the tax paid to take money out of the corporation, and before a payroll remittance still to be paid."], "corporation"),
         row("s1", "TFSA, RRSP, FHSA", persSub, n.pers, n.since ? "estimate" : nw.personal_label,
             [oneDate ? `Their values at ${prettyDates(n.from)}, as you typed them in the workbook's Overview or on this page; no statements are filed for them yet.`
                      : `Each at its latest value you typed: ${Object.entries(((SNAP.networth || {}).now || {}).personal_dates || {}).map(([a, d]) => `${({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[a]} ${monthDay(d)}`).join(", ")}. No statements are filed for them yet.`,
@@ -2206,13 +2206,13 @@ function summaryCorp() {
   if (inc) g.append(figCard(inc, { label: inc.label.replace("Income into the corporation", "Income"), series: S.income, onOpen: () => openView({ type: "income" }),
     meta: [h("span", { class: "asof" }, exp ? h("span", { class: "expect" }, h("span", { class: "bd estimate", "aria-hidden": "true" }), `About ${compact(money(exp.total), "$")} expected by Dec 31`) : (incomeVsLastYear() || "Every year, by month"))] }));
   const wh = ov("work_hours"), pph = ov("pay_per_hour");
-  const lagNote = o => daysFrom(o.as_of) < -35 ? `MGH counted to ${monthDay(o.as_of)}` : "";
+  const lagNote = o => daysFrom(o.mgh_through || o.as_of) < -35 ? `MGH counted to ${monthDay(o.mgh_through || o.as_of)}` : "";
   if (wh) g.append(figCard(wh, { label: wh.label.replace(/ · .*/, ""), value: wholeValue(wh.value) + " h", series: S.work_hours, onOpen: () => openView({ type: "work", metric: "hours" }),
     meta: [h("span", { class: "asof", text: lagNote(wh) || "By year, by place" })] }));
   if (pph) g.append(figCard(pph, { label: pph.label.replace(/ · .*/, ""), value: wholeValue(pph.value) + "/h", series: S.pay_per_hour, onOpen: () => openView({ type: "work", metric: "rate" }),
     meta: [h("span", { class: "asof", text: pph.note || "By year, by place and site" })] }));
   const rm = ov("remit");
-  if (rm) g.append(figCard(rm, { series: S.remit, onOpen: () => openTrendOf("remit"), meta: [h("span", { class: "asof", text: "Paid each month, by the 15th" })] }));
+  if (rm) g.append(figCard(rm, { series: S.remit, onOpen: () => openTrendOf("remit"), meta: [h("span", { class: "asof", text: "Due by the 15th of the next month" })] }));
   const tx = ov("tax_left");
   if (tx) g.append(figCard(tx, { label: "Tax instalments left this year", meta: [h("span", { class: "asof", text: "Paid through Chexy on the Amex" })] }));
   out.append(balance(g));
@@ -2512,7 +2512,9 @@ function renderWork() {
       if (pl === "edlp") { const sh = kind("edlp-shift"); return sh ? plural(Number(sh.units), "shift") : ""; }
       const ppk = (pl === "mgh" || pl === "all") && kind("mgh-practice-plan");   // its activities are not shifts
       const stk = pl === "all" && kind("edlp-stipend");                          // nor is a month's stipend (since 2026-09-15)
-      const n = units - (ppk ? Number(ppk.units) : 0) - (stk ? Number(stk.units) : 0);
+      const abk = pl === "all" && kind("abp-consulting");                        // ABP's months are named apart (since 2026-09-15)
+      const n = units - (ppk ? Number(ppk.units) : 0) - (stk ? Number(stk.units) : 0) - (abk ? Number(abk.units) : 0);
+      if (abk && Number(abk.units)) return plural(n, "shift or list", "shifts and lists") + ` and ${plural(Number(abk.units), "month", "months")} of ABP`;
       return plural(n, ({ mgh: "shift or call", bochner: "list", endoscopy: "list", abp: "month's entry", all: "shift or list" })[pl] || "entry",
                     ({ mgh: "shifts and calls", bochner: "lists", endoscopy: "lists", abp: "months' entries", all: "shifts and lists" })[pl] || "entries");
     };
@@ -2530,7 +2532,7 @@ function renderWork() {
                   : metric === "rate" && pl === "all" && kind("all:shifts") ? ", all work" : "");
     if (metric === "hours") {
       holder.append(h("div", { class: "trend-top" },
-        h("div", { class: "ftop" }, h("span", { class: "l", text: label }), basisDot("derived", why())),
+        h("div", { class: "ftop" }, h("span", { class: "l", text: label }), basisDot("recorded", why())),
         h("div", { class: "v rounded", text: `${Math.round(hrs).toLocaleString("en-CA")} h` }),
         h("div", { class: "fmeta" }, h("span", { class: "asof", text: [unitsText(), tr ? `${Math.round(tr)} h of travel besides` : "",
           est ? `${Math.round(est / hrs * 100)}% of the hours are the usual length of that kind of shift, not typed or measured` : ""].filter(Boolean).join(" · ") })),
@@ -2552,7 +2554,7 @@ function renderWork() {
       }
     } else {
       holder.append(h("div", { class: "trend-top" },
-        h("div", { class: "ftop" }, h("span", { class: "l", text: label }), basisDot("derived", why())),
+        h("div", { class: "ftop" }, h("span", { class: "l", text: label }), basisDot("recorded", why())),
         h("div", { class: "v rounded", text: `${fmtWhole$(Math.round(rate(c)))}/h` }),
         h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${fmtWhole$(Math.round(rateT(c)))}/h with travel time · ${fmtWhole$(Math.round(money(c.pay)))} over ${Math.round(hrs - (money(c.hours_awaiting_pay) || 0) - ppHours).toLocaleString("en-CA")} h` +
           (money(c.hours_awaiting_pay) ? `; ${Math.round(money(c.hours_awaiting_pay))} h of shifts still waiting for their pay are left out` : "") +
@@ -2662,7 +2664,9 @@ function deltaOf(ser, sid) {
     // The rise, split honestly in every kind of year: what was added at cost, and what prices did.
     const c = S.invest_cost.points, c0 = c.find(q => q[0] === prev[0]), c1 = c.find(q => q[0] === last[0]);
     if (c0 && c1 && c1[1] - c0[1] > 0) {
-      const put = k1(c1[1] - c0[1]), moved = ch - put;
+      // Prices first, rounded once, and the rest from the rounded rise, as priceSplit does, so this page and the
+      // corporation's card name the same figure for prices (since 2026-09-15: $181K here, $182K there).
+      const moved = k1((last[1] - c1[1]) - (prev[1] - c0[1])), put = ch - moved;
       text += ` ${compact(put, "$")} was money put in or distributions reinvested; ` + (moved === 0 ? "prices made little difference." : `prices ${moved > 0 ? "added" : "took away"} ${compact(Math.abs(moved), "$")}.`);
     } else if (c0 && c1 && c1[1] - c0[1] < 0) text += " Money was also taken out, so this is not what prices did.";
   }
