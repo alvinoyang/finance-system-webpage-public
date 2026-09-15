@@ -714,7 +714,7 @@ function stillen(root) {
   return root;
 }
 function neighbour(dir, edgeBack) {
-  if (!MEM || (VIEW && ["form", "settings"].includes(VIEW.type) && !edgeBack)) return null;
+  if (!MEM || (VIEW && VIEW.type === "form") || (VIEW && VIEW.type === "settings" && !edgeBack)) return null;
   return drawAside(() => {
     let tg = edgeBack ? BACK() : SWIPE && SWIPE[dir] && SWIPE[dir]();
     if (!tg) return null;
@@ -1761,6 +1761,8 @@ function buildShiftForm(f) {
     const priv = privateIn(fields, (shiftForm() || {}).fields);
     if (priv) bad(inputs[priv] && inputs[priv].closest && inputs[priv].closest(".field"), PRIVATE_MSG);
     const st = /\b(\d{2})(\d{2})\b/.exec(fields.description || "");
+    if (!problems.length && fields.date > todayISO() && !VIEW.corrects)
+      bad(date.closest(".field"), "This shift is dated after today, so the MacBook would hold it. Check the date, or send it once it has started");
     if (!problems.length && fields.date === todayISO() && !VIEW.corrects) {
       const now = new Date(), nowMin = now.getHours() * 60 + now.getMinutes();
       const startMin = st ? +st[1] * 60 + +st[2] : null;
@@ -1769,6 +1771,13 @@ function buildShiftForm(f) {
       } else if (startMin === null && /\bcall\b/i.test(fields.description || "") && now.getHours() < 12 && !form._callOk) {
         form._callOk = true;
         bad(date.closest(".field"), "A call sent this morning is usually last night's: tap Yesterday if so; tap Send again to keep today");
+      }
+    }
+    if (!problems.length && !VIEW.corrects && !form._dupOk && fields.place === "abp" && fields.period) {
+      const twin = allShifts().find(x => x.fields.place === "abp" && String(x.fields.period || "").slice(0, 7) === String(fields.period).slice(0, 7));
+      if (twin) {
+        form._dupOk = true;
+        bad(inputs.period && inputs.period.closest(".field"), `ABP is one entry a month, and ${keyLabel(String(fields.period).slice(0, 7), true)} has one already. Open it under Your shifts and change its hours; tap Send again to send this one anyway, and the MacBook will hold it for a check`);
       }
     }
     if (!problems.length && !VIEW.corrects && !form._dupOk && !/stipend/i.test(fields.description || "") && fields.place !== "abp") {
@@ -1985,9 +1994,11 @@ function closePop() {
   if (closePop.cleanup) closePop.cleanup();
   closePop.cleanup = null; closePop.anchor = null;
 }
+function sentence(t) { t = String(t || "").trim(); return t ? t[0].toUpperCase() + t.slice(1).replace(/\.?$/, ".") : ""; }
 function whyLines(o) {
   return [o.as_of ? "As of " + (dateOf(o.as_of) ? prettyDates(o.as_of) : o.as_of) + "." : "",
           o.source ? plainSource(o.source) + "." : "", o.note ? o.note.replace(/\.?$/, ".") : "",
+          o.provisional ? sentence(o.provisional) : "",
           ["corp_market", "household"].includes(o.id || o.series) ? "Before the tax paid to take money out of the corporation." : ""];
 }
 
@@ -2422,6 +2433,9 @@ function expectedCard(exp) {
       h("span", { class: "main" }, h("span", { class: "title" }, h("span", { class: "sw2 s0" + (c === "later" ? " faint" : "") }), t)), h("span", { class: "amt", text: fmtWhole$(Math.round(v)) })))),
     exp.months.some(m => m[2] === "logged on the page") ? h("p", { class: "small muted", text: "Counted from what you logged on this page, until your year tab has the month: " +
       exp.months.filter(m => m[2] === "logged on the page").map(m => `${mon(m[0])} ${fmtWhole$(Math.round(m[1]))}`).join(", ") + ". The tab then replaces it, so nothing is counted twice." }) : null,
+    ((SNAP.income || {}).logged_not_counted || []).length ? h("p", { class: "small muted", text: "Not counted until your year tab has it in dollars: " +
+      SNAP.income.logged_not_counted.map(x => `${x.currency} ${Number(x.amount).toLocaleString("en-CA")} on ${shortDate(x.date)}`).join(", ") + "." }) : null,
+    (exp.counted_from_calendar || []).length ? h("p", { class: "small muted", text: "Counted from your calendar: " + exp.counted_from_calendar.map(x => `${x.what.replace(/^./, c => c.toLowerCase())}, ${fmtWhole$(Math.round(money(x.amount)))} in ${mon(x.month)}`).join("; ") + "." }) : null,
     (exp.left_out || []).length ? h("p", { class: "small muted", text: "Not counted: " + exp.left_out.map(x => `${x.what.replace(/^./, c => c.toLowerCase())} (${x.why.replace(/ \(Q-[\d-]+\)$/, "")})`).join("; ") + "." }) : null);
 }
 
@@ -2436,7 +2450,7 @@ function renderWork() {
   const yearC = [["all", "All years"]].concat(years.map(y => [y, y]));
   yearC.push(yearC.shift());
   const places = [["all", "Everywhere"]].concat((W.places || []).map(x => [x.value, x.label.replace(" consulting", "")]));
-  VIEW.year = VIEW.year || years[0]; VIEW.place = VIEW.place || "all";
+  VIEW.year = VIEW.year || (years.includes(W.default_year) ? W.default_year : years[0]); VIEW.place = VIEW.place || "all";
   const holder = h("div", { class: "page" });
   const metricSeg = segControl([["hours", "Hours"], ["rate", "Pay per hour"]], metric, v => { VIEW.metric = v; render(); }, "Show", "partseg");
   p.append(metricSeg);
@@ -2453,6 +2467,12 @@ function renderWork() {
   const rateBasis = c => (wc ? c.basis_incl_travel : c.basis) || "recorded";
   const paidHours = c => money(c.hours) - (money(c.hours_awaiting_pay) || 0) - (money(c.hours_no_pay_per_activity) || 0);
   const estRow = c => rateBasis(c) === "estimate";
+  const caveats = (c, onRate) => {
+    if (!c) return null;
+    const t = [onRate && c.too_few_shifts ? sentence(c.too_few_shifts) : "", c.provisional ? sentence(c.provisional) : ""].filter(Boolean);
+    return t.length ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: t.join(" ") })) : null;
+  };
+  const thin = c => c && c.too_few_shifts ? "; too few to rest a rate on" : "";
   const why = () => ["Your pay for each shift over its hours. Hours are ones you typed, measured by your phone, or the usual length of that kind of shift.",
                      plainSource(W.source) + "."];
   const draw = () => {
@@ -2495,7 +2515,8 @@ function renderWork() {
         h("div", { class: "fmeta" }, h("span", { class: "asof", text: [unitsText(), tr ? `${Math.round(tr)} h of travel besides` : "",
           est ? `${Math.round(est / hrs * 100)}% of the hours are the usual length of that kind of shift, not typed or measured` : ""].filter(Boolean).join(" · ") })),
         ppHours ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: ppNote })) : null,
-        lagText ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: lagText })) : null));
+        lagText ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: lagText })) : null,
+        caveats(c)));
       let ser;
       if (y === "all") ser = { label: "Hours", unit: "h", form: "bars", points: years.slice().reverse().map(k => [k, cell(k, pl) ? money(cell(k, pl).hours) : 0]) };
       else ser = { label: "Hours", unit: "h", form: "bars", points: ((W.monthly || {})[pl] || []).filter(m => m[0].startsWith(y)).map(m => [m[0], m[1]]) };
@@ -2522,12 +2543,13 @@ function renderWork() {
         c.travel_source && wc ? h("div", { class: "fmeta" }, h("span", { class: "asof commute-from" }, basisDot(c.basis_incl_travel || "recorded",
           ["Where the commute hours came from, by share.", "Measured: both legs of the round trip seen by your phone. Worked out: one leg seen and doubled, or the usual round trip for that place. Estimate: an assumption written down in profile/assumptions.csv, such as the Rudd walk and the Don Valley drive."]),
           ` The commute: ${commuteFrom(c.travel_source)}.`)) : null,
-        wc && (pl === "mgh" || pl === "all") && ((W.commute || {}).mgh || {}).median_round_trip_hours ? h("div", { class: "fmeta" }, h("span", { class: "asof",
-          text: `MGH's round trip, as your phone measured it: ${Math.round(Number(W.commute.mgh.median_round_trip_hours) * 60)} minutes, the middle of ${W.commute.mgh.round_trips_measured} trips from ${keyLabel(W.commute.mgh.from, true)} to ${keyLabel(W.commute.mgh.to, true)}` })) : null,
+        wc && pl === "mgh" && ((W.commute || {}).mgh || {}).median_round_trip_hours && (y === "all" || y >= String(W.commute.mgh.from).slice(0, 4)) ? h("div", { class: "fmeta" }, h("span", { class: "asof",
+          text: `MGH's round trip, as your phone measured it: ${Math.round(Number(W.commute.mgh.median_round_trip_hours) * 60)} minutes, the middle of ${W.commute.mgh.round_trips_measured} trips since the move, from ${keyLabel(W.commute.mgh.from, true)} to ${keyLabel(W.commute.mgh.to, true)}` })) : null,
         h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${fmtWhole$(Math.round(other(c)))}/h ${wc ? "without" : "with"} the commute · ${fmtWhole$(Math.round(money(c.pay)))} over ${Math.round(paidHours(c)).toLocaleString("en-CA")} h` + (wc && tr ? ` and ${Math.round(tr).toLocaleString("en-CA")} h of commute` : "") +
           (money(c.hours_awaiting_pay) ? `; ${Math.round(money(c.hours_awaiting_pay))} h of shifts still waiting for their pay are left out` : "") +
           (ppHours ? `; the practice plan's ${Math.round(ppHours)} h are left out, since it is paid as points once a year, not per activity` : "") })),
-        lagText ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: lagText })) : null));
+        lagText ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: lagText })) : null,
+        caveats(c, true)));
       const sh = kind(pl + ":shifts");
       const st = pl === "edlp" || pl === "all" ? kind("edlp-stipend") : null, pp = pl === "mgh" || pl === "all" ? kind("mgh-practice-plan") : null;
       if (sh && st) holder.append(h("div", { class: "facts glass card" },
@@ -2539,17 +2561,17 @@ function renderWork() {
           const alone = K[`${y}|${x.value}:shifts`], mixed = K[`${y}|edlp-stipend`] && x.value === "edlp" || K[`${y}|mgh-practice-plan`] && x.value === "mgh";
           const c2 = mixed && alone ? alone : cell(y, x.value);
           return { key: x.value, label: x.label.replace(" consulting", ""), value: c2 ? rate(c2) : 0, est: c2 ? estRow(c2) : false,
-                   sub: c2 ? `${Math.round(paidHours(c2))} h` + (mixed && alone ? ", shifts alone" : "") : "" };
+                   sub: c2 ? `${Math.round(paidHours(c2))} h` + (mixed && alone ? ", shifts alone" : "") + thin(c2) : "" };
         }).filter(r => r.value > 0).sort((a1, b1) => b1.value - a1.value);
         if (rows.length) holder.append(h("section", { class: "section" }, h("h2", { text: "By place" }),
           h("div", { class: "card glass" }, hbars(rows, v => `${fmtWhole$(Math.round(v))}/h`, k => pickPlace(k)))));
       } else {
         const rows = years.map(k => { const ck = cell(k, pl); return { label: k, value: ck ? rate(ck) : 0, on: k === y, est: ck ? estRow(ck) : false,
-          sub: ck ? `${Math.round(paidHours(ck))} h` : "" }; }).filter(r => r.value > 0);
+          sub: ck ? `${Math.round(paidHours(ck))} h` + thin(ck) : "" }; }).filter(r => r.value > 0);
         if (rows.length > 1) holder.append(h("section", { class: "section" }, h("h2", { text: `${nameOf(pl)}, year by year` }), h("div", { class: "card glass" }, hbars(rows, v => `${fmtWhole$(Math.round(v))}/h`)),
           pl === "edlp" ? h("p", { class: "foot", text: "Each year counts the monthly stipend with the shifts' pay, over the shifts' hours." }) : null));
         bySite(k => rate(C[k]), v => `${fmtWhole$(Math.round(v))}/h`, k => `${unitWord(pl, Number(C[k].units))}, ${Math.round(paidHours(C[k]))} h`
-               + (wc && C[k].travel_source ? `; commute ${commuteShort(C[k].travel_source)}` : ""),
+               + (wc && C[k].travel_source ? `; commute ${commuteShort(C[k].travel_source)}` : "") + thin(C[k]),
                pl === "edlp" ? "The shifts alone: the monthly stipend belongs to no site." : "", k => estRow(C[k]));
       }
     }
