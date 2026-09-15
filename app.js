@@ -2592,7 +2592,9 @@ function renderWork() {
     if (metric === "hours" && pl !== "all") bySite(k => money(C[k].hours), v => `${Math.round(v).toLocaleString("en-CA")} h`, k => plural(Number(C[k].units), "shift"), "");
     const stEnd = W.last && W.last["edlp-stipend"], shEnd = W.last && W.last.edlp;
     if (metric === "rate" && (pl === "edlp" || pl === "all") && kind("edlp-stipend") && stEnd && shEnd && stEnd.slice(0, 7) > shEnd.slice(0, 7) && (cur || y === "all"))
-      holder.append(h("p", { class: "foot warnline", text: `EDLP's stipend is counted to ${monthDay(stEnd)}, its shifts to ${monthDay(shEnd)}. If shifts since then are still to be typed, the figure with the stipend is too high until they are; the shifts alone are not affected.` }));
+      holder.append((W.seen && W.seen.edlp && W.seen.edlp > shEnd)
+        ? h("p", { class: "foot warnline", text: `EDLP's stipend is counted to ${monthDay(stEnd)}, its shifts to ${monthDay(shEnd)}, and your phone saw EDLP work on ${monthDay(W.seen.edlp)}. Until those shifts are typed, the figure with the stipend is too high; the shifts alone are not affected.` })
+        : h("p", { class: "foot", text: `EDLP's stipend is counted to ${monthDay(stEnd)}, its shifts to ${monthDay(shEnd)}; your phone saw no EDLP shift after that${W.seen_to ? ` (to ${monthDay(W.seen_to)})` : ""}, so the months since are stipend with no hours, which lifts the figure with the stipend.` }));
     holder.append(h("p", { class: "foot", text: (metric === "rate" ? "Your pay for each shift, over its hours. " : "") + "Hours are ones you typed, measured by your phone, or the usual length of that kind of shift. Worked out in the work-hours workings, from your Work tab and the shifts sent from this page." }));
   };
   const pickPlace = k => { VIEW.place = k; render(); };
