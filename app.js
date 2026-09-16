@@ -550,6 +550,7 @@ function historyBack(n) {
 const TABS = ["today", "add", "numbers"];
 let ENTER = "";                // "l" or "r": the side the next page drawn slides in from
 function go(tab) {
+  saveDraftNow();                               // a tab tapped while a form is open keeps what was typed (r5-page-01)
   const depth = STACK.length + (VIEW ? 1 : 0);
   if (!depth && tab !== TAB && !ENTER) ENTER = TABS.indexOf(tab) > TABS.indexOf(TAB) ? "r" : "l";
   STACK = []; VIEW = null;
@@ -565,6 +566,7 @@ function openView(v) {
 }
 function closeView(fromPop) {
   if (!VIEW) return;
+  saveDraftNow();                               // before render detaches the form (since 2026-09-16, r5-page-01)
   const back = VIEW.type === "form" && VIEW.from === "today" && !STACK.length ? "today" : null;
   VIEW = STACK.pop() || null;
   if (back) TAB = back;
@@ -727,7 +729,7 @@ function neighbour(dir, edgeBack) {
       tg.run();
       const got = ASIDE.out || now;       // the choice redrew the whole page, or changed the copy in place
       const part = got.swipe && got.swipe.el;
-      return part ? { whole: false, page: stillen(part), host: got.page } : null;
+      return part ? { whole: false, page: stillen(part) } : null;
     }
     tg.run();
     const got = ASIDE.out;
@@ -971,14 +973,17 @@ function upcoming() {
     const cut = d.what.search(/[:;]|\.\s/);
     const title = cut > 0 ? d.what.slice(0, cut) : d.what;
     let rest = cut > 0 ? d.what.slice(cut + 1).trim() : "";
-    const via = /^(already )?paid (by|through) the Chexy charge on the (\d{1,2})(st|nd|rd|th)/i.exec(rest);
+    const via = d.paid_via ? true : /^(already )?paid (by|through) the Chexy charge on the (\d{1,2})(st|nd|rd|th)/i.exec(rest);
     let paid = false, viaNote = "";
     if (via) {
-      const dd = dateOf(d.date), chargeDay = dd ? new Date(dd.getFullYear(), dd.getMonth(), +via[3]) : null;
       const t = new Date(); t.setHours(0, 0, 0, 0);
-      const from = chargeDay ? isoOf(new Date(chargeDay.getTime() - 3 * 864e5)) : d.date;
-      const cra = (SNAP.cra_tax && SNAP.cra_tax.payments) || [];
-      paid = cra.some(p => p.date >= from && p.date <= d.date && Math.abs(money(p.amount) - money(d.amount)) < 1);
+      const chargeDay = d.paid_via ? dateOf(d.paid_via) : (dateOf(d.date) ? new Date(dateOf(d.date).getFullYear(), dateOf(d.date).getMonth(), +via[3]) : null);
+      paid = !!d.paid_already;
+      if (!d.paid_via) {
+        const from = chargeDay ? isoOf(new Date(chargeDay.getTime() - 3 * 864e5)) : d.date;
+        const cra = (SNAP.cra_tax && SNAP.cra_tax.payments) || [];
+        paid = cra.some(p => p.date >= from && p.date <= d.date && Math.abs(money(p.amount) - money(d.amount)) < 1);
+      }
       viaNote = paid ? "paid via Chexy" : chargeDay && chargeDay <= t ? "via Chexy, not yet confirmed" :
         `via Chexy, ${chargeDay ? monthDay(isoOf(chargeDay)) : "the 20th"}`;
       rest = "";
@@ -2496,10 +2501,11 @@ function renderWork() {
     const cur = y === String(new Date().getFullYear()) || (W.default_year === y && y === String(new Date().getFullYear() - 1));
     let lagText = "";
     if ((cur || y === "all") && W.last) {
-      if (pl !== "all") lagText = W.last[pl] ? `Counted to your last shift typed there, ${shortDate(W.last[pl])}.` : "";
+      const countedWord = p => ({ abp: "month invoiced", bochner: "list typed", endoscopy: "list typed" })[p] || "shift typed";
+      if (pl !== "all") lagText = W.last[pl] ? `Counted to your last ${countedWord(pl)} there, ${shortDate(W.last[pl])}.` : "";
       else {
         const at = (W.places || []).filter(x => W.last[x.value] && cell(y, x.value)).map(x => `${x.label.replace(" consulting", "")} ${monthDay(W.last[x.value])}`);
-        lagText = at.length ? `Counted to the last shift typed at each place: ${at.join(", ")}.` : "";
+        lagText = at.length ? `Counted to the last one typed at each place: ${at.join(", ")}.` : "";
       }
     }
     const K = W.kinds || {};
