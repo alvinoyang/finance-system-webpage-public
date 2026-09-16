@@ -1081,7 +1081,13 @@ function startForm(kind, prefill, from) {
   openView({ type: "form", kind, corrects: "", prefill: prefill || d || null, restored: !!d, from: from || "add" });
 }
 
-function startCorrect(e, from) { openView({ type: "form", kind: e.kind, corrects: e.id, prefill: e.fields || {}, label: e.summary, from: from || "add" }); }
+const draftKeyOf = (kind, corrects) => corrects ? "fix:" + corrects : kind;
+function startCorrect(e, from) {
+  const d = load("drafts", {})[draftKeyOf(e.kind, e.id)];
+  openView({ type: "form", kind: e.kind, corrects: e.id, prefill: d || e.fields || {}, restored: !!d, label: e.summary, from: from || "add" });
+}
+let DRAFT_NOW = null;
+function saveDraftNow() { if (DRAFT_NOW) { const f = DRAFT_NOW; DRAFT_NOW = null; f(); } }
 function withdraw(e) {
   sheet("Delete this entry?", prettyDates(e.summary || summaryOf(e)) + ". It comes out of your books; the record keeps a copy, marked as deleted.",
     [{ label: "Delete it", kind: "danger", run: () => { submit("withdraw", {}, e.id); render(); } }]);
@@ -1394,22 +1400,25 @@ function buildForm(f) {
   form._collect = collect;
   let draftTimer = null, sentAlready = false;
   const typedIn = c => Object.keys(c).some(k => k !== "date");
-  const keepDraft = () => {
-    if (VIEW && VIEW.corrects) return;
+  const dkey = draftKeyOf(f.kind, VIEW && VIEW.corrects);
+  const writeDraft = () => {
     clearTimeout(draftTimer);
-    draftTimer = setTimeout(() => {
-      if (sentAlready || !form.isConnected) return;
-      const d = load("drafts", {}), c = collect();
-      if (typedIn(c)) d[f.kind] = c; else delete d[f.kind];
-      save("drafts", d);
-    }, 400);
+    if (sentAlready || !form.isConnected) return;
+    const d = load("drafts", {}), c = collect();
+    if (typedIn(c)) d[dkey] = c; else delete d[dkey];
+    save("drafts", d);
+  };
+  const keepDraft = () => {
+    clearTimeout(draftTimer);
+    DRAFT_NOW = writeDraft;
+    draftTimer = setTimeout(() => { if (DRAFT_NOW === writeDraft) DRAFT_NOW = null; writeDraft(); }, 400);
   };
   form.addEventListener("input", keepDraft);
   form.addEventListener("change", keepDraft);
   form.addEventListener("click", ev => { if (ev.target.closest && ev.target.closest(".tick")) keepDraft(); });
   if (VIEW.restored) {
     form.prepend(h("div", { class: "draftbar" }, h("span", { text: "Your unsent draft is back." }),
-      h("button", { class: "link", type: "button", onclick: () => { const d = load("drafts", {}); delete d[f.kind]; save("drafts", d); VIEW.prefill = null; VIEW.restored = false; render(true); } }, "Start again")));
+      h("button", { class: "link", type: "button", onclick: () => { const d = load("drafts", {}); delete d[dkey]; save("drafts", d); VIEW.prefill = null; VIEW.restored = false; render(true); } }, "Start again")));
   }
 
   const syncShowIf = () => {
@@ -1459,7 +1468,8 @@ function buildForm(f) {
     if (priv) { problems.push(PRIVATE_MSG); if (wraps[priv] && wraps[priv].classList) wraps[priv].classList.add("bad"); }
     if (problems.length) { errors.textContent = problems.join(". ") + "."; errors.hidden = false; window.scrollTo({ top: 0, behavior: "smooth" }); return; }
     sentAlready = true; clearTimeout(draftTimer);
-    const d = load("drafts", {}); delete d[f.kind]; save("drafts", d);
+    DRAFT_NOW = null;
+    const d = load("drafts", {}); delete d[dkey]; save("drafts", d);
     submit(f.kind, fields, VIEW.corrects);
     closeView();
   });
@@ -1580,21 +1590,24 @@ function buildShiftForm(f) {
   const errors = h("div", { class: "errors", role: "alert", hidden: true });
   form.append(errors);
   const drafts = () => load("drafts", {});
+  const dkey = draftKeyOf("shift", VIEW && VIEW.corrects);
   if (VIEW.restored) {
     form.append(h("div", { class: "draftbar" }, h("span", { text: "Your unsent draft is back." }),
-      h("button", { class: "link", type: "button", onclick: () => { const d = drafts(); delete d.shift; save("drafts", d); VIEW.prefill = null; VIEW.restored = false; render(true); } }, "Start again")));
+      h("button", { class: "link", type: "button", onclick: () => { const d = drafts(); delete d[dkey]; save("drafts", d); VIEW.prefill = null; VIEW.restored = false; render(true); } }, "Start again")));
   }
   let draftTimer = null, sent = false;
-  const keepDraft = () => {
-    if (VIEW && VIEW.corrects) return;
+  const writeDraft = () => {
     clearTimeout(draftTimer);
-    draftTimer = setTimeout(() => {
-      if (sent || !form.isConnected) return;
-      const d = drafts(), c = collect();
-      const typed = Object.keys(c).filter(k => !(k === "date" && c.date === todayISO()));
-      if (typed.length) d.shift = c; else delete d.shift;
-      save("drafts", d);
-    }, 400);
+    if (sent || !form.isConnected) return;
+    const d = drafts(), c = collect();
+    const typed = Object.keys(c).filter(k => !(k === "date" && c.date === todayISO()));
+    if (typed.length) d[dkey] = c; else delete d[dkey];
+    save("drafts", d);
+  };
+  const keepDraft = () => {
+    clearTimeout(draftTimer);
+    DRAFT_NOW = writeDraft;
+    draftTimer = setTimeout(() => { if (DRAFT_NOW === writeDraft) DRAFT_NOW = null; writeDraft(); }, 400);
   };
   const setVal = (k, v) => { vals[k] = v; keepDraft(); };
 
@@ -1760,7 +1773,8 @@ function buildShiftForm(f) {
       bad(inputs.amount && inputs.amount.closest(".field"), `Total pay is ${fmt$(fields.amount)} but the parts add up to ${fmt$(partsSum)}: leave the total blank, or make them agree`);
     const priv = privateIn(fields, (shiftForm() || {}).fields);
     if (priv) bad(inputs[priv] && inputs[priv].closest && inputs[priv].closest(".field"), PRIVATE_MSG);
-    const st = /\b(\d{2})(\d{2})\b/.exec(fields.description || "");
+    const hasStart = fields.place !== "abp" && !/stipend/i.test(fields.description || "");
+    const st = hasStart ? /\b(\d{2})(\d{2})\b/.exec(fields.description || "") : null;
     if (!problems.length && fields.date > todayISO() && !VIEW.corrects)
       bad(date.closest(".field"), "This shift is dated after today, so the MacBook would hold it. Check the date, or send it once it has started");
     if (!problems.length && fields.date === todayISO() && !VIEW.corrects) {
@@ -1796,8 +1810,8 @@ function buildShiftForm(f) {
       window.scrollTo({ top: 0, behavior: motionOK() ? "smooth" : "auto" });
       return;
     }
-    sent = true; clearTimeout(draftTimer);
-    const d = drafts(); delete d.shift; save("drafts", d);
+    sent = true; clearTimeout(draftTimer); DRAFT_NOW = null;
+    const d = drafts(); delete d[dkey]; save("drafts", d);
     submit("shift", fields, VIEW.corrects);
     closeView();
   });
@@ -1863,7 +1877,7 @@ function renderShifts() {
       if (miss.includes("pay")) chips.push(h("span", { class: "chip orange", text: "Pay to add" }));
       if (miss.includes("patients")) chips.push(h("span", { class: "chip", text: "Patients to add" }));
       const dt = dateOf(f.date);
-      ul.append(h("button", { class: "row", type: "button", onclick: () => openView({ type: "form", kind: "shift", corrects: x.id, prefill: f, details: true,
+      ul.append(h("button", { class: "row", type: "button", onclick: () => openView({ type: "form", kind: "shift", corrects: x.id, prefill: load("drafts", {})[draftKeyOf("shift", x.id)] || f, restored: !!load("drafts", {})[draftKeyOf("shift", x.id)], details: true,
                                                                                          label: `${shiftTitle(f)}, ${shortDate(f.date)}` }) },
         h("span", { class: "day", "aria-hidden": "true" }, h("span", { class: "wd", text: dt ? dt.toLocaleDateString("en-CA", { weekday: "short" }) : "" }),
           h("span", { class: "dn", text: dt ? String(dt.getDate()) : "" }), h("span", { class: "mo", text: dt ? dt.toLocaleDateString("en-CA", { month: "short" }) : "" })),
@@ -2130,7 +2144,8 @@ function householdWhy(n) {
   const nw = (SNAP && SNAP.networth) || {};
   return [`At ${prettyDates(n.date)}${n.est ? ", the corporation's latest month-end with a bank and Questrade statement" : ""}.`,
           "It counts the corporation, at market, and your TFSA, RRSP and FHSA. Before the tax paid to take money out of the corporation.",
-          n.est ? `An estimate: ${n.note}.` : "", nw.household && n.est ? `At ${prettyDates(nw.date)}, the last year end with every account's value, it was ${fmtWhole$(Math.round(money(nw.household)))}.` : ""];
+          n.est ? `An estimate: ${n.note}.` : "", nw.household && n.est ? `At ${prettyDates(nw.date)}, the last year end with every account's value, it was ${fmtWhole$(Math.round(money(nw.household)))}.` : "",
+          nw.now && nw.now.source ? "Worked out in the net worth workings: the corporation at its month-end, and your accounts at their year-end values plus what went in or came out since, from your Personal tab and this page." : ""];
 }
 function summaryTotal() {
   const out = h("div", { class: "page" }), S = (SNAP && SNAP.series) || {}, nw = SNAP.networth || {};
@@ -2339,7 +2354,7 @@ function renderAccount() {
         h("span", { class: "est-wrap" }, h("span", { class: "amt", text: fmtWhole$(Math.round(lv[1])) }), basisDot(lv[2], ["Typed in the workbook's Overview at the year end. No statement for this account is filed yet."])))));
   }
   p.append(h("button", { class: "btn tinted wide", type: "button", onclick: () => startForm("registered", { account: a, direction: "contribution" }) }, `Record money into or out of your ${acct.name}`));
-  p.append(h("p", { class: "foot", text: `${plainSource(src)}. Last row ${acct.last_row ? prettyDates(acct.last_row) : "none"}. What you send from this page is counted as soon as the MacBook has it.` }));
+  p.append(h("p", { class: "foot", text: `${plainSource(src)}.${SNAP.registered.values_source ? " " + plainSource(SNAP.registered.values_source) + "." : ""} Last row ${acct.last_row ? prettyDates(acct.last_row) : "none"}. What you send from this page is counted as soon as the MacBook has it.` }));
   return p;
 }
 
@@ -2431,7 +2446,7 @@ function expectedCard(exp) {
     meter([{ value: arrived, cls: "s0", label: "Arrived" }, { value: toCome, cls: "s0 faint", label: "To come" }]),
     h("div", { class: "list flat" }, rows.map(([t, v, c]) => h("div", { class: "row plain legendrow2" },
       h("span", { class: "main" }, h("span", { class: "title" }, h("span", { class: "sw2 s0" + (c === "later" ? " faint" : "") }), t)), h("span", { class: "amt", text: fmtWhole$(Math.round(v)) })))),
-    exp.months.some(m => m[2] === "logged on the page") ? h("p", { class: "small muted", text: "Counted from what you logged on this page, until your year tab has the month: " +
+    exp.months.some(m => m[2] === "logged on the page") ? h("p", { class: "small muted", text: "Counted from what you logged on this page (" + plainSource(((SNAP.income || {}).logged || {}).source || "ledger/web-entries.csv").replace(/^Read from the /, "the ") + "), until your year tab has the month: " +
       exp.months.filter(m => m[2] === "logged on the page").map(m => `${mon(m[0])} ${fmtWhole$(Math.round(m[1]))}`).join(", ") + ". The tab then replaces it, so nothing is counted twice." }) : null,
     ((SNAP.income || {}).logged_not_counted || []).length ? h("p", { class: "small muted", text: "Not counted until your year tab has it in dollars: " +
       SNAP.income.logged_not_counted.map(x => `${x.currency} ${Number(x.amount).toLocaleString("en-CA")} on ${shortDate(x.date)}`).join(", ") + "." }) : null,
@@ -2478,7 +2493,7 @@ function renderWork() {
   const draw = () => {
     clear(holder);
     const y = VIEW.year, pl = VIEW.place, c = cell(y, pl);
-    const cur = y === String(new Date().getFullYear());
+    const cur = y === String(new Date().getFullYear()) || (W.default_year === y && y === String(new Date().getFullYear() - 1));
     let lagText = "";
     if ((cur || y === "all") && W.last) {
       if (pl !== "all") lagText = W.last[pl] ? `Counted to your last shift typed there, ${shortDate(W.last[pl])}.` : "";
@@ -3159,6 +3174,7 @@ function dropNeighbours() {
 }
 function lockNow() {
   dropNeighbours();
+  saveDraftNow();                               // what was typed in the last 400 ms, before the vault is sealed
   const saved = persist();
   if (NEW_PAGE) saved.then(() => location.reload());
   historyBack(STACK.length + (VIEW ? 1 : 0));    // the pages' history steps go with the pages
@@ -3228,12 +3244,12 @@ async function boot() {
     else if (ev.key === "Backspace") press("del");
   });
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) { HIDDEN_AT = Date.now(); document.body.classList.add("veiled"); return; }
+    if (document.hidden) { saveDraftNow(); HIDDEN_AT = Date.now(); document.body.classList.add("veiled"); if (MEM) persist(); return; }
     if (awayCheck()) return;
     touch();
     if (MEM) { flush(); refresh(); }
   });
-  window.addEventListener("pagehide", () => { HIDDEN_AT = Date.now(); document.body.classList.add("veiled"); });
+  window.addEventListener("pagehide", () => { saveDraftNow(); HIDDEN_AT = Date.now(); document.body.classList.add("veiled"); if (MEM) persist(); });
   window.addEventListener("pageshow", () => { awayCheck(); });
   window.addEventListener("online", () => { if (MEM) { flush(); refresh(); } });
 
@@ -3244,7 +3260,7 @@ async function boot() {
     const had = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.addEventListener("controllerchange", () => {
       if (!had) return;
-      if (!MEM && LOCK.mode === "unlock" && !LOCK.pin && !LOCK.busy) location.reload(); else NEW_PAGE = true;
+      if (!MEM && LOCK.mode === "unlock" && !LOCK.pin && !LOCK.busy && !PENDING_OLD.length) location.reload(); else NEW_PAGE = true;
     });
     navigator.serviceWorker.register("sw.js").then(reg => {
       document.addEventListener("visibilitychange", () => { if (!document.hidden) reg.update().catch(() => {}); });
