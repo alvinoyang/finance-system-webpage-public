@@ -398,7 +398,6 @@ details.fold[open] > summary .when-closed, details.fold:not([open]) > summary .w
 .row .overdue { color: var(--red); }
 .row .title.link { color: var(--accent); }
 
-@media (max-width: 599px) { body.in-form .bar-right { visibility: hidden; } }
 body.in-form .bar .seg, body.in-form .bar .sync, body.in-form #gear { visibility: hidden; pointer-events: none; }
 .bar-done { display: none; color: var(--accent); font-weight: 600; padding: 10px 2px; min-height: 44px; }
 body.in-settings .bar-done { display: inline-flex; align-items: center; }
