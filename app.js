@@ -69,9 +69,11 @@ function persist() {
 }
 async function unlockWith(pin) {
   if (!hasVault()) return false;
+  const gen = VGEN;
   const v = JSON.parse(rawGet("vault"));
   const salt = unb64(v.salt);
   const key = await deriveKey(pin, salt, v.iter);
+  if (gen !== VGEN) return false;      // erased, or the passcode changed, while the key was being made
   let text;
   try { text = dec.decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(v.iv) }, key, unb64(v.ct))); }
   catch (e) { return false; }
@@ -80,12 +82,19 @@ async function unlockWith(pin) {
 }
 async function setPasscode(pin) {
   GEN++; VGEN++; SEAL_NEXT = null; await persisting;   // nothing saved under the old passcode may land after
+  const gen = VGEN;
   const salt = rand(16);
-  VKEY = await deriveKey(pin, salt, ITERATIONS);
-  VMETA = { salt: b64(salt), iter: ITERATIONS };
-  MEM = MEM || {};
-  rawSet("vault", await seal(VKEY, VMETA, JSON.stringify(MEM)));
+  const key = await deriveKey(pin, salt, ITERATIONS);
+  if (gen !== VGEN || !MEM) return false;              // the page locked or was erased while the key was being made
+  const meta = { salt: b64(salt), iter: ITERATIONS };
+  const sealed = await seal(key, meta, JSON.stringify(MEM));
+  try { localStorage.setItem(P + "vault", sealed); } catch (e) {
+    toast("This device would not let the page save anything, so your passcode has not changed. Private browsing, or no room left?");
+    return false;
+  }
+  VKEY = key; VMETA = meta;                            // only once it is written down
   for (const k of Object.values(OLD)) rawDrop(k);   // nothing private left in the clear
+  return true;
 }
 function hasVault() { return !!rawGet("vault"); }
 function eraseDevice() {
@@ -508,7 +517,7 @@ function head(title, sub, withStatus) {
 function render(animate) {
   if (ASIDE) { SWIPE = null; const pg = pageFor(); ASIDE.out = { page: pg, swipe: SWIPE }; return; }
   closePop();
-  if (!MEM || (!document.getElementById("lock").hidden && !LOCK.mode.startsWith("change"))) return;
+  if (!MEM || (!document.getElementById("lock").hidden && !OPENING && !LOCK.mode.startsWith("change"))) return;
   renderChrome();
   const main = clear(document.getElementById("main"));
   SWIPE = null;                 // each page says what a sideways swipe does on it, as it is drawn
@@ -530,6 +539,7 @@ function pageFor() {
   else if (VIEW && VIEW.type === "income") page = renderIncome();
   else if (VIEW && VIEW.type === "work") page = renderWork();
   else if (VIEW && VIEW.type === "account") page = renderAccount();
+  else if (VIEW && VIEW.type === "card") page = renderCard();
   else if (TAB === "add") page = renderAdd();
   else if (TAB === "numbers") page = renderSummary();
   else page = renderToday();
@@ -583,7 +593,7 @@ function viewTitle(v) {
   if (!v) return ({ today: "Today", add: "Add", numbers: "Summary" })[TAB];
   return ({ form: kindOf(v.kind).name, settings: "Settings", questions: "Questions", shifts: "Your shifts", income: "Income",
             work: v.metric === "rate" ? "Pay per hour" : "Hours", account: ({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[v.account] || "Account",
-            trend: v.title || "History" })[v.type] || "Back";
+            card: v.title || "Card", trend: v.title || "History" })[v.type] || "Back";
 }
 function onScroll() { document.getElementById("bar").classList.toggle("scrolled", window.scrollY > (document.body.classList.contains("toplevel") ? 48 : 28)); }
 function measureBar() {
@@ -894,7 +904,14 @@ function attention() {
   }
   if (m.collect_failed_since && !asleep) out.push(alert("orange", "warn", "The MacBook cannot collect your entries",
     `Since ${ago(m.collect_failed_since)}${m.collect_failed_reason ? ` (${m.collect_failed_reason})` : ""}. They wait in your mailbox, safe, until it can.`, null));
-  return out;   // the key, then what only he can put right, then what is unsent, then the MacBook
+  for (const c of ((SNAP && SNAP.cards && SNAP.cards.cards) || [])) {
+    for (const it of (c.items || [])) {
+      if (it.status !== "ACT" && it.status !== "MISSED") continue;
+      out.push(alert("orange", "warn", `${c.name}: ${(CARD_ITEM[it.item] || it.item).toLowerCase()}`, it.note,
+        h("button", { class: "btn small tinted", type: "button", onclick: () => { save("sumpart", "cards"); go("numbers"); } }, "Open the card")));
+    }
+  }
+  return out;   // the key, then what only he can put right, then what is unsent, then the MacBook, then a card
 }
 
 function lastBusinessDay(y, m) {
@@ -2110,7 +2127,7 @@ function commuteShort(src) {
   const m = parts.length === 1 ? /^(\w+) /.exec(parts[0]) : null;
   return m ? (COMMUTE_WORDS[m[1]] || m[1]).replace(/, or the usual round trip there$/, "") : parts.length ? "mixed" : "none";
 }
-function sumPart() { const v = load("sumpart", "total"); return ["total", "personal", "corporation"].includes(v) ? v : "total"; }
+function sumPart() { const v = load("sumpart", "total"); return ["total", "personal", "corporation", "cards"].includes(v) ? v : "total"; }
 
 function renderSummary() {
   const p = h("div", { class: "page" });
@@ -2120,11 +2137,12 @@ function renderSummary() {
   const holder = h("div", { class: "page" });
   const draw = v => {
     clear(holder);
-    const body = v === "personal" ? summaryPersonal() : v === "corporation" ? summaryCorp() : summaryTotal();
+    const body = v === "personal" ? summaryPersonal() : v === "corporation" ? summaryCorp()
+               : v === "cards" ? summaryCards() : summaryTotal();
     if (motionOK()) { body.classList.add("fadein"); }
     holder.append(body);
   };
-  const parts = segControl([["total", "Total"], ["personal", "Personal"], ["corporation", "Corporation"]], part,
+  const parts = segControl([["total", "Total"], ["personal", "Personal"], ["corporation", "Corporation"], ["cards", "Cards"]], part,
     v => { save("sumpart", v); closePop(); draw(v); }, "Which part of the Summary", "partseg");
   p.append(parts, holder);
   draw(part);
@@ -2293,6 +2311,179 @@ function summaryPersonal() {
   return out;
 }
 
+
+
+const CARD_STATE = {
+  ACT: { word: "Needs you", cls: "act" },
+  MISSED: { word: "Missed", cls: "act" },
+  UNKNOWN: { word: "Not known", cls: "unk" },
+  "CHECK FIRST": { word: "Check first", cls: "unk" },
+  "NOT ELIGIBLE": { word: "Not eligible", cls: "off" },
+  "ON TRACK": { word: "On track", cls: "ok" },
+  WATCH: { word: "Watching", cls: "ok" },
+  DONE: { word: "Done", cls: "off" },
+  EXPLAINED: { word: "Settled", cls: "off" },
+  ASKED: { word: "Asked", cls: "off" },
+};
+const CARD_ITEM = {
+  "minimum-spend": "Spending for its welcome bonus", "spend-record": "What it has been charged",
+  "annual-fee": "Its yearly fee", "close-by": "Whether to keep it", points: "Points", gap: "Something to settle",
+  "you-told-us": "Something you sent", nothing: "Nothing to watch",
+  "next-card": "Worth opening",
+};
+function cardChip(status, item) {
+  const s = CARD_STATE[status] || { word: status, cls: "ok" };
+  const word = item === "across-cards" ? ({ UNKNOWN: "Not counted" })[status] || ""
+    : item !== "next-card" ? s.word
+    : ({ ACT: "Ending soon", WATCH: "Open to you", "CHECK FIRST": "Check first", "NOT ELIGIBLE": "Not eligible" })[status] || s.word;
+  return word ? h("span", { class: "cchip " + s.cls, text: word }) : null;
+}
+const CARD_LEAD_ORDER = { ACT: 0, MISSED: 1, "CHECK FIRST": 2, "ON TRACK": 3, WATCH: 4, UNKNOWN: 5, DONE: 6, EXPLAINED: 7, ASKED: 7 };
+function cardLead(it) {
+  if (!it) return "";
+  const $ = v => fmtWhole$(Math.round(Number(String(v).replace(/[$,]/g, "")) || 0));
+  if (it.item === "minimum-spend" && it.need) {
+    const toGo = Number(it.need) - Number(it.spent || 0);
+    if (it.status === "DONE") return "Its welcome bonus is earned.";
+    if (it.status === "MISSED") return `Its ${$(it.need)} was not spent in time.`;
+    if (toGo <= 0) return "The spending is done; waiting for the points.";
+    return `${$(toGo)} still to spend${it.due ? " by " + monthDay(it.due) : ""}.`;
+  }
+  if (it.item === "close-by") {
+    if (it.due && it.due < todayISO()) return `That day passed on ${monthDay(it.due)}.`;
+    return `Keep it, or close it${it.due ? " by " + monthDay(it.due) : ""}?`;
+  }
+  if (it.item === "you-told-us") return "Something you sent is not in your books yet.";
+  if (it.item === "nothing") return "Nothing about it is on a date.";
+  if (it.item === "annual-fee") return `${$(it.figure)} a year${it.due ? ", next on " + monthDay(it.due) : ""}.`;
+  if (it.item === "points") {
+    if (!it.figure) return `No ${it.unit || "points"} balance sent yet.`;
+    return /cash back|money/i.test(it.unit || "")
+      ? `${$(it.figure)} paid${it.due ? " " + monthDay(it.due) : ""}; since, not known.`
+      : `${it.figure} ${it.unit}.`;
+  }
+  const m = /^[\s\S]*?\.(?=\s|$)/.exec(String(it.note || ""));
+  return m ? m[0] : String(it.note || "");
+}
+function spendBar(it) {
+  const need = Number(it.need), spent = Number(it.spent || 0), planned = Number(it.planned || 0);
+  if (!need) return null;
+  const room = Math.max(0, need - spent);
+  const extra = Math.min(Math.max(0, planned - spent), room * 0.92);
+  const bar = meter([{ value: spent, cls: "s0", label: "Charged so far" },
+                     { value: extra, cls: "s1 planned", label: "Planned, not yet charged" }], need);
+  const money$ = v => fmtWhole$(Math.round(v));
+  return h("div", { class: "spendbar" }, bar,
+    h("div", { class: "legend3" },
+      h("span", {}, h("span", { class: "sw2 s0" }), "Charged ", h("b", { text: money$(spent) })),
+      planned > spent ? h("span", {}, h("span", { class: "sw2 s1 planned" }), "Planned ",
+                          h("b", { text: money$(Math.min(planned - spent, room)) }),
+                          planned - spent > room + 1 ? h("span", { class: "muted", text: ` of ${money$(planned - spent)}` }) : null) : null,
+      h("span", { class: "muted" }, "Needs ", h("b", { text: money$(need) }), it.due ? ` by ${monthDay(it.due)}` : "")));
+}
+
+
+function summaryCards() {
+  const out = h("div", { class: "page" });
+  const b = (SNAP && SNAP.cards) || {};
+  if (b.failed) {
+    out.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "The card workings could not be run on the MacBook, so nothing here is up to date. Ask a session to look: " + b.failed })));
+    return out;
+  }
+  const cards = b.cards || [];
+  if (!cards.length) {
+    out.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "No cards yet." })));
+    return out;
+  }
+  const needs = b.needs || [];
+  out.append(h("div", { class: "card glass leadline" + (needs.length ? " act" : "") },
+    h("p", { text: needs.length ? (needs.length === 1 ? `${needs[0]} needs you.` : `${needs.length} cards need you.`)
+                                : "Every card is on course. Nothing needs you today." }),
+    h("p", { class: "small muted", text: "Churning means opening a card for the points it pays for joining, spending enough to earn them, and closing it before the next yearly fee. These three dates are what this page watches." })));
+
+  const open = cards.filter(c => c.open), shut = cards.filter(c => !c.open);
+  const cardRow = c => {
+    const items = (c.items || []).slice().sort((a, b) =>
+      (CARD_LEAD_ORDER[a.status] ?? 9) - (CARD_LEAD_ORDER[b.status] ?? 9) || (a.due || "9999").localeCompare(b.due || "9999"));
+    const it = items[0];
+    const ms = items.find(x => x.item === "minimum-spend" && x.need && x.due >= todayISO()
+                               && !["DONE", "MISSED", "EXPLAINED"].includes(x.status));
+    const sec = h("section", { class: "card glass cardcard" },
+      h("div", { class: "ftop" },
+        h("span", { class: "l" }, h("span", { class: "cname", text: c.name }), h("span", { class: "cwhose", text: c.whose })),
+        basisDot(it ? it.basis : "recorded", [CARD_ITEM[it ? it.item : ""] || "", it ? it.note : "",
+                                              "Worked out in the card workings on the MacBook, from what you have typed and the issuers' own pages."])),
+      h("div", { class: "cardline" }, cardChip(it ? it.status : c.status, it ? it.item : ""), h("span", { class: "clead", text: cardLead(it) })));
+    if (ms) sec.append(spendBar(ms));
+    return tapArea(sec, `${c.name}. Open`, () => openView({ type: "card", card: c.id, title: c.name }));
+  };
+  out.append(h("section", { class: "section" }, h("h2", { text: "Your cards" }), open.map(cardRow)));
+
+  const across = b.across || [];
+  if (across.length) {
+    const sec = h("section", { class: "section" }, h("h2", { text: "Across all your cards" }));
+    const list = h("div", { class: "list glass" });
+    for (const a of across) {
+      const r = h("button", { class: "row nextcard acrossrow", type: "button" },
+        h("span", { class: "main" }, h("span", { class: "title", text: a.what }),
+          h("span", { class: "meta" }, cardChip(a.status, "across-cards"),
+            a.figure ? h("span", { text: ` ${a.unit === "CAD" ? fmtWhole$(Math.round(Number(String(a.figure).replace(/[$,]/g, "")))) : a.figure + " " + (a.unit || "")}` }) : null)),
+        h("span", { class: "chev" }, icon("chevR")));
+      const why = h("p", { class: "small muted detail", text: a.note, hidden: true });
+      r.addEventListener("click", () => { why.hidden = !why.hidden; r.classList.toggle("open", !why.hidden); });
+      list.append(h("div", { class: "rowpair" }, r, why));
+    }
+    sec.append(list);
+    out.append(sec);
+  }
+  const nxt = (b.next || []).filter(x => x.id);
+  if (nxt.length) {
+    const sec = h("section", { class: "section" }, h("h2", { text: "Worth opening next" }));
+    const list = h("div", { class: "list glass" });
+    for (const o of nxt) {
+      const r = h("button", { class: "row nextcard", type: "button" },
+        h("span", { class: "main" }, h("span", { class: "title", text: o.card }),
+          h("span", { class: "meta" }, cardChip(o.status, "next-card"),
+            o.figure ? h("span", { text: ` ${fmtWhole$(Math.round(Number(String(o.figure).replace(/[$,]/g, ""))))} after the fees it costs to get` }) : h("span", { text: " worth unknown" }),
+            / does NOT fit/.test(o.note || "") ? h("span", { class: "cchip off", text: "More than you spend" }) : null)),
+        h("span", { class: "chev" }, icon("chevR")));
+      const why = h("p", { class: "small muted detail", text: o.note, hidden: true });
+      r.addEventListener("click", () => { why.hidden = !why.hidden; r.classList.toggle("open", !why.hidden); });
+      list.append(h("div", { class: "rowpair" }, r, why));
+    }
+    const tail = (b.next || []).find(x => !x.id);
+    sec.append(list, h("p", { class: "small muted", text: tail ? tail.note : "" }));
+    out.append(sec);
+  }
+  if (shut.length) {
+    const d = h("details", { class: "fold" }, h("summary", { text: `Cards you have closed (${shut.length})` }),
+      h("div", { class: "list" }, shut.map(cardRow)));
+    out.append(h("section", { class: "section" }, d));
+  }
+  out.append(h("p", { class: "small muted asof", text: `Worked out ${b.as_of ? prettyDates(b.as_of) : "on the MacBook"}. Nothing here is a decision: opening or closing a card is written down and waits for your yes.` }));
+  return out;
+}
+
+function renderCard() {
+  const b = (SNAP && SNAP.cards) || {};
+  const c = (b.cards || []).find(x => x.id === VIEW.card);
+  const p = h("div", { class: "page narrow" });
+  if (!c) { p.append(head("Not available", "This card's figures have not arrived yet.")); return p; }
+  p.append(head(c.name, c.whose === "yours" ? "Your card" : "The corporation's card"));
+  for (const it of c.items || []) {
+    const sec = h("section", { class: "card glass" },
+      h("div", { class: "ftop" }, h("h3", { text: CARD_ITEM[it.item] || it.item }),
+        basisDot(it.basis, [it.due ? "By " + prettyDates(it.due) + "." : "", "Worked out in the card workings on the MacBook."])),
+      h("div", { class: "cardline" }, cardChip(it.status, it.item),
+        it.figure ? h("span", { class: "camt num", text: (it.unit === "CAD" || /cash back|money/i.test(it.unit || "")
+          ? fmtWhole$(Math.round(Number(String(it.figure).replace(/[$,]/g, "")))) : `${it.figure} ${it.unit || ""}`.trim()) }) : null),
+      h("p", { class: "small", text: it.note }));
+    if (it.item === "minimum-spend" && it.need && it.due >= todayISO()
+        && !["DONE", "MISSED", "EXPLAINED"].includes(it.status)) sec.append(spendBar(it));
+    p.append(sec);
+  }
+  return p;
+}
 
 function renderAccount() {
   const a = VIEW.account, acct = regOf(a), y = new Date().getFullYear();
@@ -3008,23 +3199,48 @@ function looksLikeKey(v) {
 }
 
 
-let LOCK = { mode: "unlock", pin: "", first: "", msg: "", bad: false, busy: false, migrating: false };
+let LOCK = { mode: "unlock", pin: "", first: "", msg: "", bad: false, shook: false, busy: false, migrating: false };
+let OPENING = false;
 
 function lockScreen(mode, extra) {
-  LOCK = Object.assign({ mode, pin: "", first: "", msg: "", bad: false, busy: false, migrating: LOCK.migrating }, extra || {});
+  LOCK = Object.assign({ mode, pin: "", first: "", msg: "", bad: false, shook: false, busy: false, migrating: LOCK.migrating }, extra || {});
   const el = document.getElementById("lock");
+  const overApp = mode === "change-old" || mode === "change-new" || mode === "change-confirm";
+  const entering = el.hidden && !el.classList.contains("at-start");
+  el.classList.remove("going");
+  el.classList.toggle("over-app", overApp);
   el.hidden = false;
-  if (mode !== "change-old" && mode !== "change-new" && mode !== "change-confirm") {
+  OPENING = false;
+  if (!overApp) {
     document.getElementById("app").hidden = true;
     clear(document.getElementById("main"));
   }
-  drawLock();
+  drawLock(entering);
 }
-function closeLock() { document.getElementById("lock").hidden = true; }
+function closeLock() {
+  const el = document.getElementById("lock");
+  clearTimeout(unlockInto.fallback);
+  el.classList.remove("going");
+  el.classList.remove("over-app");
+  el.hidden = true;
+  OPENING = false;
+}
+function unlockInto(draw) {
+  const el = document.getElementById("lock");
+  if (!motionOK()) { closeLock(); draw(); return; }
+  OPENING = true;
+  el.classList.add("over-app");
+  draw();
+  const done = ev => { if (ev && ev.target !== el) return; el.removeEventListener("animationend", done); closeLock(); };
+  el.addEventListener("animationend", done);
+  clearTimeout(unlockInto.fallback);
+  unlockInto.fallback = setTimeout(() => { if (OPENING) done(); }, 600);
+  requestAnimationFrame(() => { if (OPENING) el.classList.add("going"); });
+}
 
-function drawLock() {
+function drawLock(entering) {
   const el = clear(document.getElementById("lock"));
-  const inner = h("div", { class: "lock-inner" });
+  const inner = h("div", { class: "lock-inner" + (entering ? " enter" : "") });
   el.append(inner);
   inner.append(h("div", { class: "badge" }, icon("lock")));
   if (LOCK.mode === "setup-key") {
@@ -3070,21 +3286,28 @@ function drawLock() {
     tapKey(b, () => press(String(d))); digits.push(b); pad.append(b);
   }
   const cancelable = LOCK.mode.startsWith("change");
-  pad.append(cancelable ? h("button", { class: "txt", type: "button", onclick: () => { closeLock(); render(); } }, "Cancel") : h("span", { class: "blank" }));
+  pad.append(cancelable ? h("button", { class: "txt", type: "button", onclick: () => { if (LOCK.busy) return; LOCK.mode = "cancelled"; closeLock(); render(); } }, "Cancel") : h("span", { class: "blank" }));
   const zero = h("button", { type: "button", "aria-label": "0" }, "0");
   tapKey(zero, () => press("0")); digits.push(zero); pad.append(zero);
   const del = h("button", { class: "txt", type: "button", "aria-label": "Delete the last digit" }, "Delete");
   tapKey(del, () => press("del")); pad.append(del);
   inner.append(pad);
   if (window.matchMedia && matchMedia("(pointer: fine)").matches) inner.append(h("p", { class: "hint2", text: "You can also type the digits." }));
-  if (LOCK.mode === "unlock") inner.append(h("button", { class: "link", type: "button", onclick: forgot }, "Forgot your passcode?"));
+  if (LOCK.mode === "unlock") inner.append(h("button", { class: "link", type: "button", onclick: () => { if (!LOCK.busy) forgot(); } }, "Forgot your passcode?"));
   LOCK.ui = { sub, dots, sr, digits, del, fallback: s };
   updateLock();
 }
 
 function tapKey(b, fn) {
   let viaPointer = false;
-  b.addEventListener("pointerdown", ev => { if (ev.button > 0 || b.disabled) return; viaPointer = true; ev.preventDefault(); fn(); });
+  const up = () => b.classList.remove("down");
+  b.addEventListener("pointerdown", ev => {
+    if (ev.button > 0 || b.disabled) return;
+    viaPointer = true; ev.preventDefault();
+    b.classList.add("down");
+    if (fn() === false) b.classList.remove("down");    // a key it is ignoring must not light
+  });
+  for (const ev of ["pointerup", "pointercancel", "pointerleave"]) b.addEventListener(ev, up);
   b.addEventListener("click", () => { if (viaPointer) { viaPointer = false; return; } fn(); });   // the keyboard's Enter and Space
 }
 
@@ -3097,11 +3320,16 @@ function updateLock() {
   u.sub.textContent = waitMs > 0 ? `Too many tries. Try again in ${Math.ceil(waitMs / 1000)} seconds.` : (LOCK.msg || u.fallback);
   Array.from(u.dots.children).forEach((d, i) => d.classList.toggle("on", i < LOCK.pin.length));
   u.sr.textContent = `${LOCK.pin.length} of ${PIN_LEN} digits`;
-  for (const b of u.digits) b.disabled = waitMs > 0 || LOCK.busy;
-  u.del.style.visibility = LOCK.pin.length && !LOCK.busy ? "visible" : "hidden";
-  if (LOCK.bad) {
+  for (const b of u.digits) b.disabled = waitMs > 0;
+  u.del.style.visibility = LOCK.pin.length ? "visible" : "hidden";
+  clearTimeout(updateLock.shake);          // never let a shake from a past try clear digits typed since
+  if (LOCK.bad && !LOCK.shook) {
+    LOCK.shook = true;
     u.dots.classList.remove("shake"); void u.dots.offsetWidth; u.dots.classList.add("shake");
-    setTimeout(() => { LOCK.bad = false; u.dots.classList.remove("shake"); }, 450);
+    updateLock.shake = setTimeout(() => {
+      u.dots.classList.remove("shake");
+      if (LOCK.clearAfterShake) { LOCK.clearAfterShake = false; LOCK.pin = ""; updateLock(); }
+    }, 460);
   }
   clearTimeout(updateLock.t);
   if (waitMs > 0) updateLock.t = setTimeout(updateLock, 1000);
@@ -3113,17 +3341,25 @@ function forgot() {
 }
 
 function press(k) {
-  if (LOCK.busy) return;
-  if (k === "del") { LOCK.pin = LOCK.pin.slice(0, -1); updateLock(); return; }
-  if (LOCK.pin.length >= PIN_LEN) return;
-  if (lockout().until > Date.now() && (LOCK.mode === "unlock" || LOCK.mode === "change-old")) return;
+  if (LOCK.busy) return false;
+  if (k === "del") {
+    if (!LOCK.pin.length) return false;
+    LOCK.pin = LOCK.pin.slice(0, -1);
+    LOCK.bad = false;                      // pressing Delete during a shake used to restart the shake
+    updateLock();
+    return true;
+  }
+  if (LOCK.pin.length >= PIN_LEN) return false;
+  if (lockout().until > Date.now() && (LOCK.mode === "unlock" || LOCK.mode === "change-old")) return false;
   LOCK.pin += k;
   LOCK.bad = false;
   updateLock();
   if (LOCK.pin.length === PIN_LEN) { LOCK.busy = true; setTimeout(() => { LOCK.busy = false; complete(); }, 120); }
+  return true;
 }
 
 async function complete() {
+  if (LOCK.mode === "cancelled") return;          // Cancel was tapped while the passcode was being checked
   const pin = LOCK.pin, first = LOCK.first;
   LOCK.pin = ""; LOCK.first = "";
   const m = LOCK.mode;
@@ -3131,30 +3367,37 @@ async function complete() {
   if (m === "setup-confirm" || m === "change-confirm") {
     if (pin !== first) { lockScreen(m === "setup-confirm" ? "setup-new" : "change-new", { msg: "The passcodes did not match. Choose one again.", bad: true }); return; }
     LOCK.busy = true; LOCK.msg = "Locking your data…"; updateLock();
-    await setPasscode(pin);
+    if (!MEM) MEM = {};                               // a first passcode on a device with nothing in it yet
+    if (!await setPasscode(pin) || !MEM) {                 // the page locked while the key was being made
+      LOCK.busy = false;
+      if (!lockShowing()) lockScreen(hasVault() ? "unlock" : "setup-key",
+                                     { msg: "The page locked itself before that was saved. Your passcode has not changed." });
+      return;
+    }
     save("lockout", { fails: 0, until: 0 });
     LOCK.migrating = false;
-    closeLock();
-    toast(m === "setup-confirm" ? "Passcode set." : "Passcode changed.");
-    afterUnlock(m === "setup-confirm");
+    const setUp = m === "setup-confirm";
+    unlockInto(() => afterUnlock(setUp));
+    toast(setUp ? "Passcode set." : "Passcode changed.");
     return;
   }
   const lo = lockout();
   if (lo.until > Date.now()) { LOCK.pin = ""; updateLock(); return; }
-  LOCK.busy = true; LOCK.msg = "Checking…"; updateLock();
+  LOCK.busy = true; LOCK.pin = pin; updateLock();
   const ok = await unlockWith(pin).catch(() => false);
   LOCK.busy = false;
+  if (LOCK.mode === "cancelled") return;          // cancelled while the six digits were being checked
   if (!ok) {
     const fails = lo.fails + 1;
     save("lockout", { fails, until: Date.now() + failWait(fails) });
-    LOCK.pin = ""; LOCK.bad = true; LOCK.msg = fails >= 4 ? `Wrong passcode. ${fails >= 5 ? "Wait, then try again." : "One more try before a wait."}` : "Wrong passcode. Try again.";
+    LOCK.bad = true; LOCK.shook = false; LOCK.clearAfterShake = true;
+    LOCK.msg = fails >= 4 ? `Wrong passcode. ${fails >= 5 ? "Wait, then try again." : "One more try before a wait."}` : "Wrong passcode. Try again.";
     updateLock();
     return;
   }
   save("lockout", { fails: 0, until: 0 });
   if (m === "change-old") { lockScreen("change-new"); return; }
-  closeLock();
-  afterUnlock(false);
+  unlockInto(() => afterUnlock(false));
 }
 
 function afterUnlock(fresh) {
@@ -3193,11 +3436,12 @@ function lockNow() {
 let LAST = Date.now(), HIDDEN_AT = 0, NEW_PAGE = false;
 function touch() { LAST = Date.now(); }
 function autolockMs() { return load("autolock", 5) * 60000; }
-function lockShowing() { return !document.getElementById("lock").hidden; }
-function checkIdle() { if (MEM && !lockShowing() && Date.now() - LAST > Math.max(autolockMs(), 60000)) lockNow(); }
+function lockShowing() { return !document.getElementById("lock").hidden && !OPENING; }
+function openBehind() { return !!MEM && (!lockShowing() || LOCK.mode.startsWith("change")); }
+function checkIdle() { if (openBehind() && Date.now() - LAST > Math.max(autolockMs(), 60000)) lockNow(); }
 function awayCheck() {
   document.body.classList.remove("veiled");
-  if (MEM && !lockShowing() && HIDDEN_AT && Date.now() - HIDDEN_AT >= autolockMs()) { lockNow(); return true; }
+  if (openBehind() && HIDDEN_AT && Date.now() - HIDDEN_AT >= autolockMs()) { lockNow(); return true; }
   return false;
 }
 
@@ -3244,7 +3488,7 @@ async function boot() {
     wasStale = stale;
   }, 60000);
   document.addEventListener("keydown", ev => {
-    if (document.getElementById("lock").hidden || document.querySelector(".scrim") || LOCK.mode === "setup-key") return;
+    if (document.getElementById("lock").hidden || OPENING || document.querySelector(".scrim") || LOCK.mode === "setup-key") return;
     if (ev.target && /^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName)) return;
     if (/^[0-9]$/.test(ev.key)) press(ev.key);
     else if (ev.key === "Backspace") press("del");
