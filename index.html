@@ -30,10 +30,10 @@
         <span class="bar-title" id="bar-title"></span>
       </div>
       <nav class="seg" id="seg" aria-label="Sections">
+        <button data-tab="numbers" type="button">Summary</button>
+        <button data-tab="work" type="button">Work</button>
         <button data-tab="today" type="button">Today</button>
         <button data-tab="add" type="button">Add</button>
-        <button data-tab="work" type="button">Work</button>
-        <button data-tab="numbers" type="button">Summary</button>
       </nav>
       <div class="bar-right">
         <button id="sync" class="sync" type="button" aria-label="Sync status"><span class="dot"></span><span id="sync-text">…</span></button>
@@ -47,11 +47,13 @@
   <div id="ptr" class="ptr" aria-hidden="true"><span class="ptr-i"></span></div>
   <main id="main"></main>
 
+  <!-- Left to right: Summary, Work, Today, Add (Alvin's order, 2026-09-18). The order lives here and in
+       TABS in app.js; keep the two the same, because a sideways swipe walks TABS. -->
   <nav class="tabbar" id="tabbar" aria-label="Sections">
+    <button data-tab="numbers" type="button"></button>
+    <button data-tab="work" type="button"></button>
     <button data-tab="today" type="button"></button>
     <button data-tab="add" type="button" class="add-tab"></button>
-    <button data-tab="work" type="button"></button>
-    <button data-tab="numbers" type="button"></button>
   </nav>
 </div>
 
