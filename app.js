@@ -475,7 +475,7 @@ function renderChrome() {
     left.prepend(h("button", { class: "back", type: "button", onclick: () => closeView() }, icon("chevL"), parentName()));
     title.textContent = "";
   } else {
-    title.textContent = VIEW && VIEW.type === "settings" ? "Settings" : ({ today: "Today", add: "Add", work: "Work", numbers: "Summary" })[TAB];
+    title.textContent = VIEW && VIEW.type === "settings" ? "Settings" : TAB_NAME[TAB];
   }
   document.body.classList.toggle("toplevel", !VIEW);
   const s = document.getElementById("sync"), st = document.getElementById("sync-text");
@@ -560,7 +560,8 @@ function historyBack(n) {
   OWN_BACKS += 1;
   try { history.go(-n); } catch (e) { OWN_BACKS -= 1; }
 }
-const TABS = ["today", "add", "work", "numbers"];   // Work since 2026-09-18 (D-2026-09-18-03)
+const TABS = ["numbers", "work", "today", "add"];
+const TAB_NAME = { today: "Today", add: "Add", work: "Work", numbers: "Summary" };  // what each tab is called, in one place
 let ENTER = "";                // "l" or "r": the side the next page drawn slides in from
 function go(tab) {
   saveDraftNow();                               // a tab tapped while a form is open keeps what was typed (r5-page-01)
@@ -590,10 +591,10 @@ function parentName() {
   const under = STACK[STACK.length - 1];
   if (under) return viewTitle(under);
   if (VIEW && VIEW.type === "form" && VIEW.from === "today") return "Today";
-  return ({ today: "Today", add: "Add", work: "Work", numbers: "Summary" })[TAB];
+  return TAB_NAME[TAB];
 }
 function viewTitle(v) {
-  if (!v) return ({ today: "Today", add: "Add", work: "Work", numbers: "Summary" })[TAB];
+  if (!v) return TAB_NAME[TAB];
   return ({ form: kindOf(v.kind).name, settings: "Settings", questions: "Questions", shifts: "Your shifts", income: "Income",
             work: v.metric === "rate" ? "Pay per hour" : "Hours", workunit: v.title || "A shift", account: ({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[v.account] || "Account",
             card: v.title || "Card", trend: v.title || "History" })[v.type] || "Back";
@@ -2163,7 +2164,7 @@ function renderSummary() {
     v => { save("sumpart", v); closePop(); draw(v); }, "Which part of the Summary", "partseg");
   p.append(parts, holder);
   draw(part);
-  swipeAlong(parts, holder, () => tabStep(-1), null);
+  swipeAlong(parts, holder, () => tabStep(-1), () => tabStep(1));
   return p;
 }
 function openTrendOf(id) {
@@ -3700,11 +3701,10 @@ function workpayAnswer(i) {
 async function boot() {
   const wire = sel => { for (const b of document.querySelectorAll(sel)) b.addEventListener("click", () => go(b.dataset.tab)); };
   wire("#seg button"); wire("#tabbar button");
-  const tb = document.querySelectorAll("#tabbar button");
-  tb[0].append(icon("today"), h("span", { text: "Today" }));
-  tb[1].append(icon("plusc"), h("span", { text: "Add" }));
-  tb[2].append(icon("work"), h("span", { text: "Work" }));
-  tb[3].append(icon("numbers"), h("span", { text: "Summary" }));
+  const TAB_ICON = { today: "today", add: "plusc", work: "work", numbers: "numbers" };
+  for (const b of document.querySelectorAll("#tabbar button")) {
+    b.append(icon(TAB_ICON[b.dataset.tab]), h("span", { text: TAB_NAME[b.dataset.tab] }));
+  }
   document.getElementById("gear").append(icon("gear"));
   document.getElementById("gear").addEventListener("click", () => openView({ type: "settings" }));
   document.getElementById("bar-done").addEventListener("click", () => closeView());
