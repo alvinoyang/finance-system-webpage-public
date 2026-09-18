@@ -1,5 +1,5 @@
 "use strict";
-const CACHE = "finance-system-webpage-8bb1c7563dce";      // deploy replaces "v8" with a stamp of the page's files
+const CACHE = "finance-system-webpage-75b0f2bb79cb";      // deploy replaces "v8" with a stamp of the page's files
 const FILES = ["./", "index.html", "app.js", "style.css", "config.json", "manifest.webmanifest", "icon.svg"];
 const FRESH_FIRST = new Set(["config.json"]);
 
