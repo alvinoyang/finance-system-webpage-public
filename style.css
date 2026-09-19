@@ -629,6 +629,18 @@ input.masked { -webkit-text-security: disc; }
 .regyear b.regfull { color: hsl(125 70% 29%); }   /* 4.5:1 or better on the light glass */
 @media (prefers-color-scheme: dark) { .regyear b.regfull { color: hsl(120 72% 52%); } }
 .meter.roombar { height: 10px; border-radius: 5px; }
+.salhead { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.salof { font-size: .95rem; color: var(--ink-2); }
+.salof b { color: var(--ink); font-weight: 650; }
+.meter.salbar .mseg.s0.planned { background: repeating-linear-gradient(115deg, var(--c0) 0 5px, transparent 5px 10px), var(--fill); opacity: .75; }
+.meter.salbar .mseg.gap { background: var(--orange); }
+.salends { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: .76rem; color: var(--ink-2); }
+.salends > span { display: inline-flex; align-items: center; gap: 2px; }
+.salends .bdot { margin: -9px -8px -9px 0; }
+.salnote { border-radius: 12px; padding: 10px 12px; font-size: .84rem; line-height: 1.38; }
+.salnote b { font-weight: 700; }
+.salnote.short { background: var(--orange-soft); }
+.salnote.ok { background: var(--green-soft); }
 
 .hbars { display: grid; gap: 4px; }
 .hb { display: grid; grid-template-columns: minmax(84px, 32%) minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 7px 0; text-align: left; width: 100%; }
