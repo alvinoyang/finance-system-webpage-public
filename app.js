@@ -540,6 +540,10 @@ function pageFor() {
   else if (VIEW && VIEW.type === "income") page = renderIncome();
   else if (VIEW && VIEW.type === "work") page = renderWork();
   else if (VIEW && VIEW.type === "account") page = renderAccount();
+  else if (VIEW && VIEW.type === "saving") page = renderSaving();
+  else if (VIEW && VIEW.type === "returns") page = renderReturns();
+  else if (VIEW && VIEW.type === "spending") page = renderSpending();
+  else if (VIEW && VIEW.type === "vehicle") page = renderVehicle();
   else if (VIEW && VIEW.type === "card") page = renderCard();
   else if (VIEW && VIEW.type === "workunit") page = renderWorkUnit();
   else if (TAB === "add") page = renderAdd();
@@ -597,7 +601,8 @@ function viewTitle(v) {
   if (!v) return TAB_NAME[TAB];
   return ({ form: kindOf(v.kind).name, settings: "Settings", questions: "Questions", shifts: "Your shifts", income: "Income",
             work: v.metric === "rate" ? "Pay per hour" : "Hours", workunit: v.title || "A shift", account: ({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[v.account] || "Account",
-            card: v.title || "Card", trend: v.title || "History" })[v.type] || "Back";
+            card: v.title || "Card", trend: v.title || "History",
+            saving: "What you invest", returns: "What it is worth", spending: "What you spend", vehicle: (SNAP && SNAP.vehicle && SNAP.vehicle.name) || "Your car" })[v.type] || "Back";
 }
 function onScroll() { document.getElementById("bar").classList.toggle("scrolled", window.scrollY > (document.body.classList.contains("toplevel") ? 48 : 28)); }
 function measureBar() {
@@ -2217,7 +2222,51 @@ function summaryTotal() {
                      : `Each at its latest value: ${Object.entries(((SNAP.networth || {}).now || {}).personal_dates || {}).map(([a, d]) => `${({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[a]} ${monthDay(d)}`).join(", ")}, from each account's own Questrade statement (or a reading you sent from this page).`,
              n.since ? `Plus ${fmtWhole$(Math.round(n.since))} you put in between then and ${prettyDates(n.date)}, from your Registered Contributions tab and this page. How their investments moved since is not known until the next statements, so this is an estimate.` : ""], "personal"))),
     h("p", { class: "foot", text: "Choose either line to see it in detail." })));
+  const g2 = h("div", { class: "figs" });
+  const sv = savingCard(); if (sv) g2.append(sv);
+  const rt = returnsCard(); if (rt) g2.append(rt);
+  if (g2.children.length) out.append(balance(g2));
   return out;
+}
+
+function pctText(v) { return Math.round(Number(v) * 100) + "%"; }
+function savingCard() {
+  const B = (SNAP && SNAP.saving) || {};
+  if (!B.life || B.life.pct === undefined || !(B.years || []).length) return null;
+  const life = B.life, last = B.years[B.years.length - 1];
+  const income = money(life.income), invested = money(life.investment);
+  const why = [`Since ${B.since}.`, `${plainSource(B.source)}.`, B.note];
+  const body = h("div", {},
+    meter([{ value: invested, cls: "s0", label: "Invested" }], income),
+    h("div", { class: "legend3" },
+      h("span", {}, h("span", { class: "sw2 s0" }), "Invested ", h("b", { text: compact(invested, "$") })),
+      h("span", { class: "muted" }, "Earned ", h("b", { text: compact(income, "$") }))));
+  return figCard({ label: "Of what you earned, you invested", basis: B.basis }, {
+    hero: true, label: `Of what you earned, you invested`, value: pctText(life.pct), why, body,
+    onOpen: () => openView({ type: "saving" }),
+    meta: [h("span", { class: "asof", text: `Since ${B.since}. ${last.year}: ${pctText(last.pct)}.` })] });
+}
+function runningYear(y) { return Number(y) >= new Date().getFullYear(); }
+function yearAt(y) { return runningYear(y) ? `${y} so far` : `End of ${y}`; }          // a card's or page's label
+function yearIn(y) { return runningYear(y) ? `in ${y} so far` : `at the end of ${y}`; } // inside a sentence
+function returnsCard() {
+  const B = (SNAP && SNAP.returns) || {};
+  if (!(B.years || []).length) return null;
+  const r = B.years[B.years.length - 1], put = money(r.in), val = money(r.value), gain = val - put;
+  const why = [runningYear(r.year) ? `${r.year} so far: the year is still running, so this is its latest statement.` : `At the end of ${r.year}.`,
+               `${plainSource(B.source)}.`,
+               "What you put in is every dollar the corporation and you moved into investments; what it is worth is what those investments were worth at that date.",
+               "The gap between the two is worked out from them.", B.note];
+  const body = h("div", {},
+    meter([{ value: put, cls: "s0", label: "Put in" }, { value: Math.max(0, gain), cls: "s1", label: "Growth" }]),
+    h("div", { class: "legend3" },
+      h("span", {}, h("span", { class: "sw2 s0" }), "Put in ", h("b", { text: compact(put, "$") })),
+      h("span", {}, h("span", { class: "sw2 s1" }), gain >= 0 ? "Growth " : "Fallen ", h("b", { text: compact(Math.abs(gain), "$") }))));
+  return figCard({ label: "What you put in, and what it is worth", basis: B.basis }, {
+    hero: true, label: "What you put in, and what it is worth", value: fmtWhole$(Math.round(val)), why, body,
+    onOpen: () => openView({ type: "returns" }),
+    meta: [h("span", { class: "delta", text: `${gain >= 0 ? "Worth" : "Down"} ${compact(Math.abs(gain), "$")} ${gain >= 0 ? "more than you put in" : "on what you put in"}, ${yearIn(r.year)}.` }),
+           h("span", { class: "asof", text: "The corporation's investments and yours together. Not the car, and not cash." })] });
 }
 
 function incomeVsLastYear() {
@@ -2378,9 +2427,24 @@ function summaryPersonal() {
   else if (sal) g.append(figCard(sal, { label: sal.label.replace("Salary paid", "Your salary"), series: S.salary, onOpen: () => openTrendOf("salary"),
     meta: [h("span", { class: "asof", text: "Before tax and deductions" })] }));
   const sp = ov("spending");
-  if (sp) g.append(figCard(sp, { label: "What you spend a month", meta: [h("span", { class: "asof", text: "Average of recent months, now rent is gone" })] }));
+  const spendable = ((SNAP && SNAP.spending) || {}).months;
+  if (sp) g.append(figCard(sp, { label: "What you spend a month", onOpen: spendable ? () => openView({ type: "spending" }) : null,
+    meta: [h("span", { class: "asof", text: spendable ? "Average of recent months · where it goes" : "Average of recent months, now rent is gone" })] }));
+  const car = vehicleCard(); if (car) g.append(car);
   out.append(balance(g));
   return out;
+}
+
+function vehicleCard() {
+  const V = (SNAP && SNAP.vehicle) || {};
+  const last = (V.readings || [])[(V.readings || []).length - 1];
+  if (!last) return null;
+  const y = (V.per_year || [])[(V.per_year || []).length - 1];
+  return figCard({ label: V.name, basis: V.basis }, {
+    label: V.name, value: Math.round(last.km).toLocaleString("en-CA") + " km",
+    why: [`At ${prettyDates(last.date)}.`, `${plainSource(V.source)}.`, V.note],
+    onOpen: () => openView({ type: "vehicle" }),
+    meta: [h("span", { class: "asof", text: y ? `${y.km.toLocaleString("en-CA")} km in ${y.year} · ${fmtWhole$(Math.round(money(V.spent)))} of upkeep so far` : `At ${prettyDates(last.date)}` })] });
 }
 
 
@@ -2623,6 +2687,135 @@ function renderAccount() {
   }
   p.append(h("button", { class: "btn tinted wide", type: "button", onclick: () => startForm("registered", { account: a, direction: "contribution" }) }, `Record money into or out of your ${acct.name}`));
   p.append(h("p", { class: "foot", text: `${plainSource(src)}.${SNAP.registered.values_source ? " " + plainSource(SNAP.registered.values_source) + "." : ""} Last row ${acct.last_row ? prettyDates(acct.last_row) : "none"}. What you send from this page is counted as soon as the MacBook has it.` }));
+  return p;
+}
+
+
+function renderSaving() {
+  const B = (SNAP && SNAP.saving) || {}, p = h("div", { class: "page narrow" });
+  p.append(head("What you invest", "Of what was earned, how much was put into investments."));
+  if (!(B.years || []).length) { p.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "Not available yet." }))); return p; }
+  const life = B.life || {}, income = money(life.income), invested = money(life.investment);
+  p.append(h("div", { class: "trend-top" },
+    h("div", { class: "ftop" }, h("span", { class: "l", text: `Since ${B.since}` }), basisDot(B.basis, [`${plainSource(B.source)}.`, B.note])),
+    h("div", { class: "v rounded", text: pctText(life.pct) }),
+    h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${fmtWhole$(Math.round(invested))} invested of ${fmtWhole$(Math.round(income))} earned.` }))));
+  const sec = h("section", { class: "card glass" }, h("h3", { text: "Year by year" }),
+    hbars(B.years.map(y => ({ key: y.year, label: y.year, value: Number(y.pct) || 0,
+                              sub: `${compact(money(y.corp_invested) + money(y.personal_invested), "$")} of ${compact(money(y.corp_income), "$")}` })), pctText));
+  sec.append(h("p", { class: "small muted", text: B.note }));
+  p.append(sec);
+  const side = h("section", { class: "card glass" }, h("h3", { text: "The corporation, and you" }));
+  const rows = h("div", { class: "list flat" }, h("div", { class: "regcols" }, h("span", { text: "Year" }), h("span", { text: "The corporation" }), h("span", { text: "You" })),
+    B.years.slice().reverse().map(y => h("div", { class: "row plain" },
+      h("span", { class: "title", text: y.year }),
+      h("span", { class: "amt num", text: y.corp_pct === null ? "—" : pctText(y.corp_pct) }),
+      h("span", { class: "amt num", text: y.personal_pct === null ? "—" : pctText(y.personal_pct) }))));
+  side.append(rows, h("p", { class: "small muted", text: "The corporation's share is what it invested of what it earned before tax. Yours is what went into your TFSA, RRSP and FHSA, against your gross salary that year." }));
+  p.append(side);
+  p.append(h("p", { class: "foot", text: `${plainSource(B.source)}. Typed by you, or worked out by that tab's own formulas from cells you typed.` }));
+  return p;
+}
+
+function renderReturns() {
+  const B = (SNAP && SNAP.returns) || {}, p = h("div", { class: "page narrow" });
+  p.append(head("What it is worth", "What was put in, against what it is worth. The year still running is at its latest statement."));
+  if (!(B.years || []).length) { p.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "Not available yet." }))); return p; }
+  const r = B.years[B.years.length - 1], put = money(r.in), val = money(r.value);
+  p.append(h("div", { class: "trend-top" },
+    h("div", { class: "ftop" }, h("span", { class: "l", text: yearAt(r.year) }), basisDot(B.basis, [`${plainSource(B.source)}.`, B.note])),
+    h("div", { class: "v rounded", text: fmtWhole$(Math.round(val)) }),
+    h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${fmtWhole$(Math.round(put))} put in. ${val >= put ? "Worth" : "Down"} ${fmtWhole$(Math.round(Math.abs(val - put)))} ${val >= put ? "more" : ""}.` }))));
+  const src = B.source;
+  const line = (label, key) => ({ label, unit: "$", form: "line", basis: B.basis, source: src,
+                                  points: B.years.filter(y => y[key] !== null && y[key] !== undefined).map(y => [y.year, money(y[key])]) });
+  const sec = h("section", { class: "card glass" }, h("h3", { text: "Every year" }),
+    chart([line("What it is worth", "value"), line("What was put in", "in")],
+          { form: "line", unit: "$", height: 190, legend: true, axis: true, hover: true }));
+  p.append(sec);
+  const both = h("section", { class: "card glass" }, h("h3", { text: "The corporation, and you" }));
+  const part = (name, ik, vk) => {
+    const y = B.years[B.years.length - 1], pin = money(y[ik]), pv = money(y[vk]);
+    if (!pin && !pv) return null;
+    return h("div", { class: "life" },
+      h("div", { class: "life-h" }, h("span", { text: name }), h("span", { class: "num" }, h("b", { text: fmtWhole$(Math.round(pv)) }), ` of ${fmtWhole$(Math.round(pin))} put in`)),
+      meter([{ value: pin, cls: "s0", label: "Put in" }, { value: Math.max(0, pv - pin), cls: "s1", label: "Growth" }]));
+  };
+  both.append(part("The corporation", "corp_in", "corp_value"), part("You", "personal_in", "personal_value"));
+  p.append(both);
+  const list = h("div", { class: "list flat", hidden: true },
+    B.years.slice().reverse().map(y => h("div", { class: "row plain" }, h("span", { class: "title", text: y.year }),
+      h("span", { class: "amt num", text: `${fmtWhole$(Math.round(money(y.value)))} of ${fmtWhole$(Math.round(money(y.in)))}` }))));
+  const toggle = h("button", { class: "btn small gray", type: "button" }, "Show as a list");
+  toggle.addEventListener("click", () => { list.hidden = !list.hidden; toggle.textContent = list.hidden ? "Show as a list" : "Hide the list"; });
+  p.append(h("div", { class: "trend-actions" }, toggle), list);
+  p.append(h("p", { class: "foot", text: `${plainSource(src)}. ${B.note}` }));
+  return p;
+}
+
+function renderSpending() {
+  const B = (SNAP && SNAP.spending) || {}, p = h("div", { class: "page narrow" });
+  p.append(head("What you spend", "Every month since the records begin, and where it goes."));
+  if (!(B.months || []).length) { p.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "Not available yet." }))); return p; }
+  const cols = B.columns || [], burn = B.burn_columns || [];
+  const hl = B.headline || {};
+  const want = ["Trailing 12-Mo Burn", "Avg Monthly Burn (12 mo)", "Burn Since 2024-04"];
+  const NAMES = { "Trailing 12-Mo Burn": "The last 12 months", "Avg Monthly Burn (12 mo)": "A month, on average", "Burn Since 2024-04": "Since the records begin" };
+  const ytd = Object.keys(hl).find(k => /YTD Burn$/.test(k));
+  if (ytd) { want.splice(2, 0, ytd); NAMES[ytd] = ytd.replace(" YTD Burn", " so far"); }
+  p.append(h("div", { class: "trend-top" },
+    h("div", { class: "ftop" }, h("span", { class: "l", text: "A month, on average" }), basisDot(B.basis, [`Months to ${keyLabel(B.as_of, true)}.`, `${plainSource(B.source)}.`, B.note])),
+    h("div", { class: "v rounded", text: fmtWhole$(Math.round(money(hl["Avg Monthly Burn (12 mo)"]))) }),
+    h("div", { class: "fmeta" }, h("span", { class: "asof", text: `Everyday cost of living, over the twelve months to ${keyLabel(B.as_of, true)}.` }))));
+  p.append(h("section", { class: "card glass" }, h("h3", { text: "Burn" }),
+    h("div", { class: "facts" }, want.filter(k => hl[k] !== undefined).map(k =>
+      h("div", {}, h("span", { class: "k", text: NAMES[k] }), h("span", { class: "fv num", text: fmtWhole$(Math.round(money(hl[k]))) })))),
+    h("p", { class: "small muted", text: B.note })));
+  const bi = cols.findIndex(c => c.group === "Computed" && c.name === "Burn");
+  if (bi >= 0) p.append(h("section", { class: "card glass" }, h("h3", { text: "Month by month" }),
+    chart([{ label: "Burn", unit: "$", form: "bars", basis: B.basis, source: B.source,
+             points: B.months.map(m => [m.month, m.cells[bi]]) }], { form: "bars", unit: "$", height: 180, axis: true, hover: true })));
+  const last12 = B.months.slice(-12);
+  const avg = burn.map(i => ({ key: String(i), label: cols[i].name, sub: cols[i].group,
+                               value: last12.reduce((s2, m) => s2 + Number(m.cells[i] || 0), 0) / (last12.length || 1) }))
+                  .filter(r => Math.abs(r.value) >= 1).sort((a, b) => b.value - a.value);
+  if (avg.length) {
+    const sec = h("section", { class: "card glass" }, h("h3", { text: "Where it goes, a month" }),
+      hbars(avg.slice(0, 14), v => fmtWhole$(Math.round(v))));
+    if (avg.length > 14) sec.append(h("p", { class: "small muted", text: `The ${avg.length - 14} smaller categories are left off; each is under ${fmtWhole$(Math.round(avg[14].value))} a month.` }));
+    sec.append(h("p", { class: "small muted", text: `Averaged over the twelve months to ${keyLabel(B.as_of, true)}. Money into your TFSA, RRSP and FHSA is not spending and is not here.` }));
+    p.append(sec);
+  }
+  p.append(h("p", { class: "foot", text: `${plainSource(B.source)}. The whole table is rebuilt from your YNAB export each time, so a change you make in YNAB comes through by itself.` }));
+  return p;
+}
+
+function renderVehicle() {
+  const V = (SNAP && SNAP.vehicle) || {}, p = h("div", { class: "page narrow" });
+  p.append(head(V.name || "Your car", "The odometer at each year end, and what upkeep has cost."));
+  const rd = V.readings || [];
+  if (!rd.length) { p.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "Not available yet." }))); return p; }
+  const last = rd[rd.length - 1];
+  p.append(h("div", { class: "trend-top" },
+    h("div", { class: "ftop" }, h("span", { class: "l", text: `At ${prettyDates(last.date)}` }), basisDot(V.basis, [`${plainSource(V.source)}.`, V.note])),
+    h("div", { class: "v rounded", text: Math.round(last.km).toLocaleString("en-CA") + " km" }),
+    h("div", { class: "fmeta" }, h("span", { class: "asof", text: "What you typed on the Vehicle Mileage tab, or sent from here as a reading." }))));
+  if ((V.per_year || []).length) p.append(h("section", { class: "card glass" }, h("h3", { text: "Driven each year" }),
+    chart([{ label: "km", unit: "km", form: "bars", basis: V.basis, source: V.source,
+             points: V.per_year.map(y => [y.year, y.km]) }], { form: "bars", unit: "km", height: 160, axis: true, hover: true }),
+    h("p", { class: "small muted", text: V.note })));
+  const bills = V.bills || [];
+  if (bills.length) {
+    const sec = h("section", { class: "card glass" }, h("div", { class: "ftop" }, h("h3", { text: "Upkeep" }),
+      h("span", { class: "num" }, h("b", { text: fmtWhole$(Math.round(money(V.spent))) }))));
+    sec.append(h("div", { class: "list flat" }, bills.slice().reverse().map(b =>
+      h("div", { class: "row plain" }, h("span", { class: "title", text: prettyDates(b.date) }),
+        h("span", { class: "amt num", text: fmtWhole$(Math.round(money(b.amount))) })))));
+    sec.append(h("p", { class: "small muted", text: `${bills.length} bills since ${prettyDates(bills[0].date)}. A bill you have not typed on the Vehicle Maintenance tab is not here.` }));
+    p.append(sec);
+  }
+  p.append(h("button", { class: "btn tinted wide", type: "button", onclick: () => startForm("reading", { what: "odometer" }) }, "Send an odometer reading"));
+  p.append(h("p", { class: "foot", text: `${plainSource(V.source)}.` }));
   return p;
 }
 
@@ -3040,6 +3233,7 @@ function keyLabel(k, long) {
 function compact(v, unit, full) {
   if (v === null || v === undefined) return "";
   if (unit === "h") return `${Math.round(v).toLocaleString("en-CA")} h`;
+  if (unit === "km") return `${Math.round(v).toLocaleString("en-CA")} km`;
   const a = Math.abs(v), sg = v < 0 ? "−" : "";
   if (full) return sg + "$" + Math.round(a).toLocaleString("en-CA");
   if (a >= 1e6) return `${sg}$${(a / 1e6).toFixed(a >= 1e7 ? 0 : 1)}M`;
