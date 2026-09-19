@@ -616,6 +616,19 @@ input.masked { -webkit-text-security: disc; }
 .splitcard { gap: 6px; }
 .fig .spark .list.flat { margin-top: 6px; }
 .fig .spark .row.legendrow { padding-top: 9px; padding-bottom: 9px; min-height: 0; }
+.regcols, .row.regrow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) 14px; gap: 14px; }
+.regcols { margin-top: 10px; padding-bottom: 5px; border-bottom: 1px solid var(--sep); font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; color: var(--ink-2); align-items: center; }
+.regcols span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.regcols .bdot { margin: -9px -6px; }
+.row.regrow { padding-top: 12px; padding-bottom: 12px; }
+.regname { display: flex; align-items: center; gap: 7px; font-size: .8rem; font-weight: 650; color: var(--ink-2); }
+.regval { font-size: 1.5rem; font-weight: 700; letter-spacing: -.03em; line-height: 1.15; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.regyear { display: grid; gap: 5px; }
+.regyear .small { white-space: nowrap; }
+.regyear b { color: var(--ink); font-weight: 650; }
+.regyear b.regfull { color: hsl(125 70% 29%); }   /* 4.5:1 or better on the light glass */
+@media (prefers-color-scheme: dark) { .regyear b.regfull { color: hsl(120 72% 52%); } }
+.meter.roombar { height: 10px; border-radius: 5px; }
 
 .hbars { display: grid; gap: 4px; }
 .hb { display: grid; grid-template-columns: minmax(84px, 32%) minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 7px 0; text-align: left; width: 100%; }
