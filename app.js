@@ -2299,6 +2299,45 @@ function roomBar(put, room) {
   return bar;
 }
 
+const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+function salaryCard(sal, S) {
+  const paid = money(sal.value), target = money(sal.rrsp_target), expected = sal.expected ? money(sal.expected) : null;
+  const yr = (sal.as_of || "").slice(0, 4), nextYr = sal.rrsp_year, left = Number(sal.months_left || 0);
+  const whole = Math.max(target, expected || 0, paid) || 1;
+  const bar = h("div", { class: "meter salbar", role: "img", "aria-label": `${fmtWhole$(Math.round(paid))} paid of ${fmtWhole$(Math.round(target))}` });
+  bar.append(h("span", { class: "mseg s0", style: `flex-grow:${paid / whole}` }));
+  if (expected && expected > paid) bar.append(h("span", { class: "mseg s0 planned", style: `flex-grow:${(expected - paid) / whole}` }));
+  const short = expected !== null ? target - expected : 0;
+  if (short > 0.5) bar.append(h("span", { class: "mseg gap", style: `flex-grow:${short / whole}` }));
+  else if (!expected && target > paid) bar.append(h("span", { class: "mseg rest", style: `flex-grow:${(target - paid) / whole}` }));
+  const firstLeft = Number((sal.as_of || "").slice(5, 7));   // the month after the last one paid, 0-based
+  const span = left > 0 ? (left === 1 ? MONTH_FULL[firstLeft] : `${MONTH_FULL[firstLeft]} to December`) : "";
+  const room = sal.rrsp_limit ? ` is the full ${fmtWhole$(Number(sal.rrsp_limit))}` : " is full";
+  const why = [`Paid to ${prettyDates(sal.as_of)}. ${plainSource(sal.source)}.`,
+    expected ? `Expected for ${yr}: what is paid, and ${left} month${left === 1 ? "" : "s"} still to come at ${fmtWhole$(Math.round(money(sal.monthly)))}, an estimate until they are paid.` : "",
+    `${fmtWhole$(Math.round(target))} fills ${nextYr}'s RRSP room${sal.rrsp_limit ? " of " + fmtWhole$(Number(sal.rrsp_limit)) : ""}. The room is 18% of ${yr}'s earned income, which is your salary and any consulting income, less your employment expenses.`
+    + (basisOf(sal.rrsp_target_basis) === "estimate" ? ` An estimate: it counts only the consulting income actually invoiced in ${yr}, and takes this year's employment expenses to be last year's.` : "")];
+  let note = null;
+  if (paid >= target - 0.5) note = h("div", { class: "salnote ok" }, h("b", { text: "Reached. " }), `What has been paid already fills ${nextYr}'s RRSP room.`);
+  else if (expected !== null && short > 0.5) note = h("div", { class: "salnote short" }, h("b", { text: `${fmtWhole$(Math.round(short))} short. ` }),
+    `The payroll plan pays ${fmtWhole$(Math.round(expected))} this year.` + (sal.monthly_needed && span ? " Pay " : ""),
+    sal.monthly_needed && span ? h("b", { text: fmtWhole$(Number(sal.monthly_needed)) }) : null,
+    sal.monthly_needed && span ? ` a month for ${span}, ${fmtWhole$(Number(sal.monthly_needed) - Math.round(money(sal.monthly)))} more than now, and ${nextYr}'s RRSP room${room}.` : "");
+  else if (expected !== null) note = h("div", { class: "salnote ok" }, h("b", { text: "On target. " }),
+    `The payroll plan pays ${fmtWhole$(Math.round(expected))} this year` + (expected - target > 0.5 ? `, ${fmtWhole$(Math.round(expected - target))} more than ${nextYr}'s RRSP room needs.` : `, what ${nextYr}'s RRSP room needs.`));
+  const card = h("div", { class: "fig hero glass tappable salcard" },
+    h("div", { class: "ftop" }, h("span", { class: "l", text: `Your salary, ${yr}` }), basisDot(sal.basis, why)),
+    h("div", { class: "salhead" }, h("span", { class: "v rounded", text: fmtWhole$(Math.round(paid)) }),
+      h("span", { class: "salof" }, "paid of ", h("b", { text: fmtWhole$(Math.round(target)) }))),
+    bar,
+    h("div", { class: "salends" }, h("span", { text: `Paid to ${monthDay(sal.as_of)}` }),
+      h("span", {}, `${fmtWhole$(Math.round(target))} fills ${nextYr}'s RRSP room`, basisDot(sal.rrsp_target_basis, why.slice(2)))),
+    note,
+    h("span", { class: "fmeta" }, h("span", { class: "asof", text: "Before tax and deductions." }), h("span", { class: "chev-go", "aria-hidden": "true" }, icon("chevR"))));
+  tapArea(card, `Your salary, ${fmtWhole$(Math.round(paid))} paid of ${fmtWhole$(Math.round(target))}. Open`, () => openTrendOf("salary"));
+  return card;
+}
+
 function summaryPersonal() {
   const out = h("div", { class: "page" }), S = (SNAP && SNAP.series) || {};
   const g = h("div", { class: "figs" });
@@ -2335,7 +2374,8 @@ function summaryPersonal() {
                                                    + (withRoom.length ? `${y} is counted${tabTo ? " to " + monthDay(tabTo) : ""}, from your Registered Contributions tab${withRoom.some(([a]) => (regOf(a).waiting || []).length) ? " and this page" : ""}.` : "") })] }));
   }
   const sal = ov("salary");
-  if (sal) g.append(figCard(sal, { label: sal.label.replace("Salary paid", "Your salary"), series: S.salary, onOpen: () => openTrendOf("salary"),
+  if (sal && sal.rrsp_target) g.append(salaryCard(sal, S));
+  else if (sal) g.append(figCard(sal, { label: sal.label.replace("Salary paid", "Your salary"), series: S.salary, onOpen: () => openTrendOf("salary"),
     meta: [h("span", { class: "asof", text: "Before tax and deductions" })] }));
   const sp = ov("spending");
   if (sp) g.append(figCard(sp, { label: "What you spend a month", meta: [h("span", { class: "asof", text: "Average of recent months, now rent is gone" })] }));
