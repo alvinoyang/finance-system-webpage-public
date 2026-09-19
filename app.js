@@ -2186,7 +2186,7 @@ function householdWhy(n) {
   return [`At ${prettyDates(n.date)}${n.est ? ", the corporation's latest month-end with a bank and Questrade statement" : ""}.`,
           "It counts the corporation, at market, and your TFSA, RRSP and FHSA. Before the tax paid to take money out of the corporation.",
           n.est ? `An estimate: ${n.note}.` : "", nw.household && n.est ? `At ${prettyDates(nw.date)}, the last year end with every account's value, it was ${fmtWhole$(Math.round(money(nw.household)))}.` : "",
-          nw.now && nw.now.source ? "Worked out in the net worth workings: the corporation at its month-end, and your accounts at their year-end values plus what went in or came out since, from your Personal tab and this page." : ""];
+          nw.now && nw.now.source ? "Worked out in the net worth workings: the corporation at its month-end, and your accounts at the latest value their Questrade statements give, plus what went in or came out since, from your Registered Contributions tab and this page." : ""];
 }
 function summaryTotal() {
   const out = h("div", { class: "page" }), S = (SNAP && SNAP.series) || {}, nw = SNAP.networth || {};
@@ -2213,9 +2213,9 @@ function summaryTotal() {
         row("s0", "Corporation", `${pct(n.corp)} · at market, ${monthDay(n.date)}`, n.corp, n.corpBasis,
             [`At ${prettyDates(n.date)}.`, "Its investments and chequing, plus money on its way from chequing to Questrade, less what it owes on its Visa.", "Before the tax paid to take money out of the corporation, and before a payroll remittance still to be paid."], "corporation"),
         row("s1", "TFSA, RRSP, FHSA", persSub, n.pers, n.since ? "estimate" : nw.personal_label,
-            [oneDate ? `Their values at ${prettyDates(n.from)}, as you typed them in the workbook's Overview or on this page; no statements are filed for them yet.`
-                     : `Each at its latest value you typed: ${Object.entries(((SNAP.networth || {}).now || {}).personal_dates || {}).map(([a, d]) => `${({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[a]} ${monthDay(d)}`).join(", ")}. No statements are filed for them yet.`,
-             n.since ? `Plus ${fmtWhole$(Math.round(n.since))} you put in between then and ${prettyDates(n.date)}, from your Personal tab and this page. How their investments moved since is not known until their statements are filed, so this is an estimate.` : ""], "personal"))),
+            [oneDate ? `Their values at ${prettyDates(n.from)}, from each account's own Questrade statement (or a reading you sent from this page).`
+                     : `Each at its latest value: ${Object.entries(((SNAP.networth || {}).now || {}).personal_dates || {}).map(([a, d]) => `${({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[a]} ${monthDay(d)}`).join(", ")}, from each account's own Questrade statement (or a reading you sent from this page).`,
+             n.since ? `Plus ${fmtWhole$(Math.round(n.since))} you put in between then and ${prettyDates(n.date)}, from your Registered Contributions tab and this page. How their investments moved since is not known until the next statements, so this is an estimate.` : ""], "personal"))),
     h("p", { class: "foot", text: "Choose either line to see it in detail." })));
   return out;
 }
@@ -2305,9 +2305,9 @@ function summaryPersonal() {
     g.append(figCard({ label: "Your registered accounts", basis: vals[0][2][2] },
       { hero: true, label: same ? `Your registered accounts, ${prettyDates(at)}` : "Your registered accounts, latest values", value: fmtWhole$(Math.round(total)),
         why: [same ? `At ${prettyDates(at)}.` : "Each at its latest value: " + vals.map(([a, n, v]) => `${n} ${prettyDates(v[0])}`).join(", ") + ".",
-              "The values you typed, in the workbook's Overview at each year end or on this page (Add › A reading); no statements are filed for these accounts yet."],
+              "From each account's own Questrade statement, or a value you read off Questrade and sent from this page (Add › A reading)."],
         body: h("div", {}, meter(vals.map(([a, n, v], i) => ({ value: v[1], cls: "s" + i, label: n }))), rows),
-        meta: [h("span", { class: "asof", text: (since > 0 ? `${fmtWhole$(Math.round(since))} more has gone in since, from your Personal tab and this page. `
+        meta: [h("span", { class: "asof", text: (since > 0 ? `${fmtWhole$(Math.round(since))} more has gone in since, from your Registered Contributions tab and this page. `
                                                    : since < 0 ? `${fmtWhole$(Math.round(-since))} more has come out than gone in since. ` : "") + "Their value today waits for their statements." })] }));
   }
   const tabTo = ACCOUNTS.map(([a]) => (regOf(a) || {}).last_row || "").sort().pop();
@@ -2517,7 +2517,7 @@ function renderAccount() {
     p.append(h("div", { class: "trend-top" },
       h("div", { class: "ftop" }, h("span", { class: "l", text: `Room left for ${y}` }), basisDot(leftBasis(acct), roomWhy(acct))),
       h("div", { class: "v rounded", text: fmtWhole$(Math.round(left)) }),
-      h("div", { class: "fmeta" }, h("span", { class: "asof", text: `Counting what went in up to ${acct.last_row ? prettyDates(acct.last_row) : "now"}, the last row in your Personal tab${(acct.waiting || []).length ? ", and what you sent from here" : ""}.` + (tfsa ? " Check CRA My Account before putting money in: going over is taxed." : "") }))));
+      h("div", { class: "fmeta" }, h("span", { class: "asof", text: `Counting what went in up to ${acct.last_row ? prettyDates(acct.last_row) : "now"}, the last row in your Registered Contributions tab${(acct.waiting || []).length ? ", and what you sent from here" : ""}.` + (tfsa ? " Check CRA My Account before putting money in: going over is taxed." : "") }))));
     const card = h("section", { class: "card glass roomcard" }, h("h3", { text: `This year` }),
       meter([{ value: put, cls: "s0", label: "Put in" }], room),
       h("div", { class: "legend3" },
@@ -2525,7 +2525,7 @@ function renderAccount() {
         h("span", {}, h("span", { class: "sw2 rest" }), "Left ", h("b", { text: fmtWhole$(Math.round(left)) }))));
     if (tfsa) card.append(h("p", { class: "small muted", text: basisOf(acct.room_basis) === "verified" ? acct.room_note
       : `The room is what CRA's rule leaves at January 1: each year's limit since ${acct.room_since}, plus what came out before this year, less what went in before this year.` }));
-    if (acct.waiting && acct.waiting.length) card.append(h("p", { class: "small muted", text: `Counted here and not yet in your Personal tab: ${acct.waiting.map(w => `${fmtWhole$(w.amount)} on ${shortDate(w.date)}`).join(", ")}.` }));
+    if (acct.waiting && acct.waiting.length) card.append(h("p", { class: "small muted", text: `Counted here and not yet in your Registered Contributions tab: ${acct.waiting.map(w => `${fmtWhole$(w.amount)} on ${shortDate(w.date)}`).join(", ")}.` }));
     p.append(card);
   }
   const years = acct.by_year || [];
@@ -2566,7 +2566,7 @@ function renderAccount() {
     p.append(h("div", { class: "list glass" },
       h("div", { class: "row plain" }, h("span", { class: "main" }, h("span", { class: "title", text: `Value at ${prettyDates(lv[0])}` }),
         h("span", { class: "meta", text: vs.length > 1 ? `${fmtWhole$(Math.round(vs[vs.length - 2][1]))} a year before` : "" })),
-        h("span", { class: "est-wrap" }, h("span", { class: "amt", text: fmtWhole$(Math.round(lv[1])) }), basisDot(lv[2], ["Typed in the workbook's Overview at the year end. No statement for this account is filed yet."])))));
+        h("span", { class: "est-wrap" }, h("span", { class: "amt", text: fmtWhole$(Math.round(lv[1])) }), basisDot(lv[2], [String(lv[2] || "").startsWith("verified") ? "From this account's own Questrade statement." : "A value you read off Questrade and sent from this page."])))));
   }
   p.append(h("button", { class: "btn tinted wide", type: "button", onclick: () => startForm("registered", { account: a, direction: "contribution" }) }, `Record money into or out of your ${acct.name}`));
   p.append(h("p", { class: "foot", text: `${plainSource(src)}.${SNAP.registered.values_source ? " " + plainSource(SNAP.registered.values_source) + "." : ""} Last row ${acct.last_row ? prettyDates(acct.last_row) : "none"}. What you send from this page is counted as soon as the MacBook has it.` }));
@@ -2907,10 +2907,10 @@ function renderTrend() {
       const est = main.est_from && String(pt[0]) >= main.est_from;
       return h("div", { class: "row plain" }, h("span", { class: "main" }, h("span", { class: "title", text: prettyDates(pt[0]) }),
         h("span", { class: "meta", text: est ? "Latest, an estimate" : "Year end" })),
-        h("span", { class: "est-wrap" }, h("span", { class: "amt", text: (est ? "about " : "") + fmtWhole$(Math.round(pt[1])) }), basisDot(est ? "estimate" : "recorded", est ? householdWhy(house) : ["The corporation at market plus the TFSA, RRSP and FHSA as you typed them for that year end."])));
+        h("span", { class: "est-wrap" }, h("span", { class: "amt", text: (est ? "about " : "") + fmtWhole$(Math.round(pt[1])) }), basisDot(est ? "estimate" : "derived", est ? householdWhy(house) : ["The corporation at market plus the TFSA, RRSP and FHSA at their December statements."])));
     }))));
-    p.append(h("p", { class: "foot", text: "The household has a point only where the TFSA, RRSP and FHSA have a value: the year ends you typed in the workbook's Overview, and the latest estimate. " +
-      "Once their monthly Questrade statements are filed, it will have one every month. Dec 31, 2023 is missing because the corporation's 2023 bank statements are not filed. The corporation alone has a point every month." }));
+    p.append(h("p", { class: "foot", text: "The household has a point at each year end, from the TFSA, RRSP and FHSA's December statements, and at the latest estimate. " +
+      "Dec 31, 2023 is missing because the corporation's 2023 bank statements can no longer be obtained. The corporation alone has a point every month." }));
     return p;
   }
   let lead = fig ? String(fig.value).replace(/\.00$/, "") : compact(last[1], main.unit, true), leadNote = null;
