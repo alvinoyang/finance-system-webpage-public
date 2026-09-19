@@ -2291,35 +2291,48 @@ function roomWhy(acct) {
           `What went in is recorded: ${plainSource(SNAP.registered.source).replace(/^From /, "")}.`];
 }
 function lastValue(acct) { const v = (acct && acct.values) || []; return v.length ? v[v.length - 1] : null; }
+function roomBar(put, room) {
+  const f = room > 0 ? Math.min(1, Math.max(0, put / room)) : 0;
+  const bar = h("div", { class: "meter roombar", role: "img", "aria-label": `${fmtWhole$(Math.round(put))} put in of ${fmtWhole$(Math.round(room))}` });
+  bar.append(h("span", { class: "mseg", style: `flex-grow:${Math.max(f, 0.015)};background:hsl(${Math.round(120 * f)} 72% 47%)` }));
+  if (f < 1) bar.append(h("span", { class: "mseg rest", style: `flex-grow:${1 - f}` }));
+  return bar;
+}
 
 function summaryPersonal() {
   const out = h("div", { class: "page" }), S = (SNAP && SNAP.series) || {};
   const g = h("div", { class: "figs" });
   const vals = ACCOUNTS.map(([a, n]) => [a, n, lastValue(regOf(a))]).filter(x => x[2]);
+  const tabTo = ACCOUNTS.map(([a]) => (regOf(a) || {}).last_row || "").sort().pop();
   if (vals.length) {
     const at = vals[0][2][0], total = vals.reduce((s2, x) => s2 + x[2][1], 0);
     const same = vals.every(x => x[2][0] === at);
-    const rows = h("div", { class: "list flat" }, vals.map(([a, n, v], i) => h("button", { class: "row legendrow", type: "button", onclick: ev => { ev.stopPropagation(); openView({ type: "account", account: a }); } },
-      h("span", { class: "sw2 s" + i }), h("span", { class: "main" }, h("span", { class: "title", text: n })), h("span", { class: "amt", text: fmtWhole$(Math.round(v[1])) }), icon("chevR"))));
+    const y = new Date().getFullYear();
+    const withRoom = vals.filter(([a]) => regOf(a).room_this_year !== undefined);
+    const roomBasis = withRoom.some(([a]) => leftBasis(regOf(a)) === "estimate") ? "estimate" : "recorded";
+    const head2 = h("div", { class: "regcols" }, h("span", { text: "Value" }),
+      h("span", {}, String(y), withRoom.length ? basisDot(roomBasis, [`What has gone into each account in ${y}, against its room for the year.`,
+        ...withRoom.map(([a, n]) => `${n}: ${roomWhy(regOf(a))[1]}`), roomWhy(regOf(withRoom[0][0]))[2]]) : null), h("span", {}));
+    const rows = h("div", { class: "list flat regrows" }, head2, vals.map(([a, n, v], i) => {
+      const acct = regOf(a), hasRoom = acct.room_this_year !== undefined;
+      const room = money(acct.room_this_year), put = money(acct.this_year), left = Math.max(0, room - put);
+      return h("button", { class: "row regrow", type: "button", onclick: ev => { ev.stopPropagation(); openView({ type: "account", account: a }); } },
+        h("span", { class: "main" }, h("span", { class: "regname" }, h("span", { class: "sw2 s" + i }), n),
+          h("span", { class: "regval rounded", text: fmtWhole$(Math.round(v[1])) })),
+        hasRoom ? h("span", { class: "regyear" }, roomBar(put, room),
+          h("span", { class: "small muted" }, left > 0.5 ? h("b", { text: `${fmtWhole$(Math.round(left))} left` }) : h("b", { class: "regfull", text: "Full" }),
+            left > 0.5 ? ` of ${fmtWhole$(Math.round(room))}` : ` · ${fmtWhole$(Math.round(put))} of ${fmtWhole$(Math.round(room))}`)) : h("span", {}),
+        icon("chevR"));
+    }));
     const since = ACCOUNTS.reduce((s2, [a]) => s2 + (money((regOf(a) || {}).since_value) || 0), 0);
     g.append(figCard({ label: "Your registered accounts", basis: vals[0][2][2] },
       { hero: true, label: same ? `Your registered accounts, ${prettyDates(at)}` : "Your registered accounts, latest values", value: fmtWhole$(Math.round(total)),
         why: [same ? `At ${prettyDates(at)}.` : "Each at its latest value: " + vals.map(([a, n, v]) => `${n} ${prettyDates(v[0])}`).join(", ") + ".",
               "From each account's own Questrade statement, or a value you read off Questrade and sent from this page (Add › A reading)."],
         body: h("div", {}, meter(vals.map(([a, n, v], i) => ({ value: v[1], cls: "s" + i, label: n }))), rows),
-        meta: [h("span", { class: "asof", text: (since > 0 ? `${fmtWhole$(Math.round(since))} more has gone in since, from your Registered Contributions tab and this page. `
-                                                   : since < 0 ? `${fmtWhole$(Math.round(-since))} more has come out than gone in since. ` : "") + "Their value today waits for their statements." })] }));
-  }
-  const tabTo = ACCOUNTS.map(([a]) => (regOf(a) || {}).last_row || "").sort().pop();
-  for (const [a, n] of ACCOUNTS) {
-    const acct = regOf(a);
-    if (!acct || acct.room_this_year === undefined) continue;
-    const room = money(acct.room_this_year), put = money(acct.this_year), left = Math.max(0, room - put);
-    const y = new Date().getFullYear();
-    g.append(figCard({ label: `${n} room left, ${y}`, basis: leftBasis(acct) },
-      { value: fmtWhole$(Math.round(left)), onOpen: () => openView({ type: "account", account: a }), why: roomWhy(acct),
-        body: meter([{ value: put, cls: "s0", label: "Put in" }], room, "thin"),
-        meta: [h("span", { class: "asof", text: `${fmtWhole$(Math.round(put))} put in of ${fmtWhole$(Math.round(room))}` + (tabTo ? `, counted to ${monthDay(tabTo)}` : "") })] }));
+        meta: [h("span", { class: "asof", text: (since > 0 ? `${fmtWhole$(Math.round(since))} more has gone in since the statements. `
+                                                   : since < 0 ? `${fmtWhole$(Math.round(-since))} more has come out than gone in since the statements. ` : "")
+                                                   + (withRoom.length ? `${y} is counted${tabTo ? " to " + monthDay(tabTo) : ""}, from your Registered Contributions tab${withRoom.some(([a]) => (regOf(a).waiting || []).length) ? " and this page" : ""}.` : "") })] }));
   }
   const sal = ov("salary");
   if (sal) g.append(figCard(sal, { label: sal.label.replace("Salary paid", "Your salary"), series: S.salary, onOpen: () => openTrendOf("salary"),
