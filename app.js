@@ -2294,7 +2294,7 @@ function lastValue(acct) { const v = (acct && acct.values) || []; return v.lengt
 function roomBar(put, room) {
   const f = room > 0 ? Math.min(1, Math.max(0, put / room)) : 0;
   const bar = h("div", { class: "meter roombar", role: "img", "aria-label": `${fmtWhole$(Math.round(put))} put in of ${fmtWhole$(Math.round(room))}` });
-  bar.append(h("span", { class: "mseg", style: `flex-grow:${Math.max(f, 0.015)};background:hsl(${Math.round(120 * f)} 72% 47%)` }));
+  if (put > 0) bar.append(h("span", { class: "mseg", style: `flex-grow:${f};background:hsl(${Math.round(120 * f)} 72% 47%)` }));
   if (f < 1) bar.append(h("span", { class: "mseg rest", style: `flex-grow:${1 - f}` }));
   return bar;
 }
