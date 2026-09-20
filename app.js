@@ -916,7 +916,7 @@ function attention() {
   for (const c of ((SNAP && SNAP.cards && SNAP.cards.cards) || [])) {
     for (const it of (c.items || [])) {
       if (it.status !== "ACT" && it.status !== "MISSED") continue;
-      out.push(alert("orange", "warn", `${c.name}: ${(CARD_ITEM[it.item] || it.item).toLowerCase()}`, it.note,
+      out.push(alert("orange", "warn", `${c.name}: ${cardItemName(it.item).toLowerCase()}`, it.note,
         h("button", { class: "btn small tinted", type: "button", onclick: () => { save("sumpart", "cards"); go("numbers"); } }, "Open the card")));
     }
   }
@@ -1145,7 +1145,7 @@ function renderAdd() {
     const k = kindOf(f.kind);
     tiles.append(h("button", { class: "tile glass", type: "button", onclick: () => startForm(f.kind) },
       h("span", { class: "tile-top" }, h("span", { class: "ico " + k.color }, icon(k.icon)), draftTag(f)),
-      h("span", {}, h("div", { class: "t", text: k.name }), h("div", { class: "d", text: descOf(f) }))));
+      h("div", { class: "t", text: k.name }), h("div", { class: "d", text: descOf(f) })));
   }
   p.append(tiles);
   if (forms.some(f => f.kind === "shift")) {
@@ -2072,14 +2072,15 @@ function figCard(o, opts) {
   opts = opts || {};
   const tap = !!opts.onOpen;
   const card = h("div", { class: "fig glass" + (opts.hero ? " hero" : "") + (opts.wide ? " wide" : "") + (tap ? " tappable" : "") });
-  card.append(h("div", { class: "ftop" }, h("span", { class: "l", text: opts.label || o.label }), basisDot(opts.basis || o.basis, opts.why || whyLines(o))));
+  card.append(h("div", { class: "ftop" }, h("span", { class: "l", text: opts.label || o.label }),
+    basisDot(opts.basis || o.basis, opts.why || whyLines(o)),
+    tap ? h("span", { class: "chev-go", "aria-hidden": "true" }, icon("chevR")) : null));
   card.append(h("span", { class: "v rounded" + (opts.hero ? "" : " num") }, opts.about ? h("span", { class: "about", text: "about " }) : null, opts.value || wholeValue(o.value)));
   const ser = opts.series;
   card.append(opts.body ? h("span", { class: "spark" }, opts.body)
     : ser && ser.points.length >= 4 ? h("span", { class: "spark" }, chart([sparkOf(ser, o)], { form: ser.form, unit: ser.unit, spark: true, height: opts.hero ? 56 : 34 }))
     : h("span", { class: "spark none" }));
-  card.append(h("span", { class: "fmeta" }, opts.meta || null,
-    tap ? h("span", { class: "chev-go", "aria-hidden": "true" }, icon("chevR")) : null));
+  card.append(h("span", { class: "fmeta" }, opts.meta || null));
   if (tap) tapArea(card, `${opts.label || o.label}, ${opts.about ? "about " : ""}${opts.value || wholeValue(o.value)}. Open`, () => opts.onOpen());
   return card;
 }
@@ -2375,14 +2376,15 @@ function salaryCard(sal, S) {
   else if (expected !== null) note = h("div", { class: "salnote ok" }, h("b", { text: "On target. " }),
     `The payroll plan pays ${fmtWhole$(Math.round(expected))} this year` + (expected - target > 0.5 ? `, ${fmtWhole$(Math.round(expected - target))} more than ${nextYr}'s RRSP room needs.` : `, what ${nextYr}'s RRSP room needs.`));
   const card = h("div", { class: "fig hero glass tappable salcard" },
-    h("div", { class: "ftop" }, h("span", { class: "l", text: `Your salary, ${yr}` }), basisDot(sal.basis, why)),
+    h("div", { class: "ftop" }, h("span", { class: "l", text: `Your salary, ${yr}` }), basisDot(sal.basis, why),
+      h("span", { class: "chev-go", "aria-hidden": "true" }, icon("chevR"))),
     h("div", { class: "salhead" }, h("span", { class: "v rounded", text: fmtWhole$(Math.round(paid)) }),
       h("span", { class: "salof" }, "paid of ", h("b", { text: fmtWhole$(Math.round(target)) }))),
     bar,
     h("div", { class: "salends" }, h("span", { text: `Paid to ${monthDay(sal.as_of)}` }),
       h("span", {}, `${fmtWhole$(Math.round(target))} fills ${nextYr}'s RRSP room`, basisDot(sal.rrsp_target_basis, why.slice(2)))),
     note,
-    h("span", { class: "fmeta" }, h("span", { class: "asof", text: "Before tax and deductions." }), h("span", { class: "chev-go", "aria-hidden": "true" }, icon("chevR"))));
+    h("span", { class: "fmeta" }, h("span", { class: "asof", text: "Before tax and deductions." })));
   tapArea(card, `Your salary, ${fmtWhole$(Math.round(paid))} paid of ${fmtWhole$(Math.round(target))}. Open`, () => openTrendOf("salary"));
   return card;
 }
@@ -2466,7 +2468,11 @@ const CARD_ITEM = {
   "annual-fee": "Its yearly fee", "close-by": "Whether to keep it", points: "Points", gap: "Something to settle",
   "you-told-us": "Something you sent", nothing: "Nothing to watch",
   "next-card": "Worth opening",
+  "keep-until": "The day it is safe to close", "first-fee-refund": "Asking the first year's fee back",
 };
+function cardItemName(item) {
+  return CARD_ITEM[item] || String(item || "").replace(/-/g, " ").replace(/^./, c => c.toUpperCase());
+}
 function cardChip(status, item) {
   const s = CARD_STATE[status] || { word: status, cls: "ok" };
   const word = item === "across-cards" ? ({ UNKNOWN: "Not counted" })[status] || ""
@@ -2547,7 +2553,7 @@ function summaryCards() {
     const sec = h("section", { class: "card glass cardcard" },
       h("div", { class: "ftop" },
         h("span", { class: "l" }, h("span", { class: "cname", text: c.name }), h("span", { class: "cwhose", text: c.whose })),
-        basisDot(it ? it.basis : "recorded", [CARD_ITEM[it ? it.item : ""] || "", it ? it.note : "",
+        basisDot(it ? it.basis : "recorded", [it ? cardItemName(it.item) : "", it ? it.note : "",
                                               "Worked out in the card workings on the MacBook, from what you have typed and the issuers' own pages."])),
       h("div", { class: "cardline" }, cardChip(it ? it.status : c.status, it ? it.item : ""), h("span", { class: "clead", text: cardLead(it) })));
     if (ms) sec.append(spendBar(ms));
@@ -2608,7 +2614,7 @@ function renderCard() {
   p.append(head(c.name, c.whose === "yours" ? "Your card" : "The corporation's card"));
   for (const it of c.items || []) {
     const sec = h("section", { class: "card glass" },
-      h("div", { class: "ftop" }, h("h3", { text: CARD_ITEM[it.item] || it.item }),
+      h("div", { class: "ftop" }, h("h3", { text: cardItemName(it.item) }),
         basisDot(it.basis, [it.due ? "By " + prettyDates(it.due) + "." : "", "Worked out in the card workings on the MacBook."])),
       h("div", { class: "cardline" }, cardChip(it.status, it.item),
         it.figure ? h("span", { class: "camt num", text: (it.unit === "CAD" || /cash back|money/i.test(it.unit || "")
@@ -2772,7 +2778,7 @@ function renderSpending() {
     h("div", { class: "ftop" }, h("span", { class: "l", text: "A month, on average" }), basisDot(B.basis, [`Months to ${keyLabel(B.as_of, true)}.`, `${plainSource(B.source)}.`, B.note])),
     h("div", { class: "v rounded", text: fmtWhole$(Math.round(money(hl["Avg Monthly Burn (12 mo)"]))) }),
     h("div", { class: "fmeta" }, h("span", { class: "asof", text: `Everyday cost of living, over the twelve months to ${keyLabel(B.as_of, true)}.` }))));
-  p.append(h("section", { class: "card glass" }, h("h3", { text: "Burn" }),
+  p.append(h("section", { class: "card glass" }, h("h3", { text: "Everyday cost of living" }),
     h("div", { class: "facts" }, want.filter(k => hl[k] !== undefined).map(k =>
       h("div", {}, h("span", { class: "k", text: NAMES[k] }), h("span", { class: "fv num", text: fmtWhole$(Math.round(money(hl[k]))) })))),
     h("p", { class: "small muted", text: B.note })));
@@ -3325,12 +3331,12 @@ function chart(sers, o) {
     const anim = first && motionOK() && !o.spark;
     S2.forEach((s2, j) => {
       if (bars) {
-        const bw = Math.max(2, Math.min(24, band - 2));
+        const bw = Math.max(2, Math.min(24, band - Math.max(2, band * .32)));
         s2.points.forEach((p2, i) => {
           const x0 = x(i, p2[0]) - bw / 2, y0 = y(Math.max(0, p2[1])), hh = Math.max(0, y(0) - y0), r = Math.min(4, bw / 2, hh);
           if (hh <= 0) { svg.append(sv("line", { class: "zero", x1: x0 + 1, x2: x0 + bw - 1, y1: y(0) - .5, y2: y(0) - .5 })); return; }
           const d = `M${x0},${y(0)} V${y0 + r} Q${x0},${y0} ${x0 + r},${y0} H${x0 + bw - r} Q${x0 + bw},${y0} ${x0 + bw},${y0 + r} V${y(0)} Z`;
-          const bar = sv("path", { class: "bar s" + j + (anim ? " grow" : "") + (estAt(s2, p2[0]) ? " est" : ""), d });
+          const bar = sv("path", { class: "col s" + j + (anim ? " grow" : "") + (estAt(s2, p2[0]) ? " est" : ""), d });
           if (anim) bar.style.setProperty("--d", `${Math.min(i * 12, 400)}ms`);
           svg.append(bar);
         });
