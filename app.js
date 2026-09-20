@@ -139,7 +139,7 @@ function h(tag, attrs, ...kids) {
     else if (v === true) e.setAttribute(a, "");
     else e.setAttribute(a, String(v));
   }
-  for (const k of kids.flat()) {
+  for (const k of kids.flat(Infinity)) {
     if (k === null || k === undefined || k === false) continue;
     e.append(k instanceof Node ? k : document.createTextNode(String(k)));
   }
@@ -2613,7 +2613,7 @@ function renderCard() {
       h("div", { class: "cardline" }, cardChip(it.status, it.item),
         it.figure ? h("span", { class: "camt num", text: (it.unit === "CAD" || /cash back|money/i.test(it.unit || "")
           ? fmtWhole$(Math.round(Number(String(it.figure).replace(/[$,]/g, "")))) : `${it.figure} ${it.unit || ""}`.trim()) }) : null),
-      h("p", { class: "small", text: it.note }));
+      h("p", { class: "small", text: dropIds(it.note) }));
     if (it.item === "minimum-spend" && it.need && it.due >= todayISO()
         && !["DONE", "MISSED", "EXPLAINED"].includes(it.status)) sec.append(spendBar(it));
     p.append(sec);
@@ -2706,11 +2706,12 @@ function renderSaving() {
   sec.append(h("p", { class: "small muted", text: B.note }));
   p.append(sec);
   const side = h("section", { class: "card glass" }, h("h3", { text: "The corporation, and you" }));
-  const rows = h("div", { class: "list flat" }, h("div", { class: "regcols" }, h("span", { text: "Year" }), h("span", { text: "The corporation" }), h("span", { text: "You" })),
-    B.years.slice().reverse().map(y => h("div", { class: "row plain" },
-      h("span", { class: "title", text: y.year }),
-      h("span", { class: "amt num", text: y.corp_pct === null ? "—" : pctText(y.corp_pct) }),
-      h("span", { class: "amt num", text: y.personal_pct === null ? "—" : pctText(y.personal_pct) }))));
+  const rows = h("div", { class: "trio" },
+    h("span", { text: "Year" }), h("span", { class: "tv", text: "The corporation" }), h("span", { class: "tv", text: "You" }),
+    B.years.slice().reverse().map(y => [
+      h("span", { class: "ty", text: y.year }),
+      h("span", { class: "tv", text: y.corp_pct === null ? "—" : pctText(y.corp_pct) }),
+      h("span", { class: "tv", text: y.personal_pct === null ? "—" : pctText(y.personal_pct) })]));
   side.append(rows, h("p", { class: "small muted", text: "The corporation's share is what it invested of what it earned before tax. Yours is what went into your TFSA, RRSP and FHSA, against your gross salary that year." }));
   p.append(side);
   p.append(h("p", { class: "foot", text: `${plainSource(B.source)}. Typed by you, or worked out by that tab's own formulas from cells you typed.` }));
@@ -2737,18 +2738,22 @@ function renderReturns() {
   const part = (name, ik, vk) => {
     const y = B.years[B.years.length - 1], pin = money(y[ik]), pv = money(y[vk]);
     if (!pin && !pv) return null;
+    const grew = Math.max(0, pv - pin);
     return h("div", { class: "life" },
-      h("div", { class: "life-h" }, h("span", { text: name }), h("span", { class: "num" }, h("b", { text: fmtWhole$(Math.round(pv)) }), ` of ${fmtWhole$(Math.round(pin))} put in`)),
-      meter([{ value: pin, cls: "s0", label: "Put in" }, { value: Math.max(0, pv - pin), cls: "s1", label: "Growth" }]));
+      h("div", { class: "life-h" }, h("span", { text: name }), h("span", { class: "num" }, h("b", { text: fmtWhole$(Math.round(pv)) }))),
+      meter([{ value: pin, cls: "s0", label: "Put in" }, { value: grew, cls: "s1", label: "Growth" }]),
+      h("div", { class: "legend3" },
+        h("span", {}, h("span", { class: "sw2 s0" }), "Put in ", h("b", { text: fmtWhole$(Math.round(pin)) })),
+        h("span", {}, h("span", { class: "sw2 s1" }), pv >= pin ? "Growth " : "Fallen ", h("b", { text: fmtWhole$(Math.round(Math.abs(pv - pin))) }))));
   };
   both.append(part("The corporation", "corp_in", "corp_value"), part("You", "personal_in", "personal_value"));
-  p.append(both);
   const list = h("div", { class: "list flat", hidden: true },
     B.years.slice().reverse().map(y => h("div", { class: "row plain" }, h("span", { class: "title", text: y.year }),
       h("span", { class: "amt num", text: `${fmtWhole$(Math.round(money(y.value)))} of ${fmtWhole$(Math.round(money(y.in)))}` }))));
   const toggle = h("button", { class: "btn small gray", type: "button" }, "Show as a list");
   toggle.addEventListener("click", () => { list.hidden = !list.hidden; toggle.textContent = list.hidden ? "Show as a list" : "Hide the list"; });
-  p.append(h("div", { class: "trend-actions" }, toggle), list);
+  both.append(h("div", { class: "trend-actions" }, toggle), list);
+  p.append(both);
   p.append(h("p", { class: "foot", text: `${plainSource(src)}. ${B.note}` }));
   return p;
 }
@@ -3392,12 +3397,27 @@ function chart(sers, o) {
   return box;
 }
 
+function dropPaths(t) {
+  return String(t || "")
+    .replace(/\s*\((?=[^)]*[\w-]+\/)[^)]*\)/g, "")   // a bracket that holds a path, anywhere
+    .replace(/\s*\([^)]*\)\s*$/, "")                  // and still the trailing bracket, whatever it holds
+    .replace(/\s{2,}/g, " ").replace(/\s+([,;.])/g, "$1").trim();
+}
+const ID_RE = "[QDA]-20\\d\\d-\\d\\d-\\d\\d(?:-\\d\\d)?";
+function dropIds(t) {
+  return String(t || "")
+    .replace(new RegExp("\\s*\\((?:see\\s+|under\\s+)?" + ID_RE + "\\)", "gi"), "")
+    .replace(new RegExp("\\s*(?:Recorded as|Recorded under|Under|See)\\s+" + ID_RE + "\\s*\\.", "gi"), "")
+    .replace(new RegExp("\\s*,?\\s*" + ID_RE, "g"), "")
+    .replace(/\s{2,}/g, " ").replace(/\s+([,;.])/g, "$1").trim();
+}
 function plainSource(src) {
   const m = /^(models|ledger)\/([^/]+?)(?:\/|\.csv)/.exec(src || "");
-  if (!m) return "From " + String(src || "").replace(/\s*\([^)]*\)\s*$/, "");
+  if (!m) return "From " + dropPaths(src);
   const name = m[2].replace(/-/g, " ").replace(/\bqt\b/, "Questrade").replace(/\bcorp\b/, "corporate");
   const more = /[;,]\s*(.+)$/.exec(String(src).slice(m.index + m[0].length));
-  return (m[1] === "models" ? `Worked out in the ${name} workings` : `Read from the ${name} record`) + (more ? `; ${more[1].replace(/\.$/, "")}` : "");
+  return (m[1] === "models" ? `Worked out in the ${name} workings` : `Read from the ${name} record`)
+    + (more ? `; ${dropPaths(more[1]).replace(/\.$/, "")}` : "");
 }
 
 
