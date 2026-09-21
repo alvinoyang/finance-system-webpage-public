@@ -1052,17 +1052,22 @@ function renderSitting() {
   for (const w of (pd.inbox || [])) docs.append(h("p", { class: "foot warnline", text: `In the Inbox, waiting for a session: ${w.name} (${w.why}).` }));
   const todo = (pd.documents || []).filter(d => d.state === "todo").length;
   p.append(step(1, "Download the documents", stateOf(1),
-    `Log in to each website below in turn and save each file to iCloud Drive › Finance System Inbox (on the phone) or Finance System › Documents › Inbox (on the MacBook). The MacBook files and reads each one within 15 minutes of being open; a green tick here means it is in. ${todo ? `${todo} still to get.` : "All in."}`, docs));
+    `Log in to each website below in turn and save each file to iCloud Drive › Finance System Inbox (on the phone) or Finance System › Documents › Inbox (on the MacBook). The MacBook files and reads each one within 15 minutes of being open; a green tick here means it is in. ${todo ? `${todo} still to get.` : "All in."} If a tick has not come after 15 minutes with the MacBook open, the file is named below this list with the reason, or Today says the MacBook is asleep.`, docs));
+  const calc = pd.calculation || {};
   const s2 = h("div", { class: "card glass" },
     h("p", { text: "On the MacBook: open the Finance System folder, then its tools folder, and double-click Monthly Banking. A black window opens and a browser window follows; watch it type this month's figures into CRA's calculator (about a minute)." }),
     h("p", { text: `It ends with "Done: the PDF is in the Inbox", then "Read" and ${mon}'s two amounts; this page shows them within a minute (pull down to refresh). If the window says "Stopped" or "did not finish", read it: it says what to do, and the figures it printed are right either way.` }));
-  p.append(step(2, "CRA's payroll calculator", stateOf(2), pd.ready ? `${mon}'s calculation has been read: the amounts below are its own.` : `Not done yet: the amounts below are last month's until this runs.`, s2));
+  p.append(step(2, "CRA's payroll calculator", stateOf(2), pd.ready ? `${mon}'s calculation has been read: the amounts below are its own.`
+    : calc.state === "inbox" ? `Not read yet: ${calc.detail}. The amounts below are last month's until it is read.`
+    : `Not done yet: the amounts below are last month's until this runs.`, s2));
   const pay = h("div", { class: "visit glass" }, visitItemsEl(pd));
   const cardsNote = (pd.cards || []).map(c => `${c.name}: ${c.note}.`).join(" ");
+  const own = `your personal chequing account${pd.net_pay_to ? ` (ending ${pd.net_pay_to})` : ""}`;
+  const how = `in this order: the net pay as a transfer to ${own}, then the remittance to CRA as a Government Tax Payment of the type Federal payroll deductions (the payroll account, as every month).`;
   p.append(step(3, "Pay yourself, then CRA", stateOf(3), pd.ready
-    ? `From corporate chequing, in this order: a transfer to your own account for the net pay, then a business tax payment to CRA (payroll deductions) for the remittance. Neither card is paid here: ${cardsNote}`
-    : `Not yet: do step 2 first. The two lines below are last month's figures, and this month's may differ. Pay only what ${mon}'s own calculation says.`, pay));
-  p.append(step(4, "Log the day, send the sweep", stateOf(4), "Tick the two payments once the money has left chequing, type what each card still owes (they are kept back: the Visa pays itself in the first days of next month) and the chequing balance you see, and the amount to send to Questrade appears. Send that amount as a bill payment to Questrade, then type it in the last box.",
+    ? `From corporate chequing, ${how} Neither card is paid as part of this step: ${cardsNote}`
+    : `Not yet: do step 2 first. The two lines below are last month's figures, and this month's may differ. Pay only what ${mon}'s own calculation says. Then, out of corporate chequing, ${how}`, pay));
+  p.append(step(4, "Log the day, send the sweep", stateOf(4), "Tick the two payments once the money has left chequing, type what each card still owes (they are kept back: the Visa pays itself in the first days of next month; the Amex is not yet set to, so if it shows a balance pay it from chequing first) and the chequing balance you see, and the amount to send to Questrade appears. Send that amount from corporate chequing as a bill payment to Questrade, the corporation's cash account, then type it in the last box.",
     pd.logged ? h("p", { class: "foot", text: `Logged ${dayName(pd.logged.date, { day: "numeric", month: "long" })}` + (money(pd.logged.sweep) ? `: ${fmt$(pd.logged.sweep)} sent to Questrade.` : ".") })
               : h("button", { class: "btn primary wide", type: "button", onclick: () => startForm("bankvisit", null, "today") }, "Log monthly banking")));
   if ((pd.year_end || []).length) {
@@ -1359,7 +1364,7 @@ function monthsAround() {
   return out;
 }
 const LABELS = { description: "Which shift", pay_ffs: "OHIP paid", ohip_billed: "OHIP billed", ffs_billed: "Fees MGH billed", shadow_pct: "Shadow billing %", pay_shadow: "Shadow billing pay", pay_travel: "Travel time paid", patients_private: "Private patients",
-                 who_why: "Who was there, and why it was work", receipt: "Where the receipt photo is", balance: "Chequing balance you see now", sweep: "Sent to Questrade",
+                 who_why: "Who was there, and why it was work", receipt: "Where the receipt photo is", balance: "Chequing balance you see now", sweep: "Sent to Questrade (the corporation's cash account)",
                  visa_owing: "Corporate Visa: balance owing", amex_owing: "Amex: balance still owing" };
 function labelOf(fld) { return LABELS[fld.key] || fld.label.replace(/\s*\(.*?\)\s*$/, ""); }
 function hintOf(fld) { const m = /\((.*)\)\s*$/.exec(fld.label); return m ? m[1] : ""; }
@@ -2061,8 +2066,8 @@ function updateSweep(form) {
     const v = typed(c.field);
     if (v === null) cardsOpen.push(c.name); else if (v > 0) lines.push([`${c.name} balance, ${c.pays_itself ? "pays itself next month" : "still owing"}`, v, false]);
   }
-  for (const r of reserve) lines.push([shortly(r.what) + ", due " + shortDate(r.due), money(r.amount), isEst(r)]);
-  lines.push(["The cushion left in chequing" + (pd.cushion_source ? ` (${pd.cushion_source.replace(/^webpage\/config\.json, sweep_cushion_cad$/, "set in the page's settings file")})` : ""), money(pd.cushion) || 0, false, true]);
+  for (const r of reserve) lines.push([shortly(r.what) + ", a bill due " + shortDate(r.due) + " (on Today's Coming up)", money(r.amount), isEst(r)]);
+  lines.push(["The cushion, always left in chequing", money(pd.cushion) || 0, false, true]);
   const cardNames = cardsOpen.join(" and ") + (cardsOpen.length > 1 ? " balances" : " balance");
   box.append(h("h3", { text: "What to send to Questrade" }));
   if (/not yet approved/i.test(pd.rule || "")) box.append(h("p", { class: "small muted", text: "A suggestion only: the plan it follows (pay everything first, send the rest, keep a cushion) is still waiting for your yes." }));
@@ -2092,7 +2097,7 @@ function updateSweep(form) {
   }
   if (wait) box.append(h("p", { class: "small muted", text: `Type the ${cardNames} above (0 if nothing is owing). The amount to send appears then.` }));
   else if (v > 0) {
-    const use = h("button", { class: "btn small tinted", type: "button" }, `Use ${approx ? fmtWhole$(shown) : fmt$(v)}`);
+    const use = h("button", { class: "btn small tinted", type: "button" }, `Put ${approx ? fmtWhole$(shown) : fmt$(v)} in the box below`);
     use.addEventListener("click", () => { const s2 = form.querySelector('[name="sweep"]'); if (s2) { s2.value = (approx ? shown : v).toFixed(2); s2.focus(); } });
     box.append(use);
   } else box.append(h("p", { class: "small muted", text: "Nothing to send this month: the balance does not cover what is still due plus the cushion." }));
