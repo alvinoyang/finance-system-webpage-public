@@ -410,7 +410,7 @@ const KINDS = {
            help: "Where, and which shift, is all it needs. Hours, patients and pay can wait: add them any time from Your shifts." },
   expense: { name: "Paid it myself", desc: "Cash, your own card, a split bill", icon: "receipt", color: "green", group: "often" },
   income: { name: "Income received", desc: "Pay, OHIP, a stipend, a refund", icon: "income", color: "purple", group: "often" },
-  bankvisit: { name: "Banking day", desc: "Download, pay yourself and CRA, sweep", icon: "bank", color: "orange", group: "often",
+  bankvisit: { name: "Monthly banking", desc: "Download, pay yourself and CRA, sweep", icon: "bank", color: "orange", group: "often",
                help: "Your one day a month: download the statements, run CRA's payroll calculator, pay yourself and CRA, then tick each payment here, type the chequing balance you see, and the amount to send to Questrade is worked out. The steps are on Today." },
   registered: { name: "TFSA, RRSP or FHSA", desc: "Money in or out", icon: "vault", color: "blue", group: "sometimes" },
   reading: { name: "A reading", desc: "Odometer, an account's value", icon: "gauge", color: "gray", group: "sometimes" },
@@ -421,7 +421,7 @@ const KINDS = {
 };
 function kindOf(k) {
   const o = KINDS[k] || { name: k, desc: "", icon: "pencil", color: "gray" };
-  return k === "bankvisit" ? Object.assign({}, o, { name: `Banking day, ${sittingName().toLowerCase()}` }) : o;
+  return o;
 }
 function ordinal(n) { const v = n % 100; return n + (v >= 11 && v <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" })[n % 10] || "th"); }
 function sittingDay() { return (SNAP && SNAP.payday && Number(SNAP.payday.sitting_day)) || 22; }
@@ -608,7 +608,7 @@ function viewTitle(v) {
   if (!v) return TAB_NAME[TAB];
   return ({ form: kindOf(v.kind).name, settings: "Settings", questions: "Questions", shifts: "Your shifts", income: "Income",
             work: v.metric === "rate" ? "Pay per hour" : "Hours", workunit: v.title || "A shift", account: ({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[v.account] || "Account",
-            card: v.title || "Card", trend: v.title || "History", sitting: sittingName(),
+            card: v.title || "Card", trend: v.title || "History", sitting: "Monthly banking",
             saving: "What you invest", returns: "What it is worth", spending: "What you spend", vehicle: (SNAP && SNAP.vehicle && SNAP.vehicle.name) || "Your car" })[v.type] || "Back";
 }
 function onScroll() { document.getElementById("bar").classList.toggle("scrolled", window.scrollY > (document.body.classList.contains("toplevel") ? 48 : 28)); }
@@ -886,7 +886,7 @@ function renderToday() {
     return p;
   }
   const colA = h("div", {}), colB = h("div", {});
-  colA.append(h("section", { class: "section" }, h("h2", { text: sittingName() }), visitCard()));
+  colA.append(h("section", { class: "section" }, h("h2", { text: "Monthly banking" }), visitCard()));
   colA.append(questionsSection());
   colB.append(upcoming());
   p.append(h("div", { class: "cols" }, colA, colB));
@@ -958,7 +958,7 @@ function visitName(what) {
 }
 function visitCard() {
   const pd = SNAP.payday;
-  const c = h("section", { class: "visit glass", "aria-label": sittingName() });
+  const c = h("section", { class: "visit glass", "aria-label": "Monthly banking" });
   if (!pd) { c.append(h("p", { class: "muted", text: "Nothing planned yet." })); return c; }
   const iso = visitDate(pd);
   const passed = iso < todayISO();
@@ -984,8 +984,8 @@ function visitCard() {
   const why = [...new Set(pd.items.filter(est).map(i => i.basis.replace(/^estimate:\s*/, "").replace(/ \(ledger\/[^)]*\)/, "")))];
   if (why.length) c.append(h("p", { class: "visit-foot" }, ring(), h("span", { text: `Estimate: ${why[0]}.` })));
   if ((pd.year_end || []).length) c.append(h("p", { class: "foot", text: `December: look once more before the 31st (${pd.year_end.length} thing${pd.year_end.length === 1 ? "" : "s"}, on the steps page).` }));
-  c.append(h("button", { class: "btn primary wide", type: "button", onclick: () => startForm("bankvisit", null, "today") }, "Log the day's banking"));
-  return tapArea(c, `${sittingName()}: every step of the day`, () => openView({ type: "sitting" }));
+  c.append(h("button", { class: "btn primary wide", type: "button", onclick: () => startForm("bankvisit", null, "today") }, "Log monthly banking"));
+  return tapArea(c, `Monthly banking, ${sittingName().toLowerCase()}: every step of the day`, () => openView({ type: "sitting" }));
 }
 function visitMonths(pd) {
   return [...new Set(pd.items.map(i => (/ for (January|February|March|April|May|June|July|August|September|October|November|December)$/.exec(i.what) || [])[1]).filter(Boolean))];
@@ -1007,9 +1007,9 @@ function visitItemsEl(pd) {
 function renderSitting() {
   const pd = SNAP && SNAP.payday;
   const p = h("div", { class: "page narrow" });
-  if (!pd) { p.append(head(sittingName(), "Your one day a month.")); p.append(h("p", { class: "muted", text: "Nothing planned yet." })); return p; }
+  if (!pd) { p.append(head("Monthly banking", "Your one day a month.")); p.append(h("p", { class: "muted", text: "Nothing planned yet." })); return p; }
   const iso = visitDate(pd), mon = dayName(iso, { month: "long" });
-  p.append(head(sittingName(), `${dayName(iso, { weekday: "long", day: "numeric", month: "long" })}, ${rel(iso)}. Your one day a month, in this order; then nothing until the next.`));
+  p.append(head("Monthly banking", `${dayName(iso, { weekday: "long", day: "numeric", month: "long" })}, ${rel(iso)}: ${sittingName().toLowerCase()}, or the last business day before it. Your one day a month, in this order; then nothing until the next.`));
   const step = (n, title, note, body) => {
     const s = h("section", { class: "section" }, h("h2", { text: `${n}. ${title}` }));
     if (note) s.append(h("p", { class: "foot", text: note }));
@@ -1022,7 +1022,7 @@ function renderSitting() {
   p.append(step(2, "CRA's payroll calculator", `Run it for ${mon}'s pay and save the PDF to the Inbox with the rest. It says what to pay yourself and what to send CRA.`));
   p.append(step(3, "Pay, in this order", "Yourself, then CRA. The Visa pays itself from chequing; the Amex too once it is set to.", h("div", { class: "visit glass" }, visitItemsEl(pd))));
   p.append(step(4, "Type the balances, send the sweep", "Tick each payment as you make it, type the chequing balance you see, and the amount to send to Questrade is worked out.",
-    h("button", { class: "btn primary wide", type: "button", onclick: () => startForm("bankvisit", null, "today") }, "Log the day's banking")));
+    h("button", { class: "btn primary wide", type: "button", onclick: () => startForm("bankvisit", null, "today") }, "Log monthly banking")));
   if ((pd.year_end || []).length) {
     const ye = h("div", { class: "list glass" });
     for (const r of pd.year_end) ye.append(h("div", { class: "row" },
@@ -1261,7 +1261,7 @@ function summaryOf(e) {
   switch (e.kind) {
     case "shift": return `${shiftTitle(f)}, ${shortDate(f.date)}`;
     case "expense": return `${f.what || "Paid it myself"} · ${fmt$(f.amount)}`;
-    case "bankvisit": return `Banking day ${shortDate(f.date)}`;
+    case "bankvisit": return `Monthly banking ${shortDate(f.date)}`;
     case "income": return `Income ${fmt$(f.amount)}`;
     case "registered": return `${fmt$(f.amount)} ${f.direction === "withdrawal" ? "out of" : "into"} ${(f.account || "").replace(/^qt-/, "").toUpperCase()}`;
     case "reading": return `Reading: ${f.value || ""}`;
