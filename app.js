@@ -960,11 +960,16 @@ function visitName(what) {
   if (m) return m[1].replace(/^./, c => c.toUpperCase());
   return what;
 }
+function stepState(pd, n) {
+  if (!pd) return "later";
+  if (n === 1) return (pd.documents || []).some(d => d.state === "todo") ? "now" : "done";
+  if (n === 2) return pd.ready ? "done" : "now";
+  if (pd.logged) return "done";
+  return pd.ready ? "now" : "later";
+}
 function sittingStep(pd) {
   if (!pd) return 1;
-  if ((pd.documents || []).some(d => d.state === "todo")) return 1;
-  if (!pd.ready) return 2;
-  if (!pd.logged) return 3;
+  for (const n of [1, 2, 3]) if (stepState(pd, n) === "now") return n;
   return 5;
 }
 const STEP_WORDS = {
@@ -1041,7 +1046,7 @@ function renderSitting() {
     if (body) s.append(body);
     return s;
   };
-  const stateOf = n => n < now ? "done" : n === now || (n === 4 && now === 3) ? "now" : "later";
+  const stateOf = n => stepState(pd, n);
   const docs = h("div", {});
   const sites = [...new Set((pd.documents || []).map(d => d.site))];
   const mark = d => d.state === "filed" ? h("span", { class: "ico green" }, icon("check")) : d.state === "inbox" ? h("span", { class: "ico orange" }, icon("tray")) : d.state === "none" ? h("span", { class: "ico gray" }, icon("moon")) : h("span", { class: "ico gray" }, icon("receipt"));
@@ -1054,7 +1059,7 @@ function renderSitting() {
     }
     docs.append(h("div", { class: "section-h" }, h("span", { text: site })), ul);
   }
-  for (const w of (pd.inbox || [])) docs.append(h("p", { class: "foot warnline", text: `In the Inbox, waiting for a session: ${w.name} (${w.why}).` }));
+  for (const w of (pd.inbox || [])) docs.append(h("p", { class: "foot warnline", text: `In the Inbox, waiting for a session: ${w.what || w.name} (${w.why}).` }));
   const todo = (pd.documents || []).filter(d => d.state === "todo").length;
   p.append(step(1, "Download the documents", stateOf(1),
     `Log in to each website below in turn and save each file to iCloud Drive › Finance System Inbox (on the phone) or Finance System › Documents › Inbox (on the MacBook). The MacBook files and reads each one within 15 minutes of being open; a green tick here means it is in. ${todo ? `${todo} still to get.` : "All in."} If a tick has not come after 15 minutes with the MacBook open, the file is named below this list with the reason, or Today says the MacBook is asleep.`, docs));
@@ -1332,6 +1337,12 @@ function summaryOf(e) {
 }
 
 
+function cardsFoot() {
+  const cards = (SNAP && SNAP.payday && SNAP.payday.cards) || [];
+  const each = cards.map(c => `${c.name}: ${c.note}.`).join(" ");
+  return "Type what each card's screen says it still owes; that money is kept back in chequing. "
+    + (each || "The Visa pays itself in the first days of next month, so its balance stays in chequing.");
+}
 const LAYOUT = {
   shift: [
     { h: "When", keys: [["date"], ["shift_start", "shift_end"]] },
@@ -1349,7 +1360,7 @@ const LAYOUT = {
   bankvisit: [
     { keys: [["date"]] },
     { h: "What you paid", foot: "Tick each only once the money has left chequing.", keys: [["paid"]] },
-    { h: "The cards, kept back", foot: "Type what each card's screen says it still owes. The Visa pays itself in the first days of next month, so its balance stays in chequing.", keys: [["visa_owing"], ["amex_owing"]] },
+    { h: "The cards, kept back", foot: cardsFoot, keys: [["visa_owing"], ["amex_owing"]] },
     { h: "Then", keys: [["balance"]] },
     { sweep: true },
     { keys: [["sweep"]] },
@@ -1371,7 +1382,7 @@ function monthsAround() {
 }
 const LABELS = { description: "Which shift", pay_ffs: "OHIP paid", ohip_billed: "OHIP billed", ffs_billed: "Fees MGH billed", shadow_pct: "Shadow billing %", pay_shadow: "Shadow billing pay", pay_travel: "Travel time paid", patients_private: "Private patients",
                  who_why: "Who was there, and why it was work", receipt: "Where the receipt photo is", balance: "Chequing balance you see now", sweep: "Sent to Questrade (the corporation's cash account)",
-                 visa_owing: "Corporate Visa: balance owing", amex_owing: "Amex: balance still owing" };
+                 visa_owing: "Corporate Visa: balance owing", amex_owing: "Amex Business Platinum: balance still owing" };
 function labelOf(fld) { return LABELS[fld.key] || fld.label.replace(/\s*\(.*?\)\s*$/, ""); }
 function hintOf(fld) { const m = /\((.*)\)\s*$/.exec(fld.label); return m ? m[1] : ""; }
 
@@ -1418,7 +1429,13 @@ function buildForm(f) {
         const isEst = (it.basis || "").startsWith("estimate");
         const b = h("button", { class: "tick", type: "button", role: "checkbox", "aria-checked": String(on), "data-id": it.id },
           h("span", { class: "title" }, it.what, isEst ? h("span", { class: "chip orange tick-chip", text: "estimate" }) : null), h("span", { class: "amt num muted", text: it.amount ? (isEst ? "about " + fmtWhole$(Math.round(money(it.amount))) : fmt$(it.amount)) : "full balance" }), h("span", { class: "box" }, icon("check")));
-        b.addEventListener("click", () => { b.setAttribute("aria-checked", String(b.getAttribute("aria-checked") !== "true")); updateSweep(form); });
+        b.addEventListener("click", () => {
+          const on = b.getAttribute("aria-checked") !== "true";
+          b.setAttribute("aria-checked", String(on));
+          if (on) { const bal = form.querySelector('[name="balance"]'); if (bal && String(bal.value || "").trim()) form.dataset.staleBalance = "1"; }
+          else if (!form.querySelector('.tick[aria-checked="true"]')) delete form.dataset.staleBalance;
+          updateSweep(form);
+        });
         inp.append(b);
       }
       inputs[fld.key] = inp; wraps[fld.key] = inp;
@@ -1487,7 +1504,8 @@ function buildForm(f) {
       if (fld.type === "money") wrap.append(h("div", { class: "money" }, h("span", { text: "$", "aria-hidden": "true" }), inp));
       else if (fld.key === "shadow_pct") wrap.append(h("div", { class: "money" }, inp, h("span", { text: "%", "aria-hidden": "true" })));
       else if (fld.key !== "shadow_pct") wrap.append(inp);
-      if (fld.key === "balance" || fld.key === "visa_owing" || fld.key === "amex_owing") inp.addEventListener("input", () => updateSweep(form));
+      if (fld.key === "balance" || fld.key === "visa_owing" || fld.key === "amex_owing")
+        inp.addEventListener("input", () => { if (fld.key === "balance") delete form.dataset.staleBalance; updateSweep(form); });
       if (fld.type === "money") inp.addEventListener("blur", () => { const n = money(inp.value); if (inp.value.trim() && n !== null) inp.value = n.toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); });
     }
     if (fld.type === "money" && hintOf(fld)) wrap.append(h("span", { class: "small muted", text: hintOf(fld).replace(/^./, c => c.toUpperCase()) }));
@@ -1517,7 +1535,7 @@ function buildForm(f) {
         h("div", { class: "fields" }, rows)));
     } else {
       form.append(h("div", { class: "group" }, g.h ? h("div", { class: "gh", text: g.h }) : null,
-        isQuestion ? rows : h("div", { class: "fields glass" }, rows), g.foot ? h("div", { class: "gf", text: g.foot }) : null));
+        isQuestion ? rows : h("div", { class: "fields glass" }, rows), g.foot ? h("div", { class: "gf", text: typeof g.foot === "function" ? g.foot() : g.foot }) : null));
     }
   }
   const wpRes = f.kind === "answer" ? String((pre || {}).resolution || "") : "";
@@ -1587,7 +1605,10 @@ function buildForm(f) {
   };
   form.addEventListener("change", syncMeal); syncMeal();
 
-  form.append(h("div", { class: "formbar" }, h("button", { class: "btn primary", type: "submit" }, VIEW.corrects ? "Send the correction" : "Send")));
+  if (f.kind === "bankvisit")
+    form.append(h("p", { class: "small muted", text: "This only records the day. It moves no money: make the transfer to Questrade yourself, from corporate chequing, as a bill payment." }));
+  form.append(h("div", { class: "formbar" }, h("button", { class: "btn primary", type: "submit" },
+    VIEW.corrects ? "Send the correction" : f.kind === "bankvisit" ? "Record the day" : "Send")));
   form.addEventListener("submit", ev => {
     ev.preventDefault();
     const fields = {}, problems = [];
@@ -2078,7 +2099,8 @@ function updateSweep(form) {
   box.append(h("h3", { text: "What to send to Questrade" }));
   if (/not yet approved/i.test(pd.rule || "")) box.append(h("p", { class: "small muted", text: "A suggestion only: the plan it follows (pay everything first, send the rest, keep a cushion) is still waiting for your yes." }));
   if (!pd.ready) box.append(h("p", { class: "small warnline", text: "Step 2 is not done: the two payments above are last month's figures, so the amount worked out here will change. Do not send anything to Questrade until steps 2 and 3 are done." }));
-  if (bal === null) { box.append(h("p", { class: "small muted", text: "Type the chequing balance above, and the amount to send is worked out here." })); return; }
+  if (bal === null) { delete form.dataset.staleBalance; box.append(h("p", { class: "small muted", text: "Type the chequing balance above, and the amount to send is worked out here." })); return; }
+  if (form.dataset.staleBalance) box.append(h("p", { class: "small warnline", text: "You ticked a payment after typing the chequing balance, so the balance above is the one from before that money left. Look at your bank again and type the balance it shows now, or the amount worked out here will be too big." }));
   box.append(h("div", { class: "line" }, h("span", { text: "Chequing balance" }), h("span", { class: "amt", text: fmt$(bal) })));
   box.append(h("div", { class: "sh", text: "Kept back" }));
   let left = bal;
