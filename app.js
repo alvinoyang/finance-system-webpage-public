@@ -1104,7 +1104,7 @@ function questionRow(q, from) {
   if (receiptOf(q)) return receiptRow(q, from);
   const n = daysFrom(q.due);
   const wp = q.workpay ? Object.assign({ id: q.id, text: q.text }, q.workpay) : null;
-  return h("button", { class: "row plain", type: "button", onclick: () => wp ? workpayAnswer(wp) : startForm("answer", { question: q.id }, from) },
+  return h("button", { class: "row plain", type: "button", onclick: () => q.chq ? chqAnswer(q, from) : wp ? workpayAnswer(wp) : startForm("answer", { question: q.id }, from) },
     h("span", { class: "main" }, h("span", { class: "title clamp", text: prettyDates(q.text) }),
       q.due ? h("span", { class: "meta" + (n !== null && n < 0 ? " overdue" : ""), text: (n !== null && n < 0 ? "Overdue · " : "Due ") + shortDate(q.due) }) : null),
     icon("chevR"));
@@ -4015,6 +4015,13 @@ function workpayAnswer(i) {
   }
   acts.push({ label: "Something else: type it", run: () => startForm("answer", { question: i.id }, "work") });
   sheet(prettyDates(i.text), "", acts, "Not now");
+}
+
+function chqAnswer(q, from) {
+  const send = label => submit("answer", { question: q.id, answer: label, resolution: "label" }, "", `Labelled: ${label}`);
+  const acts = (q.chq.choices || []).slice(0, 8).map((c, i) => ({ label: c, kind: i === 0 ? "tinted" : "", run: () => send(c) }));
+  acts.push({ label: "Something else: type it", run: () => startForm("answer", { question: q.id, resolution: "label" }, from) });
+  sheet(prettyDates(q.text), "", acts, "Not now");
 }
 
 async function boot() {
