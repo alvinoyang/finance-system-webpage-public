@@ -2332,16 +2332,27 @@ function summaryTotal() {
   const out = h("div", { class: "page" }), S = (SNAP && SNAP.series) || {}, nw = SNAP.networth || {};
   const n = householdNow();
   if (!n) return out;
-  const tmc = moneyCard({ worth: "total_market", put: "put_in_total", label: "Everything invested",
-                          foot: "The corporation's investments and yours together. Not the car, and not cash." });
+  const up = nw.household ? Math.round((n.total - money(nw.household)) / 1000) * 1000 : null;
   const g = h("div", { class: "figs" });
-  const up = nw.household && n.est ? Math.round((n.total - money(nw.household)) / 1000) * 1000 : null;
-  g.append(figCard({ label: "Household net worth", basis: n.basis }, { hero: true, label: `Household net worth, ${prettyDates(n.date)}`, value: fmtWhole$(Math.round(n.total)), about: n.est,
-    series: S.household, onOpen: () => openTrendOf("household"), why: householdWhy(n),
+  const tmc = moneyCard({
+    worth: "net_worth", put: "put_in_total", label: "Net worth and investments", nets: true,
+    worthLabel: "What it is all worth",
+    basis: (S.net_worth || {}).basis, why: householdWhy(n),
+    foot: "The corporation whole and your TFSA, RRSP and FHSA. Not the car, the condo or your personal chequing account.",
     meta: [up !== null ? h("span", { class: "delta", text: `${up >= 0 ? "Up" : "Down"} ${compact(Math.abs(up), "$")} since ${prettyDates(nw.date)}.` }) : null,
-           h("span", { class: "asof", text: "Before the tax paid to take money out of the corporation." })] }));
-  out.append(g);
-  if (tmc) out.append(balance(h("div", { class: "figs" }, tmc)));
+           n.since ? h("span", { class: "asof", text: `Plus ${fmtWhole$(Math.round(n.since))} put in since, which no statement covers yet.` }) : null,
+           h("span", { class: "asof", text: "Before the tax paid to take money out of the corporation." })] });
+  if (tmc) g.append(tmc);
+  else {
+    g.append(figCard({ label: "Household net worth", basis: n.basis }, { hero: true, label: `Household net worth, ${prettyDates(n.date)}`, value: fmtWhole$(Math.round(n.total)), about: n.est,
+      series: S.household, onOpen: () => openTrendOf("household"), why: householdWhy(n),
+      meta: [up !== null ? h("span", { class: "delta", text: `${up >= 0 ? "Up" : "Down"} ${compact(Math.abs(up), "$")} since ${prettyDates(nw.date)}.` }) : null,
+             h("span", { class: "asof", text: "Before the tax paid to take money out of the corporation." })] }));
+    const old = moneyCard({ worth: "total_market", put: "put_in_total", label: "Everything invested", nets: true,
+                            foot: "The corporation's investments and yours together. Not the car, and not cash." });
+    if (old) g.append(old);
+  }
+  out.append(balance(g));
   const pct = v => Math.round(v / n.total * 100) + "%";
   const row = (cls, label, sub, v, basis, why, part) => tapArea(h("div", { class: "row legendrow" },
     h("span", { class: "sw2 " + cls }), h("span", { class: "main" }, h("span", { class: "title", text: label }), h("span", { class: "meta", text: sub })),
@@ -2404,45 +2415,35 @@ function moneyCard(opts) {
   if (!worth || !worth.points.length) return null;
   const o = ov(opts.worth) || { label: opts.label, basis: worth.basis };
   const last = k => { const p = (S[k] || {}).points; return p && p.length ? p[p.length - 1] : null; };
-  const lw = last(opts.worth), lp = last(opts.put), la = opts.all ? last(opts.all) : null;
+  const lw = last(opts.worth), la = opts.all ? last(opts.all) : null;
   const head = la ? la[1] : lw[1];
+  const putLabel = opts.nets ? "Put in, less taken out" : "Put in";
+  const worthLabel = opts.worthLabel || (all ? "Invested" : "What it is worth");
   const sers = [];
   if (all) sers.push({ ...all, label: "All of it" });
-  sers.push({ ...worth, label: all ? "Invested" : "What it is worth" }, { ...put, label: "Put in" });
-  const read = h("div", { class: "read" });
-  const line = (when, vals) => {
-    clear(read);
-    read.append(h("span", { class: "when", text: when }));
-    vals.forEach(([lab, v, cls]) => read.append(h("span", { class: cls || "" },
-      h("span", { class: "rl", text: lab + " " }), h("b", { text: v == null ? "—" : fmtWhole$(Math.round(v)) }))));
+  sers.push({ ...worth, label: worthLabel }, { ...put, label: putLabel });
+  const money$ = v => v == null ? "—" : fmtWhole$(Math.round(v));
+  const rows = (key, S2) => {
+    const get = lab => { const s2 = S2.find(x => x.label === lab); if (!s2) return null;
+                         const p = s2.points.find(q => q[0] === key); return p ? p[1] : null; };
+    const iOf = lab => sers.findIndex(x => x.label === lab);
+    const a = all ? get("All of it") : null;
+    const w = get(worthLabel);
+    const pv = get(putLabel);
+    const out = [];
+    if (all) out.push({ swatch: iOf("All of it"), name: "All of it", value: money$(a) });
+    out.push({ swatch: iOf(worthLabel), name: all ? "Invested" : "Worth", value: money$(w) });
+    if (pv != null && pv < 0) out.push({ swatch: iOf(putLabel), name: "Taken out more than put in", value: money$(-pv) });
+    else out.push({ swatch: iOf(putLabel), name: "Put in", value: money$(pv) });
+    if (w != null && pv != null && pv > 0) out.push({ name: "Growth", value: money$(w - pv), cls: "up" });
+    if (all && a != null && w != null) out.push({ name: "Cash", value: money$(a - w), cls: "cash" });
+    return out;
   };
-  const rest = () => {
-    const v = [];
-    if (la) v.push(["All of it", la[1]]);
-    v.push([all ? "Invested" : "Worth", lw[1]], ["Put in", lp ? lp[1] : null]);
-    if (lp) v.push(["Growth", lw[1] - lp[1], "up"]);
-    if (la) v.push(["Cash", la[1] - lw[1], "cash"]);
-    line(keyLabel(lw[0], true), v);
-  };
-  const at = (key, S2) => {
-    if (key == null) return rest();
-    const get = ser => { const p = ser.points.find(q => q[0] === key); return p ? p[1] : null; };
-    const a = all ? get(sers.find(x => x.label === "All of it")) : null;
-    const w = get(sers.find(x => x.label === (all ? "Invested" : "What it is worth")));
-    const pv = get(sers.find(x => x.label === "Put in"));
-    const v = [];
-    if (all) v.push(["All of it", a]);
-    v.push([all ? "Invested" : "Worth", w], ["Put in", pv]);
-    if (w != null && pv != null) v.push(["Growth", w - pv, "up"]);
-    if (all && a != null && w != null) v.push(["Cash", a - w, "cash"]);
-    line(keyLabel(key, true), v);
-  };
-  rest();
-  const body = h("div", {},
-    chart(sers, { form: "line", unit: "$", height: 128, readout: at, legend: true }), read);
+  const body = chart(sers, { form: "line", unit: "$", height: 128, legend: true, tip: rows });
   return figCard(o, { hero: true, label: opts.label, value: fmtWhole$(Math.round(head)), body,
+    basis: opts.basis, why: opts.why,
     onOpen: () => openView({ type: "trend", keys: [opts.all, opts.worth, opts.put].filter(Boolean), title: opts.label }),
-    meta: [h("span", { class: "asof", text: opts.foot })] });
+    meta: (opts.meta || []).concat([h("span", { class: "asof", text: opts.foot })]) });
 }
 
 function returnsCard(side) {
@@ -2594,6 +2595,7 @@ function summaryPersonal() {
   const out = h("div", { class: "page" }), S = (SNAP && SNAP.series) || {};
   const g = h("div", { class: "figs" });
   const pmc = moneyCard({ worth: "personal_market", put: "put_in_personal", label: "Your registered accounts",
+                          nets: true,
                           foot: "Your TFSA, RRSP and FHSA. Not the car, and not cash." });
   if (pmc) g.append(pmc);
   const vals = ACCOUNTS.map(([a, n]) => [a, n, lastValue(regOf(a))]).filter(x => x[2]);
@@ -3470,7 +3472,7 @@ function motionOK() { return !(window.matchMedia && matchMedia("(prefers-reduced
 function chart(sers, o) {
   const box = h("div", { class: "chart" + (o.spark ? " spark-chart" : "") + (o.hover !== false && !o.spark ? " scrub" : "") });
   const tip = h("div", { class: "tip", hidden: true });
-  if (!o.spark && !o.readout) box.append(tip);
+  if (!o.spark) box.append(tip);
   if (o.legend) box.append(h("div", { class: "legend" }, sers.map((s2, j) => h("span", { class: "lk" }, h("span", { class: "sw s" + j }), s2.label))));
   const tOf = k => /^\d{4}$/.test(k) ? new Date(+k, 6, 1).getTime() : /^\d{4}-\d{2}$/.test(k) ? new Date(+k.slice(0, 4), +k.slice(5, 7) - 1, 15).getTime() : (dateOf(k) || new Date(0)).getTime();
   let lastW = 0, first = true;
@@ -3584,19 +3586,25 @@ function chart(sers, o) {
         cross.removeAttribute("hidden"); cross.setAttribute("x1", xs[i]); cross.setAttribute("x2", xs[i]);
         S2.forEach((s2, j) => { const pt = s2.points.find(q => q[0] === keys[i]); if (!pt) { dots[j].setAttribute("hidden", ""); return; } dots[j].removeAttribute("hidden"); dots[j].setAttribute("cx", xs[i]); dots[j].setAttribute("cy", y(pt[1])); });
         clear(tip);
-        tip.append(h("div", { class: "tk", text: keyLabel(keys[i], true) }), ...S2.map((s2, j) => {
+        tip.append(h("div", { class: "tk", text: keyLabel(keys[i], true) }));
+        if (o.tip) {
+          tip.classList.add("wide");
+          for (const r of o.tip(keys[i], S2))
+            tip.append(h("div", { class: "tr " + (r.cls || "") },
+              r.swatch == null ? null : h("span", { class: "sw s" + r.swatch }),
+              h("span", { class: "tn", text: r.name }), h("b", { text: r.value })));
+        } else
+        tip.append(...S2.map((s2, j) => {
           const pt = s2.points.find(q => q[0] === keys[i]);
           if (!pt) return null;             // a history with no point on this date says nothing
           const est = estAt(s2, pt[0]);
           return h("div", { class: "tr" }, S2.length > 1 ? h("span", { class: "sw s" + j }) : null, h("span", { text: (S2.length > 1 ? s2.label + ": " : "") + (est && !s2.est_word ? "about " : "") + compact(pt[1], s2.unit, true) + (est && s2.est_word ? ", " + s2.est_word : "") }));
         }).filter(Boolean));
-        if (o.readout) { o.readout(keys[i], S2); tip.hidden = true; } else
         tip.hidden = false;
         const tx = xs[i] / W * box.clientWidth, tw = tip.offsetWidth, cw = box.clientWidth;
         tip.style.left = (tx > cw / 2 ? Math.max(0, tx - tw - 14) : Math.min(cw - tw, tx + 14)) + "px";
       };
-      const hide = () => { cross.setAttribute("hidden", ""); dots.forEach(d => d.setAttribute("hidden", "")); tip.hidden = true;
-                           if (o.readout) o.readout(null, S2); };
+      const hide = () => { cross.setAttribute("hidden", ""); dots.forEach(d => d.setAttribute("hidden", "")); tip.hidden = true; };
       hit.addEventListener("pointermove", show); hit.addEventListener("pointerdown", show);
       hit.addEventListener("pointerleave", hide); hit.addEventListener("pointercancel", hide);
     }
