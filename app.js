@@ -2207,6 +2207,10 @@ function figCard(o, opts) {
     tap ? h("span", { class: "chev-go", "aria-hidden": "true" }, icon("chevR")) : null));
   card.append(h("span", { class: "v rounded" + (opts.hero ? "" : " num") }, opts.about ? h("span", { class: "about", text: "about " }) : null, opts.value || wholeValue(o.value)));
   const ser = opts.series;
+  if (opts.body && ser && ser.points.length >= 4) {
+    card.append(h("span", { class: "spark" }, chart([sparkOf(ser, o)], { form: ser.form, unit: ser.unit, spark: true, height: 64 })));
+    card.append(h("span", { class: "spark" }, opts.body));
+  } else
   card.append(opts.body ? h("span", { class: "spark" }, opts.body)
     : ser && ser.points.length >= 4 ? h("span", { class: "spark" }, chart([sparkOf(ser, o)], { form: ser.form, unit: ser.unit, spark: true, height: opts.hero ? 56 : 34 }))
     : h("span", { class: "spark none" }));
@@ -2380,24 +2384,38 @@ function savingCard() {
 function runningYear(y) { return Number(y) >= new Date().getFullYear(); }
 function yearAt(y) { return runningYear(y) ? `${y} so far` : `End of ${y}`; }          // a card's or page's label
 function yearIn(y) { return runningYear(y) ? `in ${y} so far` : `at the end of ${y}`; } // inside a sentence
-function returnsCard() {
-  const B = (SNAP && SNAP.returns) || {};
-  if (!(B.years || []).length) return null;
-  const r = B.years[B.years.length - 1], put = money(r.in), val = money(r.value), gain = val - put;
+const RETURNS_SIDES = {
+  undefined: { inKey: "in", valKey: "value", label: "What you put in, and what it is worth",
+               what: "every dollar the corporation and you moved into investments",
+               foot: "The corporation's investments and yours together. Not the car, and not cash." },
+  corp: { inKey: "corp_in", valKey: "corp_value", label: "What the corporation put in, and what it is worth",
+          what: "every dollar the corporation moved into its investments",
+          foot: "The corporation's investments only. Not its chequing account." },
+  personal: { inKey: "personal_in", valKey: "personal_value", label: "What you put in, and what it is worth",
+              what: "every dollar you put into your TFSA, RRSP and FHSA",
+              foot: "Your TFSA, RRSP and FHSA. Not the car, and not cash." },
+};
+
+function returnsCard(side) {
+  const B = (SNAP && SNAP.returns) || {}, K = RETURNS_SIDES[side];
+  if (!(B.years || []).length || !K) return null;
+  const r = B.years[B.years.length - 1];
+  if (r[K.inKey] === null || r[K.inKey] === undefined || r[K.valKey] === null || r[K.valKey] === undefined) return null;
+  const put = money(r[K.inKey]), val = money(r[K.valKey]), gain = val - put;
   const why = [runningYear(r.year) ? `${r.year} so far: the year is still running, so this is its latest statement.` : `At the end of ${r.year}.`,
                `${plainSource(B.source)}.`,
-               "What you put in is every dollar the corporation and you moved into investments; what it is worth is what those investments were worth at that date.",
+               `What you put in is ${K.what}; what it is worth is what those investments were worth at that date.`,
                "The gap between the two is worked out from them.", B.note];
   const body = h("div", {},
     meter([{ value: put, cls: "s0", label: "Put in" }, { value: Math.max(0, gain), cls: "s1", label: "Growth" }]),
     h("div", { class: "legend3" },
       h("span", {}, h("span", { class: "sw2 s0" }), "Put in ", h("b", { text: compact(put, "$") })),
       h("span", {}, h("span", { class: "sw2 s1" }), gain >= 0 ? "Growth " : "Fallen ", h("b", { text: compact(Math.abs(gain), "$") }))));
-  return figCard({ label: "What you put in, and what it is worth", basis: B.basis }, {
-    hero: true, label: "What you put in, and what it is worth", value: fmtWhole$(Math.round(val)), why, body,
+  return figCard({ label: K.label, basis: B.basis }, {
+    hero: true, label: K.label, value: fmtWhole$(Math.round(val)), why, body,
     onOpen: () => openView({ type: "returns" }),
     meta: [h("span", { class: "delta", text: `${gain >= 0 ? "Worth" : "Down"} ${compact(Math.abs(gain), "$")} ${gain >= 0 ? "more than you put in" : "on what you put in"}, ${yearIn(r.year)}.` }),
-           h("span", { class: "asof", text: "The corporation's investments and yours together. Not the car, and not cash." })] });
+           h("span", { class: "asof", text: K.foot })] });
 }
 
 function incomeVsLastYear() {
@@ -2439,6 +2457,7 @@ function summaryCorp() {
   const cards = [["invest", "Their value, and what they cost", ["invest_market", "invest_cost"]]].filter(c => c[2].every(k => S[k]));
   if (cards.length) {
     const sec = h("section", { class: "section" }, h("h2", { text: "Investments" }));
+    const crt = returnsCard("corp"); if (crt) sec.append(h("div", { class: "figs" }, crt));
     const grid = h("div", { class: "trend-cards" });
     for (const [id, title, keys] of cards) {
       let sub = null, basis = S[keys[0]].basis, why = [plainSource(S[keys[0]].source) + "."];
@@ -2546,7 +2565,8 @@ function summaryPersonal() {
     }));
     const since = ACCOUNTS.reduce((s2, [a]) => s2 + (money((regOf(a) || {}).since_value) || 0), 0);
     g.append(figCard({ label: "Your registered accounts", basis: vals[0][2][2] },
-      { hero: true, label: same ? `Your registered accounts, ${prettyDates(at)}` : "Your registered accounts, latest values", value: fmtWhole$(Math.round(total)),
+      { hero: true, series: S.personal_market, onOpen: () => openTrendOf("personal_market"),
+        label: same ? `Your registered accounts, ${prettyDates(at)}` : "Your registered accounts, latest values", value: fmtWhole$(Math.round(total)),
         why: [same ? `At ${prettyDates(at)}.` : "Each at its latest value: " + vals.map(([a, n, v]) => `${n} ${prettyDates(v[0])}`).join(", ") + ".",
               "From each account's own Questrade statement, or a value you read off Questrade and sent from this page (Add › A reading)."],
         body: h("div", {}, meter(vals.map(([a, n, v], i) => ({ value: v[1], cls: "s" + i, label: n }))), rows),
@@ -2554,6 +2574,7 @@ function summaryPersonal() {
                                                    : since < 0 ? `${fmtWhole$(Math.round(-since))} more has come out than gone in since the statements. ` : "")
                                                    + (withRoom.length ? `${y} is counted${tabTo ? " to " + monthDay(tabTo) : ""}, from your Registered Contributions tab${withRoom.some(([a]) => (regOf(a).waiting || []).length) ? " and this page" : ""}.` : "") })] }));
   }
+  const prt = returnsCard("personal"); if (prt) g.append(prt);
   const sal = ov("salary");
   if (sal && sal.rrsp_target) g.append(salaryCard(sal, S));
   else if (sal) g.append(figCard(sal, { label: sal.label.replace("Salary paid", "Your salary"), series: S.salary, onOpen: () => openTrendOf("salary"),
