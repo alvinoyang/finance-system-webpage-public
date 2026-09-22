@@ -399,6 +399,7 @@ details.fold[open] > summary .when-closed, details.fold:not([open]) > summary .w
 .fadein { animation: fadeIn .22s ease both; }
 
 .chart { position: relative; width: 100%; }
+.fig .chart.scrub { z-index: 2; }
 .chart svg { display: block; overflow: visible; touch-action: pan-y; }
 .chart .grid { stroke: var(--sep); stroke-width: 1; }
 .chart .zero { stroke: var(--ink-3); stroke-width: 1.5; stroke-opacity: .5; }
@@ -423,6 +424,13 @@ details.fold[open] > summary .when-closed, details.fold:not([open]) > summary .w
 @media (prefers-color-scheme: light), (prefers-color-scheme: no-preference) { .chart .tip { background: #FFFFFF; } }
 .chart .tip .tk { color: var(--ink-2); font-size: .72rem; }
 .chart .tip .tr { display: flex; align-items: center; gap: 6px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.chart .tip.wide { font-size: .74rem; padding: 6px 10px; }
+.chart .tip.wide .tk { font-size: .68rem; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 1px; }
+.chart .tip.wide .tr { gap: 10px; line-height: 1.42; font-weight: 500; }
+.chart .tip.wide .tn { flex: 1; color: var(--ink-2); }
+.chart .tip.wide b { font-weight: 650; }
+.chart .tip.wide .up b { color: var(--green); }
+.chart .tip.wide .cash .tn, .chart .tip.wide .cash b { color: var(--ink-3); }
 .chart .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .78rem; color: var(--ink-2); margin: 0 0 6px 4px; }
 .chart .lk { display: inline-flex; align-items: center; gap: 6px; }
 .sw { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
@@ -832,11 +840,3 @@ main.peek { position: fixed; left: 0; right: 0; z-index: 5; pointer-events: none
   .tile, .tile.wide { grid-column: auto; grid-template-columns: 1fr; align-items: start; min-height: 132px; }
 }
 
-.fig .read { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px;
-             border-top: 1px solid var(--sep); padding-top: 9px; margin-top: 8px;
-             font-size: .85rem; color: var(--ink-2); min-height: 20px; }
-.fig .read .when { width: 100%; font-size: .74rem; letter-spacing: .03em; text-transform: uppercase; color: var(--ink-3); }
-.fig .read .rl { color: var(--ink-3); }
-.fig .read b { color: var(--ink); font-variant-numeric: tabular-nums; }
-.fig .read .up b { color: var(--green); }
-.fig .read .cash b { color: var(--ink-2); }
