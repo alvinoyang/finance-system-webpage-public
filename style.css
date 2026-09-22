@@ -534,6 +534,21 @@ details.identity .fields.glass, details.identity .pills button { box-shadow: ins
 }
 .formbar .btn { width: 100%; max-width: 640px; }
 
+.billtot { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 8px 0 10px;
+  font-size: .8125rem; color: var(--ink-2); border-bottom: 1px solid var(--sep); margin-bottom: 4px; }
+.billtot b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.billtot .sep { color: var(--ink-3); }
+.billtot .warn, .billing .warn { color: var(--orange); }
+.billtot .small { flex-basis: 100%; font-size: .78rem; }
+.billline { display: flex; align-items: center; gap: 8px; min-height: 44px; border-bottom: 1px solid var(--sep); }
+.billline:last-child { border-bottom: 0; }
+.billline .who { flex: 1 1 auto; min-width: 0; font-weight: 600; font-size: .95rem; }
+.billline input { font: inherit; border: 0; background: transparent; color: var(--ink); outline: none;
+  text-align: right; font-variant-numeric: tabular-nums; min-height: 44px; }
+.billline .pt { width: 3.5rem; flex: 0 0 auto; color: var(--ink-2); }
+.billline .amt { width: 6.5rem; flex: 0 0 auto; }
+.billline input::placeholder { color: var(--ink-3); }
+
 .visit { border-radius: 24px; padding: 20px; display: grid; gap: 12px; }
 .visit .when-line { display: flex; justify-content: flex-start; align-items: baseline; gap: 12px; }
 .visit .when-line .when { font-size: 1.08rem; font-weight: 650; letter-spacing: -.015em; line-height: 1.2; }
