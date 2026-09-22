@@ -406,6 +406,7 @@ details.fold[open] > summary .when-closed, details.fold:not([open]) > summary .w
 .chart .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .chart .line.s0, .chart .hdot.s0 { stroke: var(--c0); }
 .chart .line.s1, .chart .hdot.s1 { stroke: var(--c1); }
+.chart .line.s2, .chart .hdot.s2 { stroke: var(--c2); }
 .chart .area.s0 { fill: var(--c0); fill-opacity: .1; stroke: none; }
 .chart .col.s0 { fill: var(--c0); } .chart .col.s1 { fill: var(--c1); }
 .chart .end { fill: var(--c0); stroke-width: 2; paint-order: stroke; stroke: var(--glass-strong); }
@@ -425,7 +426,7 @@ details.fold[open] > summary .when-closed, details.fold:not([open]) > summary .w
 .chart .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .78rem; color: var(--ink-2); margin: 0 0 6px 4px; }
 .chart .lk { display: inline-flex; align-items: center; gap: 6px; }
 .sw { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
-.sw.s0 { background: var(--c0); } .sw.s1 { background: var(--c1); }
+.sw.s0 { background: var(--c0); } .sw.s1 { background: var(--c1); } .sw.s2 { background: var(--c2); }
 .spark-chart .line { stroke-width: 1.6; }
 .spark-chart .area.s0 { fill-opacity: .08; }
 
@@ -830,3 +831,12 @@ main.peek { position: fixed; left: 0; right: 0; z-index: 5; pointer-events: none
   .tiles { grid-template-columns: repeat(4, 1fr); }
   .tile, .tile.wide { grid-column: auto; grid-template-columns: 1fr; align-items: start; min-height: 132px; }
 }
+
+.fig .read { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px;
+             border-top: 1px solid var(--sep); padding-top: 9px; margin-top: 8px;
+             font-size: .85rem; color: var(--ink-2); min-height: 20px; }
+.fig .read .when { width: 100%; font-size: .74rem; letter-spacing: .03em; text-transform: uppercase; color: var(--ink-3); }
+.fig .read .rl { color: var(--ink-3); }
+.fig .read b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.fig .read .up b { color: var(--green); }
+.fig .read .cash b { color: var(--ink-2); }
