@@ -411,7 +411,7 @@ function submit(kind, fields, corrects, said) {
 
 const KINDS = {
   shift: { name: "Shift", desc: "MGH, EDLP, Bochner, Endoscopy, ABP", icon: "work", color: "blue", group: "often",
-           help: "Where, and which shift, is all it needs. Hours, patients and pay can wait: add them any time from Your shifts." },
+           help: "Where, and which shift, is all it needs. Everything else can wait: add it any time from Your shifts." },
   expense: { name: "Paid it myself", desc: "Cash, your own card, a split bill", icon: "receipt", color: "green", group: "often" },
   income: { name: "Income received", desc: "Pay, OHIP, a stipend, a refund", icon: "income", color: "purple", group: "often" },
   bankvisit: { name: "Monthly banking", desc: "Download, pay yourself and CRA, sweep", icon: "bank", color: "orange", group: "often",
@@ -1348,7 +1348,7 @@ const LAYOUT = {
     { h: "When", keys: [["date"], ["shift_start", "shift_end"]] },
     { h: "What", keys: [["type"], ["description"]] },
     { more: "Hours and patients", hint: "All optional", keys: [["hours", "travel_hours"], ["patients", "patients_private"], ["period"], ["site"]] },
-    { more: "Pay", hint: "All optional", keys: [["amount"], ["pay_base", "pay_shadow"], ["ffs_billed", "shadow_pct"], ["ohip_billed", "pay_ffs"], ["pay_travel", "pay_stipend"], ["pay_other", "expense_reimbursed"]] },
+    { more: "Pay", hint: "All optional", keys: [["amount"], ["pay_base", "pay_shadow"], ["ffs_billed", "shadow_pct"], ["billed_total", "pay_ffs"], ["pay_travel", "pay_stipend"], ["pay_other", "expense_reimbursed"]] },
     { keys: [["note"]] },
   ],
   expense: [
@@ -1380,7 +1380,7 @@ function monthsAround() {
   for (let i = 0; i < 15; i++) { out.push({ value: `${d.getFullYear()}-${pad(d.getMonth() + 1)}`, label: d.toLocaleDateString("en-CA", { month: "long", year: "numeric" }) }); d.setMonth(d.getMonth() - 1); }
   return out;
 }
-const LABELS = { description: "Which shift", pay_ffs: "OHIP paid", ohip_billed: "OHIP billed", ffs_billed: "Fees MGH billed", shadow_pct: "Shadow billing %", pay_shadow: "Shadow billing pay", pay_travel: "Travel time paid", patients_private: "Private patients",
+const LABELS = { description: "Which shift", pay_ffs: "Paid, all payers", billed_total: "Submitted, all payers", ffs_billed: "Fees MGH billed", shadow_pct: "Shadow billing %", pay_shadow: "Shadow billing pay", pay_travel: "Travel time paid", patients_private: "Private patients",
                  who_why: "Who was there, and why it was work", receipt: "Where the receipt photo is", balance: "Chequing balance you see now", sweep: "Sent to Questrade (the corporation's cash account)",
                  visa_owing: "Corporate Visa: balance owing", amex_owing: "Amex Business Platinum: balance still owing" };
 function labelOf(fld) { return LABELS[fld.key] || fld.label.replace(/\s*\(.*?\)\s*$/, ""); }
@@ -1539,7 +1539,7 @@ function buildForm(f) {
     }
   }
   const wpRes = f.kind === "answer" ? String((pre || {}).resolution || "") : "";
-  const wpShow = { deposit: wpRes === "partly-paid" || wpRes === "paid-by", amount: wpRes === "partly-paid", expect_by: wpRes === "resubmitted" };
+  const wpShow = { deposit: wpRes === "partly-paid" || wpRes === "paid-by", amount: wpRes === "partly-paid" || wpRes === "paid-amount", expect_by: wpRes === "resubmitted" };
   const rest = f.fields.filter(x => !used.has(x.key) && !(f.kind === "answer" && x.key === "resolution")
                                     && !(f.kind === "answer" && x.key in wpShow && !wpShow[x.key]));
   if (rest.length) form.append(h("div", { class: "group" }, h("div", { class: "fields glass" }, rest.map(fieldEl))));
@@ -1644,10 +1644,15 @@ function buildForm(f) {
 }
 
 
-const SHIFT_LABELS = { hours: "Hours worked", travel_hours: "Travel hours", patients: "Patients", patients_private: "Private patients", period: "The month these hours are for",
-  amount: "Total pay", pay_base: "Base pay", ohip_billed: "OHIP billed", pay_ffs: "OHIP paid", ffs_billed: "Fees MGH billed", shadow_pct: "Shadow billing %",
-  pay_shadow: "Shadow billing pay", pay_travel: "Travel time paid", pay_stipend: "Stipend", pay_other: "The clinic's fee", expense_reimbursed: "Expenses paid back" };
-const PAY_KEYS = ["amount", "pay_base", "ohip_billed", "pay_ffs", "ffs_billed", "shadow_pct", "pay_shadow", "pay_travel", "pay_stipend", "pay_other", "expense_reimbursed"];
+const SHIFT_LABELS = { hours: "Hours worked", travel_hours: "Travel hours", patients: "Patients seen", patients_private: "Private patients", period: "The month these hours are for",
+  amount: "Total pay", pay_base: "Base pay", billed_total: "Submitted, all payers", pay_ffs: "Paid, all payers", ffs_billed: "Fees MGH billed", shadow_pct: "Shadow billing %",
+  pay_shadow: "Shadow billing pay", pay_travel: "Travel time paid", pay_stipend: "Stipend", pay_other: "The clinic's fee", expense_reimbursed: "Expenses paid back",
+  invoice: "Invoice amount" };
+function payLabel(key, place) { return (key === "pay_ffs" && place === "abp") ? SHIFT_LABELS.invoice : SHIFT_LABELS[key]; }
+const PAY_KEYS = ["amount", "pay_base", "billed_total", "pay_ffs", "ffs_billed", "shadow_pct", "pay_shadow", "pay_travel", "pay_stipend", "expense_reimbursed"];
+const BILLING_KEYS = ["patients_ohip", "billed_ohip", "patients_ifhp", "billed_ifhp", "patients_wsib", "billed_wsib",
+                      "patients_private", "pay_other"];
+function billingPayers() { const f = shiftForm(); return (f && f.billing) || []; }
 const PAID_KEYS = ["amount", "pay_base", "pay_ffs", "pay_shadow", "pay_travel", "pay_stipend", "pay_other"];
 const HOUR_KEYS = ["hours", "travel_hours", "patients", "period"];
 
@@ -1855,22 +1860,86 @@ function buildShiftForm(f) {
     rest.append(h("div", { class: "group" }, box));
     const asks = pl.asks || ["hours"];
     const section = (title, hint, keys, open) => {
-      const rows = keys.map(k => { const nf = numField(k, vals[k], setVal); inputs[k] = nf.input; return nf.el; });
+      const rows = keys.map(k => { const nf = numField(k, vals[k], setVal, payLabel(k, pl.value)); inputs[k] = nf.input; return nf.el; });
       if (!rows.length) return null;
       return h("details", { class: "more glass", open: open || keys.some(k => vals[k]) },
         h("summary", {}, h("span", {}, title, " ", h("span", { class: "hint", text: hint })), icon("chevR")), h("div", { class: "fields" }, rows));
     };
     const hk = HOUR_KEYS.filter(k => asks.includes(k));
-    const pk = PAY_KEYS.filter(k => k !== "amount" && asks.includes(k)).concat(["amount"]);
+    const pk = PAY_KEYS.filter(k => k !== "amount" && k !== "billed_total" && asks.includes(k)).concat(["amount"]);
     const later = VIEW.corrects ? "" : "Now, or later from Your shifts";
-    moreBox.append(section(hk.includes("patients") ? "Hours and patients" : "Hours", later || "Optional", hk, !!VIEW.details));
-    moreBox.append(section("Pay", later || "Optional", pk, !!VIEW.details));
+    moreBox.append(section(hk.includes("patients") ? "What you did" : "Hours", hk.includes("patients") ? "Hours, and how many you saw" : (later || "Optional"), hk, !!VIEW.details));
+    moreBox.append(billingSection(pl, asks));
+    moreBox.append(section("What it paid", later || "Optional", pk, !!VIEW.details));
     const note = h("textarea", { id: "f-shift-note", name: "note", maxlength: 500, rows: 2, placeholder: "Anything to add" });
     note.value = vals.note || "";
     note.addEventListener("input", () => setVal("note", note.value));
     moreBox.append(h("div", { class: "fields glass" }, h("div", { class: "field" }, h("label", { for: "f-shift-note" }, "Note", h("span", { class: "opt", text: "optional" })), note)));
     if (focus && motionOK()) { rest.classList.add("fadein"); moreBox.classList.add("fadein"); }
   }
+  function billingSection(pl, asks) {
+    const payers = billingPayers().filter(p => (!p.places.length || p.places.includes(pl.value))
+                                                && asks.includes(p.patients) && asks.includes(p.amount));
+    if (!payers.length) return null;
+    const used = payers.filter(p => vals[p.patients] || vals[p.amount]);
+    const billsHimself = pl.value === "bochner" || pl.value === "endoscopy";
+    const wrap = h("details", { class: "more glass billing", open: !!used.length || billsHimself || !!VIEW.details });
+    const tot = h("div", { class: "billtot" });
+    const lines = h("div", { class: "billlines" });
+    const sync = () => {
+      clear(tot);
+      let pats = 0, billed = 0, any = false;
+      for (const p of payers) {
+        const raw = String(vals[p.amount] || "").trim();
+        const n = Number(String(vals[p.patients] || "").replace(/[^\d.-]/g, "")), m = raw ? money(raw) : null;
+        if (!isNaN(n) && n) { pats += n; any = true; }
+        if (m !== null) { billed += m; any = true; }
+      }
+      const seen = Number(String(vals.patients || "").replace(/[^\d.-]/g, ""));
+      if (!any && !seen) { tot.hidden = true; return; }
+      tot.hidden = false;
+      const over = seen && pats > seen;
+      const bits = [];
+      if (seen) bits.push(h("span", { text: `${seen} seen` }), h("span", { class: "sep", text: "\u00b7" }));
+      bits.push(h("b", { class: over ? "warn" : "", text: `${pats} billed by you` }));
+      if (billed) bits.push(h("span", { class: "sep", text: "\u00b7" }), h("b", { text: fmt$(billed) }));
+      tot.append(...bits);
+      if (over) tot.append(h("div", { class: "small warn", text: `You billed ${pats} but saw ${seen}. Check the counts \u2014 it sends either way.` }));
+      const typedTot = String(vals.billed_total || "").trim() ? money(vals.billed_total) : null;
+      if (typedTot !== null && billed && Math.abs(typedTot - billed) > 0.005)
+        tot.append(h("div", { class: "small warn", text: `The payers add to ${fmt$(billed)}, and you typed ${fmt$(typedTot)}. Check which is right \u2014 it sends either way.` }));
+    };
+    for (const p of payers) {
+      const line = h("div", { class: "billline" });
+      const who = h("span", { class: "who", text: p.label });
+      const np = h("input", { type: "text", inputmode: "numeric", maxlength: 4, class: "pt", "aria-label": `${p.full}: patients`, placeholder: "\u2013" });
+      const na = h("input", { type: "text", inputmode: "decimal", maxlength: 12, class: "amt", "aria-label": `${p.full}: submitted`, placeholder: "$" });
+      np.value = vals[p.patients] || ""; na.value = vals[p.amount] || "";
+      np.addEventListener("input", () => { setVal(p.patients, np.value.trim()); sync(); });
+      na.addEventListener("input", () => { setVal(p.amount, na.value.trim()); sync(); });
+      na.addEventListener("blur", () => { const n = money(na.value); if (na.value.trim() && n !== null) { na.value = n.toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); } });
+      inputs[p.patients] = np; inputs[p.amount] = na;
+      line.append(who, np, na);
+      lines.append(line);
+    }
+    if (inputs.patients) inputs.patients.addEventListener("input", sync);
+    const totalRow = asks.includes("billed_total")
+      ? numField("billed_total", vals.billed_total, (k, v) => { setVal(k, v); sync(); }, "Total submitted, if you know it another way")
+      : null;
+    if (totalRow) {
+      inputs.billed_total = totalRow.input;
+      totalRow.input.placeholder = "Leave blank to add up the payers above";
+    }
+    wrap.append(h("summary", {}, h("span", {}, "What you billed", " ",
+      h("span", { class: "hint", text: billsHimself ? "Who each patient's care was billed to" : "Only a patient you billed yourself" })), icon("chevR")),
+      h("div", { class: "fields" }, tot, lines,
+        h("p", { class: "foot", text: billsHimself ? "How many patients went to each, and what you submitted for them."
+                                                   : `${pl.label} bills for the rest and pays you a share back, so leave those out.` }),
+        totalRow ? totalRow.el : null));
+    sync();
+    return wrap;
+  }
+
   function shiftCombo(pl, mine, value) {
     const s2 = site ? site.value : "";
     const here = (pl.shifts_by_site || {})[s2] || [];
@@ -3960,7 +4029,7 @@ function sweepOldAtStart() {
   sweepOld();
 }
 
-const WORKPAY_RES = new Set(["paid-by", "partly-paid", "write-off", "resubmitted", "not-owed"]);
+const WORKPAY_RES = new Set(["paid-by", "partly-paid", "write-off", "resubmitted", "not-owed", "paid-amount"]);
 const PART_ORDER = ["base", "shadow", "travel", "expense", "stipend", "ohip", "private", "invoice"];
 const STATUS_WORDS = { "paid": "Paid", "settled": "Settled", "waiting": "Waiting", "waiting (amount not yet known)": "Waiting, amount not known yet",
   "waiting (bank statement not filed)": "Waiting for the bank statement", "overdue": "Overdue", "short": "Paid short", "rejected": "Rejected by OHIP",
@@ -4037,7 +4106,7 @@ function workOwed() {
     const sec = h("section", { class: "section" }, h("h2", { text: "Needs you" }));
     const ul = h("div", { class: "list glass" });
     for (const i of chase.concat(ask)) ul.append(issueRow(i));
-    sec.append(ul, h("p", { class: "foot", text: "Tap one to say what happened: it was paid by this deposit, partly paid, rejected, resubmitted, or not owed. Your answer is the match." }));
+    sec.append(ul, h("p", { class: "foot", text: "Tap one to say what happened: it was paid by this deposit, partly paid, rejected, resubmitted, not owed, or paid an amount you type. Your answer is the match." }));
     out.append(sec);
   } else {
     out.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "Nothing is overdue and nothing needs explaining." })));
@@ -4180,6 +4249,7 @@ function workpayAnswer(i) {
     acts.push({ label: "Rejected: write it off", run: () => send("write-off", {}, "Rejected; written off.") });
     acts.push({ label: "I resubmitted it", run: () => startForm("answer", { question: i.id, resolution: "resubmitted", answer: "Resubmitted." }, "work") });
     acts.push({ label: "Not owed", run: () => send("not-owed", {}, "Not owed.") });
+    acts.push({ label: "It was paid \u2014 let me type the amount", run: () => startForm("answer", { question: i.id, resolution: "paid-amount", answer: "Paid; the amount is typed." }, "work") });
   }
   acts.push({ label: "Something else: type it", run: () => startForm("answer", { question: i.id }, "work") });
   sheet(prettyDates(i.text), "", acts, "Not now");
