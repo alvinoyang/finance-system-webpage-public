@@ -374,6 +374,8 @@ details.fold[open] > summary .when-closed, details.fold:not([open]) > summary .w
 .meter .mseg.rest, .sw2.rest { background: rgba(118, 124, 140, .22); }
 .meter .mseg.faint, .sw2.faint { opacity: .42; }
 .sw2 { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
+.sw2.owed { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink-3); }
+.row .amt.owed { color: var(--ink-2); }
 .spendbar { display: grid; gap: 7px; }
 .spendbar .sw2.s1, .meter .s1.planned { opacity: .55; }
 .meter .mseg.s1.planned { opacity: 1; background: repeating-linear-gradient(115deg, var(--c1) 0 5px, transparent 5px 10px), var(--fill); }
