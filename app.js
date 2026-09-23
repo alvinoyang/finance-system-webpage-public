@@ -415,7 +415,7 @@ const KINDS = {
   expense: { name: "Paid it myself", desc: "Cash, your own card, a split bill", icon: "receipt", color: "green", group: "often" },
   income: { name: "Income received", desc: "Pay, OHIP, a stipend, a refund", icon: "income", color: "purple", group: "often" },
   bankvisit: { name: "Monthly banking", desc: "Download, pay yourself and CRA, sweep", icon: "bank", color: "orange", group: "often",
-               help: "Step 4 of your one day a month. Tick the two payments once the money has left chequing, type what each card still owes and the chequing balance you see, and the amount to send to Questrade is worked out below. Steps 1 to 3 are on Today." },
+               help: "Step 4 of your one day a month. Once the two payments are sent (nothing to tick), type what each card still owes and the chequing balance you see, and the amount to send to Questrade is worked out below. Steps 1 to 3 are on Today." },
   registered: { name: "TFSA, RRSP or FHSA", desc: "Money in or out", icon: "vault", color: "blue", group: "sometimes" },
   reading: { name: "A reading", desc: "Odometer, an account's value", icon: "gauge", color: "gray", group: "sometimes" },
   card: { name: "A credit card change", desc: "Opened, bonus, fee, closed", icon: "card", color: "gray", group: "sometimes" },
@@ -1079,7 +1079,7 @@ function renderSitting() {
     : `Not yet: do step 2 first. The two lines below are last month's figures, and this month's may differ. Pay only what ${mon}'s own calculation says. Then, out of corporate chequing, ${how}`, pay));
   const visa = (pd.cards || []).find(c => c.id === "visa"), amex = (pd.cards || []).find(c => c.id === "amex");
   const cardWords = (visa ? `The corporate Visa: ${visa.note}. ` : "") + (amex ? `The Amex: ${amex.note}. ` : "");
-  p.append(step(4, "Log the day, send the sweep", stateOf(4), `${cardWords}Then, on the form: tick the two payments once the money has left chequing, type what each card still owes (that money is kept back in chequing) and the chequing balance you see, and the amount to send to Questrade appears: the sweep, what is left once the payments, the cards, the bills due before the next banking day and a cushion are kept back. Send that amount from corporate chequing as a bill payment to Questrade, the corporation's cash account, then type it in the last box.`,
+  p.append(step(4, "Log the day, send the sweep", stateOf(4), `${cardWords}Then, on the form: once the two payments are sent (nothing to tick), type what each card still owes (that money is kept back in chequing) and the chequing balance you see, and the amount to send to Questrade appears: the sweep, what is left once the payments, the cards, the bills due before the next banking day and a cushion are kept back. Send that amount from corporate chequing as a bill payment to Questrade, the corporation's cash account, then type it in the last box.`,
     pd.logged ? h("p", { class: "foot", text: `Logged ${dayName(pd.logged.date, { day: "numeric", month: "long" })}` + (money(pd.logged.sweep) ? `: ${fmt$(pd.logged.sweep)} sent to Questrade.` : ".") })
               : h("button", { class: "btn primary wide", type: "button", onclick: () => startForm("bankvisit", null, "today") }, "Log monthly banking")));
   if ((pd.year_end || []).length) {
@@ -1360,7 +1360,7 @@ const LAYOUT = {
   ],
   bankvisit: [
     { keys: [["date"]] },
-    { h: "What you paid", foot: "Tick each only once the money has left chequing.", keys: [["paid"]] },
+    { h: "What you paid", foot: "Taken as paid once you have sent them in the bank: nothing to tick. Your pay leaves chequing at once; CRA's payment leaves the next business day, so the chequing balance you see today still holds it, and it is kept back below.", keys: [["paid"]] },
     { h: "The cards, kept back", foot: cardsFoot, keys: [["visa_owing"], ["amex_owing"]] },
     { h: "Then", keys: [["balance"]] },
     { sweep: true },
@@ -1426,17 +1426,10 @@ function buildForm(f) {
       inp = h("div", { id, class: "ticks" });
       const items = (SNAP && SNAP.payday && SNAP.payday.items) || [];
       for (const it of items) {
-        const on = Array.isArray(v) && v.includes(it.id);
         const isEst = (it.basis || "").startsWith("estimate");
-        const b = h("button", { class: "tick", type: "button", role: "checkbox", "aria-checked": String(on), "data-id": it.id },
+        const b = h("button", { class: "tick", type: "button", role: "checkbox", "aria-checked": "true", "aria-disabled": "true", disabled: true, "data-id": it.id,
+                                title: it.leaves && it.leaves.at_once ? "Taken as paid: it leaves chequing at once" : "Taken as paid: it leaves chequing later, so it is kept back from the sweep" },
           h("span", { class: "title" }, it.what, isEst ? h("span", { class: "chip orange tick-chip", text: "estimate" }) : null), h("span", { class: "amt num muted", text: it.amount ? (isEst ? "about " + fmtWhole$(Math.round(money(it.amount))) : fmt$(it.amount)) : "full balance" }), h("span", { class: "box" }, icon("check")));
-        b.addEventListener("click", () => {
-          const on = b.getAttribute("aria-checked") !== "true";
-          b.setAttribute("aria-checked", String(on));
-          if (on) { const bal = form.querySelector('[name="balance"]'); if (bal && String(bal.value || "").trim()) form.dataset.staleBalance = "1"; }
-          else if (!form.querySelector('.tick[aria-checked="true"]')) delete form.dataset.staleBalance;
-          updateSweep(form);
-        });
         inp.append(b);
       }
       inputs[fld.key] = inp; wraps[fld.key] = inp;
@@ -1506,7 +1499,7 @@ function buildForm(f) {
       else if (fld.key === "shadow_pct") wrap.append(h("div", { class: "money" }, inp, h("span", { text: "%", "aria-hidden": "true" })));
       else if (fld.key !== "shadow_pct") wrap.append(inp);
       if (fld.key === "balance" || fld.key === "visa_owing" || fld.key === "amex_owing")
-        inp.addEventListener("input", () => { if (fld.key === "balance") delete form.dataset.staleBalance; updateSweep(form); });
+        inp.addEventListener("input", () => { updateSweep(form); });
       if (fld.type === "money") inp.addEventListener("blur", () => { const n = money(inp.value); if (inp.value.trim() && n !== null) inp.value = n.toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); });
     }
     if (fld.type === "money" && hintOf(fld)) wrap.append(h("span", { class: "small muted", text: hintOf(fld).replace(/^./, c => c.toUpperCase()) }));
@@ -2150,14 +2143,14 @@ function updateSweep(form) {
   clear(box);
   const typed = name => { const el = form.querySelector(`[name="${name}"]`); const s = el ? String(el.value || "").trim() : ""; return s ? money(s) : null; };
   const bal = typed("balance");
-  const ticked = new Set(Array.from(form.querySelectorAll('.tick[aria-checked="true"]')).map(x => x.dataset.id));
+  const gone = it => !!(it.leaves && it.leaves.at_once);
   const shortly = w => w.split(/[:;.]\s|, | about | for the /)[0].split(/[:;]/)[0];
   const lines = [];
   const isEst = it => (it.basis || "").startsWith("estimate");
   const reserve = (pd.reserve || []).filter(r => !r.due || r.due >= todayISO());
-  const estOpen = pd.items.filter(it => !ticked.has(it.id) && money(it.amount) && isEst(it)).concat(reserve.filter(r => money(r.amount) && isEst(r)));
+  const estOpen = pd.items.filter(it => !gone(it) && money(it.amount) && isEst(it)).concat(reserve.filter(r => money(r.amount) && isEst(r)));
   const itemName = w => { const m = /^Pay [^:]+: (?:the )?(.*)$/.exec(w); return m ? m[1].replace(/^./, c => c.toUpperCase()) : shortly(w); };
-  for (const it of pd.items) if (!ticked.has(it.id) && money(it.amount)) lines.push([itemName(it.what) + ", not ticked yet", money(it.amount), isEst(it)]);
+  for (const it of pd.items) if (!gone(it) && money(it.amount)) lines.push([itemName(it.what) + ", sent but still in the balance (it leaves chequing the next business day)", money(it.amount), isEst(it)]);
   const cardsOpen = [];
   for (const c of (pd.cards || [])) {
     const v = typed(c.field);
@@ -2169,8 +2162,9 @@ function updateSweep(form) {
   box.append(h("h3", { text: "What to send to Questrade" }));
   if (/not yet approved/i.test(pd.rule || "")) box.append(h("p", { class: "small muted", text: "A suggestion only: the plan it follows (pay everything first, send the rest, keep a cushion) is still waiting for your yes." }));
   if (!pd.ready) box.append(h("p", { class: "small warnline", text: "Step 2 is not done: the two payments above are last month's figures, so the amount worked out here will change. Do not send anything to Questrade until steps 2 and 3 are done." }));
-  if (bal === null) { delete form.dataset.staleBalance; box.append(h("p", { class: "small muted", text: "Type the chequing balance above, and the amount to send is worked out here." })); return; }
-  if (form.dataset.staleBalance) box.append(h("p", { class: "small warnline", text: "You ticked a payment after typing the chequing balance, so the balance above is the one from before that money left. Look at your bank again and type the balance it shows now, or the amount worked out here will be too big." }));
+  if (bal === null) { box.append(h("p", { class: "small muted", text: "Type the chequing balance above, and the amount to send is worked out here." })); return; }
+  const goneNow = pd.items.filter(it => gone(it) && money(it.amount));
+  if (goneNow.length) box.append(h("p", { class: "small warnline", text: `Taken as already out of the balance above: ${goneNow.map(it => itemName(it.what).replace(/^./, c => c.toLowerCase()) + ", " + fmt$(it.amount)).join(" and ")}, which leaves chequing at once. Type the balance after you have sent it, or the amount worked out here is too big by that much.` }));
   box.append(h("div", { class: "line" }, h("span", { text: "Chequing balance" }), h("span", { class: "amt", text: fmt$(bal) })));
   box.append(h("div", { class: "sh", text: "Kept back" }));
   let left = bal;
@@ -2189,9 +2183,9 @@ function updateSweep(form) {
     wait ? h("span", { class: "v num rounded", text: "once the card balances are typed" })
          : h("span", { class: "est-wrap" }, h("span", { class: "v num rounded" + (approx ? " approx" : ""), text: (approx ? "about " + fmtWhole$(shown) : fmt$(v)) }))));
   if (approx) {
-    const unpaidEst = pd.items.filter(it => !ticked.has(it.id) && money(it.amount) && isEst(it));
+    const unpaidEst = pd.items.filter(it => !gone(it) && money(it.amount) && isEst(it));
     box.append(h("p", { class: "small muted", text: "Some amounts kept back are estimates, so this is approximate and rounded down." +
-      (unpaidEst.length ? ` Tick ${unpaidEst.map(it => "the " + itemName(it.what).toLowerCase()).join(" and ")} once paid, and it gets closer.` : "") }));
+      (unpaidEst.length ? ` ${unpaidEst.map(it => "The " + itemName(it.what).toLowerCase()).join(" and ")} becomes exact once this month's calculation is read (step 2).` : "") }));
   }
   if (wait) box.append(h("p", { class: "small muted", text: `Type the ${cardNames} above (0 if nothing is owing). The amount to send appears then.` }));
   else if (v > 0 && !pd.ready) box.append(h("p", { class: "small muted", text: "Once step 2 is done and this page has the month's own figures, a button here puts the amount in the box below." }));
