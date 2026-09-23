@@ -995,7 +995,8 @@ function visitCard() {
     h("span", { class: "when", text: dayName(iso, { weekday: "short", day: "numeric", month: "long" }) }),
     h("span", { class: "in", text: rel(iso) }),
     h("span", { class: "chev-go", "aria-hidden": "true" }, icon("chevR"))));
-  if (passed) c.append(h("p", { class: "foot warnline", text: "This visit's date has passed and the MacBook has not updated since: the next one is worked out when it does." }));
+  if (pd.late) c.append(h("p", { class: "foot warnline", text: "The day has passed and this month's banking is not finished yet: it stays here until the calculation is read and the day is recorded (step 4)." }));
+  else if (passed) c.append(h("p", { class: "foot warnline", text: "This visit's date has passed and the MacBook has not updated since: the next one is worked out when it does." }));
   for (const m of (pd.missed || [])) c.append(h("p", { class: "foot warnline", text: `${m}'s banking day has no payroll calculation on record: was it done? If the PDF exists, put it in the Inbox.` }));
   if (known.length) {
     const what = months.length === 1 ? `to pay for ${months[0]}` : "to pay";
@@ -2552,18 +2553,21 @@ function summaryCorp() {
   if (cmc) g.append(cmc);
   else { const cm = ov("corp_market");
          if (cm) g.append(figCard(cm, { hero: true, series: S.corp_market, onOpen: () => openTrendOf("corp_market"), meta: [deltaOf(S.corp_market, "corp_market")] })); }
+  const made = corpPartsCard();
+  if (made) { out.append(balance(g), made); }
+  const g2 = made ? h("div", { class: "figs" }) : g;
   const inc = ov("income");
   const exp = ((SNAP && SNAP.income) || {}).expected;
-  if (inc) g.append(figCard(inc, { label: inc.label.replace("Income into the corporation", "Income"), series: S.income, onOpen: () => openView({ type: "income" }),
+  if (inc) g2.append(figCard(inc, { label: inc.label.replace("Income into the corporation", "Income"), series: S.income, onOpen: () => openView({ type: "income" }),
     meta: [h("span", { class: "asof" }, exp ? h("span", { class: "expect" }, h("span", { class: "bd estimate", "aria-hidden": "true" }), `About ${compact(money(exp.total), "$")} expected by Dec 31`) : (incomeVsLastYear() || "Every year, by month"))] }));
   const wh = ov("work_hours"), pph = ov("pay_per_hour");
   const lagNote = o => daysFrom(o.mgh_through || o.as_of) < -35 ? `MGH counted to ${monthDay(o.mgh_through || o.as_of)}` : "";
-  if (wh) g.append(figCard(wh, { label: wh.label.replace(/ · .*/, ""), value: wholeValue(wh.value) + " h", series: S.work_hours, onOpen: () => openView({ type: "work", metric: "hours" }),
+  if (wh) g2.append(figCard(wh, { label: wh.label.replace(/ · .*/, ""), value: wholeValue(wh.value) + " h", series: S.work_hours, onOpen: () => openView({ type: "work", metric: "hours" }),
     meta: [h("span", { class: "asof", text: lagNote(wh) || "By year, by place" })] }));
   if (pph) {
     const wc = withCommute() && pph.value_incl_travel;
     const from = commuteFrom(pph.travel_source);
-    g.append(figCard(pph, { label: pph.label.replace(/ · .*/, ""), value: wholeValue(wc ? pph.value_incl_travel : pph.value) + "/h",
+    g2.append(figCard(pph, { label: pph.label.replace(/ · .*/, ""), value: wholeValue(wc ? pph.value_incl_travel : pph.value) + "/h",
       basis: wc ? pph.basis_incl_travel : pph.basis, series: wc && S.pay_per_hour_incl_travel ? S.pay_per_hour_incl_travel : S.pay_per_hour,
       why: whyLines(wc ? Object.assign({}, pph, { note: pph.note_incl_travel || pph.note }) : pph).concat(wc ? [`With the commute: the round trip to each shift counts as time worked. The commute part is ${from || "not known"}.`,
                                       `Without it, ${wholeValue(pph.value)}/h.`]
@@ -2573,10 +2577,10 @@ function summaryCorp() {
                " · " + ([lagNote(pph), (wc ? pph.note_incl_travel : pph.note)].filter(Boolean).join(" · ") || "By year, by place and site"))] }));
   }
   const rm = ov("remit");
-  if (rm) g.append(figCard(rm, { series: S.remit, onOpen: () => openTrendOf("remit"), meta: [h("span", { class: "asof", text: "Due by the 15th of the next month" })] }));
+  if (rm) g2.append(figCard(rm, { series: S.remit, onOpen: () => openTrendOf("remit"), meta: [h("span", { class: "asof", text: "Due by the 15th of the next month" })] }));
   const tx = ov("tax_left");
-  if (tx) g.append(figCard(tx, { label: "Tax instalments left this year", meta: [h("span", { class: "asof", text: tx.note || "As planned" })] }));
-  out.append(balance(g));
+  if (tx) g2.append(figCard(tx, { label: "Tax instalments left this year", meta: [h("span", { class: "asof", text: tx.note || "As planned" })] }));
+  out.append(balance(g2));
   const cards = [["invest", "Their value, and what they cost", ["invest_market", "invest_cost"]]].filter(c => c[2].every(k => S[k]));
   if (cards.length) {
     const sec = h("section", { class: "section" }, h("h2", { text: "Investments" }));
@@ -2601,6 +2605,28 @@ function summaryCorp() {
     out.append(sec);
   }
   return out;
+}
+
+function corpPartsCard() {
+  const C = ((SNAP && SNAP.networth) || {}).corp_parts;
+  if (!C || !(C.parts || []).length) return null;
+  const total = money(C.total), held = C.parts.filter(pt => money(pt.value) > 0);
+  const share = v => { const p = v / total * 100; return (Math.abs(p) < 1 ? p.toFixed(1) : String(Math.round(p))) + "%"; };
+  const swatch = pt => { const i = held.indexOf(pt); return i >= 0 ? "sw2 s" + (i % 3) : "sw2 owed"; };
+  const rows = h("div", { class: "list flat" }, C.parts.map(pt => {
+    const v = money(pt.value);
+    return h("div", { class: "row plain legendrow2" },
+      h("span", { class: "main" }, h("span", { class: "title" }, h("span", { class: swatch(pt) }), pt.label),
+        h("span", { class: "meta", text: v < 0 ? "Owed, and taken off" : share(v) })),
+      h("span", { class: "amt" + (v < 0 ? " owed" : ""), text: (v < 0 ? "−" : "") + fmtWhole$(Math.round(Math.abs(v))) }));
+  }));
+  const why = [`At ${prettyDates(C.date)}, the corporation's latest month-end with a bank and a Questrade statement.`,
+               "Questrade at market, with its cash, from its statement; the chequing account from its statement; money that left chequing for Questrade and had not yet arrived; less what the corporation owed on its Visa, from the statement that covers that day.",
+               "Together they make the corporation's figure above. Before the tax paid to take money out of the corporation."];
+  return h("section", { class: "section" }, h("h2", {}, "Breakdown", basisDot(C.label, why)),
+    h("div", { class: "card glass splitcard corpparts" },
+      meter(held.map((pt, i) => ({ value: money(pt.value), cls: "s" + (i % 3), label: pt.label }))), rows,
+      h("p", { class: "foot", text: `At ${prettyDates(C.date)}, its latest month-end.` })));
 }
 
 const ACCOUNTS = [["qt-tfsa", "TFSA"], ["qt-rrsp", "RRSP"], ["qt-fhsa", "FHSA"]];
