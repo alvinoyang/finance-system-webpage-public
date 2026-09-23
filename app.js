@@ -1341,7 +1341,10 @@ function summaryOf(e) {
 function cardsFoot() {
   const cards = (SNAP && SNAP.payday && SNAP.payday.cards) || [];
   const each = cards.map(c => `${c.name}: ${c.note}.`).join(" ");
-  return "Type what each card's screen says it still owes; that money is kept back in chequing. "
+  const filled = cards.filter(c => c.statement && c.statement.balance).map(c => c.name);
+  return (filled.length ? `${filled.join(" and ")}: filled in from ${filled.length > 1 ? "their" : "its"} latest statement. ` : "")
+    + (filled.length < cards.length ? "Type what each other card's screen says it still owes. " : "")
+    + "That money is kept back in chequing. "
     + (each || "The Visa pays itself in the first days of next month, so its balance stays in chequing.");
 }
 const LAYOUT = {
@@ -1414,7 +1417,11 @@ function buildForm(f) {
   const errors = h("div", { class: "errors", role: "alert", hidden: true });
   form.append(errors);
 
-  const initial = fld => pre[fld.key] !== undefined ? pre[fld.key] : (fld.type === "date" ? todayISO() : "");
+  const cardOf = key => ((SNAP && SNAP.payday && SNAP.payday.cards) || []).find(c => c.field === key);
+  const fromStatement = key => { const c = cardOf(key); return c && c.statement && c.statement.balance ? c.statement : null; };
+  const initial = fld => pre[fld.key] !== undefined ? pre[fld.key]
+    : (fld.type === "date" ? todayISO() : (f.kind === "bankvisit" && fromStatement(fld.key)
+        ? Number(fromStatement(fld.key).balance).toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ""));
   let inMore = false;
   const fieldEl = fld => {
     const id = `f-${f.kind}-${fld.key}`;
@@ -1502,7 +1509,9 @@ function buildForm(f) {
         inp.addEventListener("input", () => { updateSweep(form); });
       if (fld.type === "money") inp.addEventListener("blur", () => { const n = money(inp.value); if (inp.value.trim() && n !== null) inp.value = n.toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); });
     }
-    if (fld.type === "money" && hintOf(fld)) wrap.append(h("span", { class: "small muted", text: hintOf(fld).replace(/^./, c => c.toUpperCase()) }));
+    const st = f.kind === "bankvisit" ? fromStatement(fld.key) : null;
+    if (st) wrap.append(h("span", { class: "small muted", text: `Filled in from the statement closing ${dayName(st.date, { day: "numeric", month: "long" })}: ${fmt$(st.balance)}. Change it if the card's screen says otherwise.` }));
+    else if (fld.type === "money" && hintOf(fld)) wrap.append(h("span", { class: "small muted", text: hintOf(fld).replace(/^./, c => c.toUpperCase()) }));
     inputs[fld.key] = inp; wraps[fld.key] = wrap;
     return wrap;
   };
