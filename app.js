@@ -997,6 +997,7 @@ function visitCard() {
     h("span", { class: "chev-go", "aria-hidden": "true" }, icon("chevR"))));
   if (pd.late) c.append(h("p", { class: "foot warnline", text: "The day has passed and this month's banking is not finished yet: it stays here until the calculation is read and the day is recorded (step 4)." }));
   else if (passed) c.append(h("p", { class: "foot warnline", text: "This visit's date has passed and the MacBook has not updated since: the next one is worked out when it does." }));
+  if (pd.warning) c.append(h("p", { class: "foot warnline", text: pd.warning }));
   for (const m of (pd.missed || [])) c.append(h("p", { class: "foot warnline", text: `${m}'s banking day has no payroll calculation on record: was it done? If the PDF exists, put it in the Inbox.` }));
   if (known.length) {
     const what = months.length === 1 ? `to pay for ${months[0]}` : "to pay";
@@ -1557,6 +1558,20 @@ function buildForm(f) {
       const val = String(inp.value || "").trim();
       if (val) out[fld.key] = val;
     }
+    if (f.kind === "bankvisit" && VIEW && VIEW.corrects && pre && pre.paid) {
+      out.paid = pre.paid;
+      if (pre.amounts) out.amounts = pre.amounts; else delete out.amounts;
+      if (pre.estimated) out.estimated = pre.estimated; else delete out.estimated;
+    } else if (f.kind === "bankvisit" && out.paid) {
+      const items = (SNAP && SNAP.payday && SNAP.payday.items) || [], amounts = {}, est = [];
+      for (const it of items) {
+        if (!out.paid.includes(it.id) || !it.amount) continue;
+        amounts[it.id] = money(it.amount).toFixed(2);
+        if ((it.basis || "").startsWith("estimate")) est.push(it.id);
+      }
+      if (Object.keys(amounts).length) out.amounts = amounts;
+      if (est.length) out.estimated = est;
+    }
     if (f.kind === "answer" && pre && WORKPAY_RES.has(String(pre.resolution || ""))) {
       out.resolution = pre.resolution;
       if (pre.deposit && !out.deposit) out.deposit = pre.deposit;
@@ -1636,6 +1651,10 @@ function buildForm(f) {
     const priv = privateIn(fields, f.fields);
     if (priv) { problems.push(PRIVATE_MSG); if (wraps[priv] && wraps[priv].classList) wraps[priv].classList.add("bad"); }
     if (problems.length) { errors.textContent = problems.join(". ") + "."; errors.hidden = false; window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+    if (f.kind === "bankvisit") {
+      const c = collect();
+      for (const k of ["paid", "amounts", "estimated"]) { if (c[k]) fields[k] = c[k]; else delete fields[k]; }
+    }
     sentAlready = true; clearTimeout(draftTimer);
     DRAFT_NOW = null;
     const d = load("drafts", {}); delete d[dkey]; save("drafts", d);
@@ -2152,14 +2171,15 @@ function updateSweep(form) {
   clear(box);
   const typed = name => { const el = form.querySelector(`[name="${name}"]`); const s = el ? String(el.value || "").trim() : ""; return s ? money(s) : null; };
   const bal = typed("balance");
-  const gone = it => !!(it.leaves && it.leaves.at_once);
+  const beforeDay = pd.visit && todayISO() < pd.visit;
+  const gone = it => !beforeDay && !!(it.leaves && it.leaves.at_once);
   const shortly = w => w.split(/[:;.]\s|, | about | for the /)[0].split(/[:;]/)[0];
   const lines = [];
   const isEst = it => (it.basis || "").startsWith("estimate");
   const reserve = (pd.reserve || []).filter(r => !r.due || r.due >= todayISO());
   const estOpen = pd.items.filter(it => !gone(it) && money(it.amount) && isEst(it)).concat(reserve.filter(r => money(r.amount) && isEst(r)));
   const itemName = w => { const m = /^Pay [^:]+: (?:the )?(.*)$/.exec(w); return m ? m[1].replace(/^./, c => c.toUpperCase()) : shortly(w); };
-  for (const it of pd.items) if (!gone(it) && money(it.amount)) lines.push([itemName(it.what) + ", sent but still in the balance (it leaves chequing the next business day)", money(it.amount), isEst(it)]);
+  for (const it of pd.items) if (!gone(it) && money(it.amount)) lines.push([itemName(it.what) + (beforeDay ? `, due at the sitting on ${shortDate(pd.visit)}` : ", sent but still in the balance (it leaves chequing the next business day)"), money(it.amount), isEst(it)]);
   const cardsOpen = [];
   for (const c of (pd.cards || [])) {
     const v = typed(c.field);
@@ -2389,7 +2409,7 @@ function openTrendOf(id) {
 function householdNow() {
   const nw = (SNAP && SNAP.networth) || {};
   if (nw.now) return { date: nw.now.date, total: money(nw.now.household), corp: money(nw.now.corporation), pers: money(nw.now.personal),
-                       since: money(nw.now.personal_since), from: nw.now.personal_from, basis: "estimate", corpBasis: nw.now.corporation_label, note: nw.now.note, est: true };
+                       since: money(nw.now.personal_since), from: nw.now.personal_from, basis: nw.now.basis || "estimate", corpBasis: nw.now.corporation_label, note: nw.now.note, est: nw.now.basis !== "verified" };
   if (nw.household) return { date: nw.date, total: money(nw.household), corp: money(nw.corporation), pers: money(nw.personal), since: 0, from: nw.date,
                              basis: "recorded", corpBasis: nw.corporation_label, est: false };
   return null;
@@ -2413,7 +2433,8 @@ function summaryTotal() {
     basis: (S.net_worth || {}).basis, why: householdWhy(n),
     foot: "The corporation whole and your TFSA, RRSP and FHSA. Not the car, the condo or your personal chequing account.",
     meta: [up !== null ? h("span", { class: "delta", text: `${up >= 0 ? "Up" : "Down"} ${compact(Math.abs(up), "$")} since ${prettyDates(nw.date)}.` }) : null,
-           n.since ? h("span", { class: "asof", text: `Plus ${fmtWhole$(Math.round(n.since))} put in since, which no statement covers yet.` }) : null,
+           n.since ? h("span", { class: "asof", text: n.since > 0 ? `Plus ${fmtWhole$(Math.round(n.since))} put in since, which no statement covers yet.`
+                                                               : `Less ${fmtWhole$(Math.round(-n.since))} taken out since, net, which no statement covers yet.` }) : null,
            h("span", { class: "asof", text: "Before the tax paid to take money out of the corporation." })] });
   if (tmc) g.append(tmc);
   else {
@@ -2557,7 +2578,7 @@ function summaryCorp() {
   else { const cm = ov("corp_market");
          if (cm) g.append(figCard(cm, { hero: true, series: S.corp_market, onOpen: () => openTrendOf("corp_market"), meta: [deltaOf(S.corp_market, "corp_market")] })); }
   const made = corpPartsCard();
-  if (made) { out.append(balance(g), made); }
+  if (made) { out.append(balance(g), made); const mv = bankingDaySection(); if (mv) out.append(mv); }
   const g2 = made ? h("div", { class: "figs" }) : g;
   const inc = ov("income");
   const exp = ((SNAP && SNAP.income) || {}).expected;
@@ -2630,6 +2651,83 @@ function corpPartsCard() {
     h("div", { class: "card glass splitcard corpparts" },
       meter(held.map((pt, i) => ({ value: money(pt.value), cls: "s" + (i % 3), label: pt.label }))), rows,
       h("p", { class: "foot", text: `At ${prettyDates(C.date)}, its latest month-end.` })));
+}
+
+const MOVE_STATE = {
+  arrived: { word: "On the statement", cls: "off" },
+  paid: { word: "Paid", cls: "off" },
+  left: { word: "On its way", cls: "ok" },
+  waiting: { word: "Waiting for the statement", cls: "unk" },
+  late: { word: "Not on the statement", cls: "act" },
+  explained: { word: "Explained", cls: "off" },
+};
+const MOVE_ORDER = { late: 0, left: 1, waiting: 2, explained: 3, arrived: 4, paid: 4 };
+function moveMeta(m) {
+  const month = iso => new Date(iso + "T12:00:00").toLocaleString("en-CA", { month: "long" });
+  const today = new Date().toLocaleDateString("en-CA");      // his own day (en-CA is YYYY-MM-DD), not UTC's
+  const doc = m.to === "cra-rp" ? "CRA's account" : "the statement";
+  const from = m.from === "scotia-corp-chq" && m.kind !== "sweep" ? "the corporation" : "chequing";
+  return m.status === "arrived"
+      ? `Sent ${monthDay(m.sent)}${m.arrived_on !== m.sent ? `, in ${doc} ${monthDay(m.arrived_on)}` : `, in ${doc} the same day`}`
+    : m.status === "paid" ? `Sent ${monthDay(m.sent)}, left ${from} ${monthDay(m.left_on)}`
+    : m.status === "left" ? `Sent ${monthDay(m.sent)}, left ${from} ${monthDay(m.left_on)}`
+    : m.status === "explained" ? `Sent ${monthDay(m.sent)}, explained`
+    : m.status === "late" ? `Sent ${monthDay(m.sent)}; ${m.to === "cra-rp" ? "CRA's account since does" : "the statements filed since do"} not show it`
+    : m.filed_to && m.filed_to >= m.expected_by ? `Sent ${monthDay(m.sent)}; not in ${m.to === "cra-rp" ? "CRA's account" : "the statements"} to ${monthDay(m.filed_to)}; the next will show it if it landed late`
+    : m.expected_by < today ? `Sent ${monthDay(m.sent)}; ${m.to === "cra-rp" ? "CRA's next download" : `${month(m.expected_by)}'s statement`} will show it`
+    : `Sent ${monthDay(m.sent)}, should land by ${monthDay(m.expected_by)}`;
+}
+const MOVE_SHORT = { arrived: "Landed", paid: "Paid", left: "On its way", waiting: "Waiting", late: "Not shown", explained: "Explained" };
+const MOVE_CRA = { arrived: "At CRA", waiting: "Waiting", late: "Not at CRA" };
+function moveRow(m, title, short) {
+  const base = MOVE_STATE[m.status] || { word: m.status, cls: "ok" };
+  const s = short ? { cls: base.cls, word: (m.to === "cra-rp" && MOVE_CRA[m.status]) || MOVE_SHORT[m.status] || base.word } : base;
+  return h("div", { class: "row plain" },
+    h("span", { class: "main" }, h("span", { class: "title", text: title }), h("span", { class: "meta", text: moveMeta(m) })),
+    h("span", { class: "est-wrap" }, h("span", { class: "cchip " + s.cls, text: s.word }),
+      basisDot(m.label, [m.note + ".", `Logged in ${m.source}.`])));
+}
+function movesSection(accts, title, nowName, rowName) {
+  const M = (SNAP && SNAP.moves) || {};
+  const mine = (M.moves || []).filter(m => accts.includes(m.to) || accts.includes(m.from));
+  if (!mine.length) return null;
+  const nowRow = accts.map(a => (M.now || {})[a]).find(Boolean);
+  const shown = mine.slice().reverse().sort((x, y) => (MOVE_ORDER[x.status] ?? 4) - (MOVE_ORDER[y.status] ?? 4)).slice(0, 8);
+  const rows = shown.map(m => moveRow(m, `${fmtWhole$(Math.round(money(m.amount)))} ${accts.includes(m.to) ? "into" : "out of"} ${rowName}`));
+  const weakest = shown.every(m => m.label === "verified") ? "verified" : "recorded";
+  const sec = h("section", { class: "card glass" },
+    h("div", { class: "ftop" }, h("h3", { text: title }),
+      basisDot(weakest, ["What was logged the day it was sent, matched to the statement that later shows it: the same amount to the cent, within the business days that route has taken before. A row not yet on a statement rests on the log alone.",
+                            `Worked out on the MacBook: ${plainSource(M.source || "")}.`])),
+    h("div", { class: "list flat" }, rows));
+  if (nowRow && Number(nowRow.moves_since) > 0) sec.append(nowLine(nowRow, nowName));
+  return sec;
+}
+
+const BANKING_KINDS = { sweep: "to Questrade", netpay: "to you, net pay", remittance: "to CRA, payroll" };
+function bankingDaySection() {
+  const M = (SNAP && SNAP.moves) || {};
+  const mine = (M.moves || []).filter(m => BANKING_KINDS[m.kind]);
+  if (!mine.length) return null;
+  const shown = mine.slice().reverse().sort((x, y) => (MOVE_ORDER[x.status] ?? 4) - (MOVE_ORDER[y.status] ?? 4)).slice(0, 9);
+  const rows = shown.map(m => moveRow(m, `${fmtWhole$(Math.round(money(m.amount)))} ${BANKING_KINDS[m.kind]}`, true));
+  const weakest = shown.every(m => m.label === "verified") ? "verified" : shown.some(m => m.label === "estimate") ? "estimate" : "recorded";
+  const sec = h("section", { class: "card glass" },
+    h("div", { class: "ftop" }, h("h3", { text: "Sent on the banking day" }),
+      basisDot(weakest, ["What you sent on each banking day, as logged that day, matched to what later shows it: the Questrade statement for the sweep, CRA's payroll account for its payment, your chequing statement for your pay, and the corporation's chequing for each leaving. A row not yet shown rests on the log alone.",
+                          `Worked out on the MacBook: ${plainSource(M.source || "")}.`])),
+    h("div", { class: "list flat" }, rows));
+  const nowRow = (M.now || {})["qt-corp-cash"];
+  if (nowRow && Number(nowRow.moves_since) > 0) sec.append(nowLine(nowRow, "The Questrade account alone"));
+  return sec;
+}
+function nowLine(nowRow, nowName) {
+  return h("div", { class: "list flat" }, h("div", { class: "row plain" },
+    h("span", { class: "main" }, h("span", { class: "title", text: `${nowName}, about now` }),
+      h("span", { class: "meta", text: `${fmtWhole$(Math.round(money(nowRow.statement_value)))} at ${prettyDates(nowRow.statement_date)}`
+        + (money(nowRow.on_its_way) ? `, ${fmtWhole$(Math.round(money(nowRow.on_its_way)))} then on its way to it` : "") + ", and what was sent since" })),
+    h("span", { class: "est-wrap" }, h("span", { class: "amt", text: fmtWhole$(Math.round(money(nowRow.now))) }),
+      basisDot(nowRow.now_label, [nowRow.note + "."]))));
 }
 
 const ACCOUNTS = [["qt-tfsa", "TFSA"], ["qt-rrsp", "RRSP"], ["qt-fhsa", "FHSA"]];
@@ -2992,9 +3090,11 @@ function renderAccount() {
     const lv = vs[vs.length - 1];
     p.append(h("div", { class: "list glass" },
       h("div", { class: "row plain" }, h("span", { class: "main" }, h("span", { class: "title", text: `Value at ${prettyDates(lv[0])}` }),
-        h("span", { class: "meta", text: vs.length > 1 ? `${fmtWhole$(Math.round(vs[vs.length - 2][1]))} a year before` : "" })),
+        h("span", { class: "meta", text: vs.length > 1 ? `${fmtWhole$(Math.round(vs[vs.length - 2][1]))} at ${prettyDates(vs[vs.length - 2][0])}` : "" })),
         h("span", { class: "est-wrap" }, h("span", { class: "amt", text: fmtWhole$(Math.round(lv[1])) }), basisDot(lv[2], [String(lv[2] || "").startsWith("verified") ? "From this account's own Questrade statement." : "A value you read off Questrade and sent from this page."])))));
   }
+  const mv = movesSection([a], "Money you sent, and what the statement shows", `Your ${acct.name}`, `the ${acct.name}`);
+  if (mv) p.append(mv);
   p.append(h("button", { class: "btn tinted wide", type: "button", onclick: () => startForm("registered", { account: a, direction: "contribution" }) }, `Record money into or out of your ${acct.name}`));
   p.append(h("p", { class: "foot", text: `${plainSource(src)}.${SNAP.registered.values_source ? " " + plainSource(SNAP.registered.values_source) + "." : ""} Last row ${acct.last_row ? prettyDates(acct.last_row) : "none"}. What you send from this page is counted as soon as the MacBook has it.` }));
   return p;
