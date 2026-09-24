@@ -1075,9 +1075,10 @@ function renderSitting() {
   const pay = h("div", { class: "visit glass" }, visitItemsEl(pd));
   const own = `your personal chequing account${pd.net_pay_to ? ` (ending ${pd.net_pay_to})` : ""}`;
   const how = `in this order: the net pay as a transfer to ${own}, then the remittance to CRA as a Government Tax Payment of the type Federal payroll deductions (the payroll account).`;
+  const plan = pd.savings_plan && pd.savings_plan.amount ? ` Then, from your own chequing, ${fmt$(pd.savings_plan.amount)} to the savings you share with Gloria; the form fills it in, so clear it there if you did not send it.` : "";
   p.append(step(3, "Pay yourself, then CRA", stateOf(3), pd.ready
-    ? `From corporate chequing, ${how} The two cards are step 4's, not this step's.`
-    : `Not yet: do step 2 first. The two lines below are last month's figures, and this month's may differ. Pay only what ${mon}'s own calculation says. Then, out of corporate chequing, ${how}`, pay));
+    ? `From corporate chequing, ${how}${plan} The two cards are step 4's, not this step's.`
+    : `Not yet: do step 2 first. The two lines below are last month's figures, and this month's may differ. Pay only what ${mon}'s own calculation says. Then, out of corporate chequing, ${how}${plan}`, pay));
   const visa = (pd.cards || []).find(c => c.id === "visa"), amex = (pd.cards || []).find(c => c.id === "amex");
   const cardWords = (visa ? `The corporate Visa: ${visa.note}. ` : "") + (amex ? `The Amex: ${amex.note}. ` : "");
   p.append(step(4, "Log the day, send the sweep", stateOf(4), `${cardWords}Then, on the form: once the two payments are sent (nothing to tick), type what each card still owes (that money is kept back in chequing) and the chequing balance you see, and the amount to send to Questrade appears: the sweep, what is left once the payments, the cards, the bills due before the next banking day and a cushion are kept back. Send that amount from corporate chequing as a bill payment to Questrade, the corporation's cash account, then type it in the last box.`,
@@ -1369,6 +1370,7 @@ const LAYOUT = {
     { h: "Then", keys: [["balance"]] },
     { sweep: true },
     { keys: [["sweep"]] },
+    { h: "From your own chequing", foot: "The month's transfer to the savings account you share with Gloria. Clear it if you did not send it.", keys: [["savings"]] },
     { keys: [["note"]] },
   ],
   answer: [{ keys: [["question"]] }, { keys: [["answer"]] }],
@@ -1420,8 +1422,12 @@ function buildForm(f) {
 
   const cardOf = key => ((SNAP && SNAP.payday && SNAP.payday.cards) || []).find(c => c.field === key);
   const fromStatement = key => { const c = cardOf(key); return c && c.statement && c.statement.balance ? c.statement : null; };
+  const plan = (SNAP && SNAP.payday && SNAP.payday.savings_plan) || {};
+  const pdS = (SNAP && SNAP.payday) || {};
+  const sittingDay = !pdS.logged && (!pdS.visit || todayISO() >= pdS.visit);
   const initial = fld => pre[fld.key] !== undefined ? pre[fld.key]
-    : (fld.type === "date" ? todayISO() : (f.kind === "bankvisit" && fromStatement(fld.key)
+    : (f.kind === "bankvisit" && fld.key === "savings" && !VIEW.corrects && plan.amount && sittingDay ? Number(plan.amount).toFixed(2)
+    : fld.type === "date" ? todayISO() : (f.kind === "bankvisit" && fromStatement(fld.key)
         ? Number(fromStatement(fld.key).balance).toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ""));
   let inMore = false;
   const fieldEl = fld => {
@@ -2704,7 +2710,7 @@ function movesSection(accts, title, nowName, rowName) {
   return sec;
 }
 
-const BANKING_KINDS = { sweep: "to Questrade", netpay: "to you, net pay", remittance: "to CRA, payroll" };
+const BANKING_KINDS = { sweep: "to Questrade", netpay: "to you, net pay", remittance: "to CRA, payroll", savings: "to savings, from your chequing" };
 function bankingDaySection() {
   const M = (SNAP && SNAP.moves) || {};
   const mine = (M.moves || []).filter(m => BANKING_KINDS[m.kind]);
@@ -2728,6 +2734,28 @@ function nowLine(nowRow, nowName) {
         + (money(nowRow.on_its_way) ? `, ${fmtWhole$(Math.round(money(nowRow.on_its_way)))} then on its way to it` : "") + ", and what was sent since" })),
     h("span", { class: "est-wrap" }, h("span", { class: "amt", text: fmtWhole$(Math.round(money(nowRow.now))) }),
       basisDot(nowRow.now_label, [nowRow.note + "."]))));
+}
+
+function personalCashCard() {
+  const C = (SNAP && SNAP.cash) || {};
+  if (!C.chequing && !C.savings) return null;
+  const rows = [];
+  if (C.chequing) rows.push(h("div", { class: "row plain" },
+    h("span", { class: "main" }, h("span", { class: "title", text: "Your chequing" }), h("span", { class: "meta", text: `At its statement of ${prettyDates(C.chequing.date)}` })),
+    h("span", { class: "est-wrap" }, h("span", { class: "amt", text: fmtWhole$(Math.round(money(C.chequing.balance))) }),
+      basisDot(C.chequing.label, ["The closing balance on your chequing account's last statement, filed and read on the MacBook."]))));
+  if (C.savings) rows.push(h("div", { class: "row plain" },
+    h("span", { class: "main" }, h("span", { class: "title", text: "Savings, with Gloria" }), h("span", { class: "meta", text: `To ${prettyDates(C.savings.date)}, from its list` })),
+    h("span", { class: "est-wrap" }, h("span", { class: "amt", text: fmtWhole$(Math.round(money(C.savings.balance))) }),
+      basisDot(C.savings.label, ["Worked out: the bank's list for this account prints no balance, so it is every transaction since it opened, added up. Each month's interest is checked against it, which a missing transaction would upset."]))));
+  const act = (C.savings && C.savings.activity) || [];
+  const sec = h("section", { class: "card glass" },
+    h("div", { class: "ftop" }, h("h3", { text: "Chequing and savings" }),
+      basisDot(C.savings ? C.savings.label : C.chequing.label, ["Your own chequing, from its statements, and the savings account you share with Gloria, from its list.", `Worked out on the MacBook: ${plainSource(C.source || "")}.`])),
+    h("div", { class: "list flat" }, rows));
+  if (act.length) sec.append(h("p", { class: "foot", text: `Since the savings opened on ${prettyDates(C.savings.opened)}: `
+    + act.map(a => `${fmtWhole$(Math.round(Math.abs(money(a.amount))))} ${a.what}`).join(", ") + "." }));
+  return sec;
 }
 
 const ACCOUNTS = [["qt-tfsa", "TFSA"], ["qt-rrsp", "RRSP"], ["qt-fhsa", "FHSA"]];
@@ -2826,16 +2854,19 @@ function summaryPersonal() {
                                                    : since < 0 ? `${fmtWhole$(Math.round(-since))} more has come out than gone in since the statements. ` : "")
                                                    + (withRoom.length ? `${y} is counted${tabTo ? " to " + monthDay(tabTo) : ""}, from your Registered Contributions tab${withRoom.some(([a]) => (regOf(a).waiting || []).length) ? " and this page" : ""}.` : "") })] }));
   }
+  const cash = personalCashCard();
+  let g2 = g;
+  if (cash) { out.append(balance(g), cash); g2 = h("div", { class: "figs" }); }
   const sal = ov("salary");
-  if (sal && sal.rrsp_target) g.append(salaryCard(sal, S));
-  else if (sal) g.append(figCard(sal, { label: sal.label.replace("Salary paid", "Your salary"), series: S.salary, onOpen: () => openTrendOf("salary"),
+  if (sal && sal.rrsp_target) g2.append(salaryCard(sal, S));
+  else if (sal) g2.append(figCard(sal, { label: sal.label.replace("Salary paid", "Your salary"), series: S.salary, onOpen: () => openTrendOf("salary"),
     meta: [h("span", { class: "asof", text: "Before tax and deductions" })] }));
   const sp = ov("spending");
   const spendable = ((SNAP && SNAP.spending) || {}).months;
-  if (sp) g.append(figCard(sp, { label: "What you spend a month", onOpen: spendable ? () => openView({ type: "spending" }) : null,
+  if (sp) g2.append(figCard(sp, { label: "What you spend a month", onOpen: spendable ? () => openView({ type: "spending" }) : null,
     meta: [h("span", { class: "asof", text: spendable ? "Average of recent months · where it goes" : "Average of recent months, now rent is gone" })] }));
-  const car = vehicleCard(); if (car) g.append(car);
-  out.append(balance(g));
+  const car = vehicleCard(); if (car) g2.append(car);
+  out.append(balance(g2));
   return out;
 }
 
