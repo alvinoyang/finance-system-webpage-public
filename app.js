@@ -2768,9 +2768,9 @@ function owedByCorpCard() {
   const shown = mine.slice().reverse().sort((x, y) => (order[x.status] ?? 4) - (order[y.status] ?? 4)).slice(0, 6);
   const rows = shown.map(m => {
     const base = MOVE_STATE[m.status] || { cls: "ok" };
-    const cur = (String(m.source || "").match(/\(([A-Z]{3})\)$/) || [])[1];
+    const cur = (String(m.source || "").match(/\(in ([A-Z]{3})\)$/) || [])[1];
     const what = String(m.source || "").replace(/^ledger\/corp-expenses\.csv: /, "").replace(/^the year tab's \d{4}-\d{2}: /, "")
-      .replace(/^the web page: /, "").replace(/ \([A-Z]{3}\)$/, "");
+      .replace(/^the web page: /, "").replace(/ \(in [A-Z]{3}\)$/, "");
     const amt = cur ? `${money(m.amount).toFixed(2)} ${cur}` : fmt$(money(m.amount));
     return h("div", { class: "row plain" },
       h("span", { class: "main" }, h("span", { class: "title", text: `${amt} ${what}` }),
