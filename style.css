@@ -172,6 +172,7 @@ body.in-form main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 .alert .t { font-weight: 650; }
 .alert .d { font-size: .9rem; color: var(--ink-2); }
 .alert .acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.readflag .acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
 .alert details { font-size: .85rem; color: var(--ink-2); }
 .alert details summary { cursor: pointer; color: var(--accent); font-weight: 500; list-style: none; }
 .alert details summary::-webkit-details-marker { display: none; }
