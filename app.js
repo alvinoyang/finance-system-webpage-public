@@ -2466,7 +2466,8 @@ function summaryTotal() {
       h("div", { class: "list flat" },
         row("s0", "Corporation", `${pct(n.corp)} · at market, ${monthDay(n.date)}`, n.corp, n.corpBasis,
             [`At ${prettyDates(n.date)}.`, "Its investments and chequing, plus money on its way from chequing to Questrade, less what it owes on its Visa.", "Before the tax paid to take money out of the corporation, and before a payroll remittance still to be paid."], "corporation"),
-        row("s1", "TFSA, RRSP, FHSA", persSub, n.pers, n.since ? "estimate" : nw.personal_label,
+        row("s1", "TFSA, RRSP, FHSA", persSub, n.pers, n.since ? "estimate" : Object.entries(((SNAP.networth || {}).now || {}).personal_dates || {}).some(([a, d]) =>
+              ((regOf(a) || {}).values || []).some(v => v[0] === d && basisOf(v[2]) !== "verified")) ? "recorded" : nw.personal_label,
             [oneDate ? `Their values at ${prettyDates(n.from)}, from each account's own Questrade statement (or a reading you sent from this page).`
                      : `Each at its latest value: ${Object.entries(((SNAP.networth || {}).now || {}).personal_dates || {}).map(([a, d]) => `${({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[a]} ${monthDay(d)}`).join(", ")}, from each account's own Questrade statement (or a reading you sent from this page).`,
              n.since ? `Plus ${fmtWhole$(Math.round(n.since))} you put in between then and ${prettyDates(n.date)}, from your Registered Contributions tab and this page. How their investments moved since is not known until the next statements, so this is an estimate.` : ""], "personal"))),
@@ -2758,6 +2759,58 @@ function personalCashCard() {
   return sec;
 }
 
+const OWED_WORDS = { arrived: "Paid back", paid: "Paid back", left: "On its way", waiting: "Owed", late: "Not paid back", explained: "Explained" };
+function owedByCorpCard() {
+  const M = (SNAP && SNAP.moves) || {};
+  const mine = (M.moves || []).filter(m => m.kind === "owed");
+  if (!mine.length) return null;
+  const order = { late: 0, waiting: 1, left: 2, explained: 3, arrived: 4, paid: 4 };
+  const shown = mine.slice().reverse().sort((x, y) => (order[x.status] ?? 4) - (order[y.status] ?? 4)).slice(0, 6);
+  const rows = shown.map(m => {
+    const base = MOVE_STATE[m.status] || { cls: "ok" };
+    const cur = (String(m.source || "").match(/\(([A-Z]{3})\)$/) || [])[1];
+    const what = String(m.source || "").replace(/^ledger\/corp-expenses\.csv: /, "").replace(/^the year tab's \d{4}-\d{2}: /, "")
+      .replace(/^the web page: /, "").replace(/ \([A-Z]{3}\)$/, "");
+    const amt = cur ? `${money(m.amount).toFixed(2)} ${cur}` : fmt$(money(m.amount));
+    return h("div", { class: "row plain" },
+      h("span", { class: "main" }, h("span", { class: "title", text: `${amt} ${what}` }),
+        h("span", { class: "meta", text: m.left_on ? `Paid ${monthDay(m.sent)}, paid back ${monthDay(m.left_on)}` : `Paid ${monthDay(m.sent)}` })),
+      h("span", { class: "est-wrap" }, h("span", { class: "cchip " + (m.status === "waiting" ? "unk" : base.cls),
+                                                   text: m.status === "late" && m.left_on ? "Not arrived" : OWED_WORDS[m.status] || m.status }),
+        basisDot(m.label, [m.note + "."])));
+  });
+  const total = money(M.owed_total || 0);
+  const labels = shown.map(m => m.label).concat(M.owed_label ? [M.owed_label] : []);
+  const weakest = labels.includes("estimate") ? "estimate" : labels.every(l => l === "verified") ? "verified" : "recorded";
+  return h("section", { class: "card glass" },
+    h("div", { class: "ftop" }, h("h3", { text: "Expenses you paid, not yet paid back" }),
+      basisDot(weakest, ["What you paid for the corporation yourself, from your receipts and the page, and the corporation's transfer that paid it back, as your chequing or the savings shows it arriving. It is due the day you paid.",
+                          "Not the shareholder loan on the balance sheet, which is a car allowance and the card's cash back."])),
+    h("p", { class: "foot", text: (() => {
+      const nf = Number(M.owed_foreign || 0), each = nf === 1 ? "one expense" : `${nf} expenses`;
+      if (!nf) return total > 0 ? `${fmt$(total)} owed to you now.` : "Nothing owed to you now.";
+      return (total > 0 ? `${fmt$(total)} owed to you now, and ${each}` : `Owed to you now: ${each}`)
+        + " in another currency, its dollars known when it is paid back.";
+    })() }),
+    h("div", { class: "list flat" }, rows));
+}
+
+function readingFlagCard(f) {
+  const name = ({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[f.account] || f.account;
+  const what = ({ "qt-tfsa": "tfsa-value", "qt-rrsp": "rrsp-value", "qt-fhsa": "fhsa-value" })[f.account];
+  const exp = String(f.expected || "").split(" to ").map(x => fmtWhole$(Math.round(money(x))));
+  const text = `${fmtWhole$(Math.round(money(f.value)))} is far from what your statements say, about ${exp.join(" to ")}. Mistyped? Correct it. `
+    + "If it is right (a market fall, or money moved that was not logged), tap It is right. Until then the figures above leave it out.";
+  return h("section", { class: "card glass readflag" },
+    h("div", { class: "ftop" }, h("h3", { text: `Your ${name} reading of ${monthDay(f.date)} looks mistyped` }),
+      basisDot("recorded", ["What you typed on this page, checked against your Questrade statements.",
+                            "It is left out of the figures above until you correct it or say it is right."])),
+    h("p", { class: "foot", text }),
+    h("div", { class: "acts" },
+      h("button", { class: "btn tinted", type: "button", onclick: () => startCorrect({ kind: "reading", id: f.entry, fields: { what, date: f.date, value: f.value }, summary: `${name} ${f.value}` }, "numbers") }, "Correct it"),
+      h("button", { class: "btn gray", type: "button", onclick: () => submit("answer", { question: "reading-" + f.entry, answer: "The reading is right.", resolution: "reading-right" }, "", "Marked right.") }, "It is right")));
+}
+
 const ACCOUNTS = [["qt-tfsa", "TFSA"], ["qt-rrsp", "RRSP"], ["qt-fhsa", "FHSA"]];
 function regOf(a) { return (SNAP && SNAP.registered && SNAP.registered.accounts && SNAP.registered.accounts[a]) || null; }
 function leftBasis(acct) { return basisOf(acct.room_basis) === "estimate" ? "estimate" : "recorded"; }
@@ -2818,9 +2871,10 @@ function salaryCard(sal, S) {
 function summaryPersonal() {
   const out = h("div", { class: "page" }), S = (SNAP && SNAP.series) || {};
   const g = h("div", { class: "figs" });
+  const pmLast = (((S.personal_market || {}).points) || []).slice(-1)[0];
   const pmc = moneyCard({ worth: "personal_market", put: "put_in_personal", label: "Your registered accounts",
                           nets: true,
-                          foot: "Your TFSA, RRSP and FHSA. Not the car, and not cash." });
+                          foot: (pmLast ? `At ${prettyDates(pmLast[0])}, from the statements. ` : "") + "Your TFSA, RRSP and FHSA. Not the car, and not cash." });
   if (pmc) g.append(pmc);
   const vals = ACCOUNTS.map(([a, n]) => [a, n, lastValue(regOf(a))]).filter(x => x[2]);
   const tabTo = ACCOUNTS.map(([a]) => (regOf(a) || {}).last_row || "").sort().pop();
@@ -2845,18 +2899,26 @@ function summaryPersonal() {
         icon("chevR"));
     }));
     const since = ACCOUNTS.reduce((s2, [a]) => s2 + (money((regOf(a) || {}).since_value) || 0), 0);
-    g.append(figCard({ label: "Your registered accounts", basis: vals[0][2][2] },
+    const rank = ["verified", "derived", "measured", "recorded", "estimate"];
+    const weakestVal = vals.map(x => basisOf(x[2][2]) || "recorded").sort((p, q) => rank.indexOf(q) - rank.indexOf(p))[0];
+    const anyReading = vals.some(x => basisOf(x[2][2]) !== "verified");
+    g.append(figCard({ label: "Your registered accounts", basis: weakestVal },
       { hero: true, label: same ? `Each account, ${prettyDates(at)}` : "Each account, latest values", value: fmtWhole$(Math.round(total)),
         why: [same ? `At ${prettyDates(at)}.` : "Each at its latest value: " + vals.map(([a, n, v]) => `${n} ${prettyDates(v[0])}`).join(", ") + ".",
               "From each account's own Questrade statement, or a value you read off Questrade and sent from this page (Add › A reading)."],
         body: h("div", {}, meter(vals.map(([a, n, v], i) => ({ value: v[1], cls: "s" + i, label: n }))), rows),
-        meta: [h("span", { class: "asof", text: (since > 0 ? `${fmtWhole$(Math.round(since))} more has gone in since the statements. `
-                                                   : since < 0 ? `${fmtWhole$(Math.round(-since))} more has come out than gone in since the statements. ` : "")
+        meta: [h("span", { class: "asof", text: (since > 0 ? `${fmtWhole$(Math.round(since))} more has gone in since ${anyReading ? "these values" : "the statements"}. `
+                                                   : since < 0 ? `${fmtWhole$(Math.round(-since))} more has come out than gone in since ${anyReading ? "these values" : "the statements"}. ` : "")
                                                    + (withRoom.length ? `${y} is counted${tabTo ? " to " + monthDay(tabTo) : ""}, from your Registered Contributions tab${withRoom.some(([a]) => (regOf(a).waiting || []).length) ? " and this page" : ""}.` : "") })] }));
   }
+  const flags = ((SNAP.registered || {}).reading_flags || []).map(readingFlagCard);
+  const owedCard = owedByCorpCard();
   const cash = personalCashCard();
   let g2 = g;
-  if (cash) { out.append(balance(g), cash); g2 = h("div", { class: "figs" }); }
+  if (cash || owedCard || flags.length) {
+    out.append(balance(g)); for (const f of flags) out.append(f);
+    if (cash) out.append(cash); if (owedCard) out.append(owedCard); g2 = h("div", { class: "figs" });
+  }
   const sal = ov("salary");
   if (sal && sal.rrsp_target) g2.append(salaryCard(sal, S));
   else if (sal) g2.append(figCard(sal, { label: sal.label.replace("Salary paid", "Your salary"), series: S.salary, onOpen: () => openTrendOf("salary"),
@@ -2879,7 +2941,8 @@ function vehicleCard() {
     label: V.name, value: Math.round(last.km).toLocaleString("en-CA") + " km",
     why: [`At ${prettyDates(last.date)}.`, `${plainSource(V.source)}.`, V.note],
     onOpen: () => openView({ type: "vehicle" }),
-    meta: [h("span", { class: "asof", text: y ? `${y.km.toLocaleString("en-CA")} km in ${y.year} · ${fmtWhole$(Math.round(money(V.spent)))} of upkeep so far` : `At ${prettyDates(last.date)}` })] });
+    meta: [h("span", { class: "asof", text: (V.held || []).length ? "A reading you sent looks mistyped: open to answer"
+      : y ? `${y.km.toLocaleString("en-CA")} km in ${y.year} · ${fmtWhole$(Math.round(money(V.spent)))} of upkeep so far` : `At ${prettyDates(last.date)}` })] });
 }
 
 
@@ -3260,6 +3323,16 @@ function renderVehicle() {
     sec.append(h("p", { class: "small muted", text: `${bills.length} bills since ${prettyDates(bills[0].date)}. A bill you have not typed on the Vehicle Maintenance tab is not here.` }));
     p.append(sec);
   }
+  for (const x of (V.held || [])) p.append(h("section", { class: "card glass readflag" },
+    h("div", { class: "ftop" }, h("h3", { text: `Your odometer reading of ${monthDay(x.date)} looks mistyped` }),
+      basisDot("recorded", ["What you sent from this page, checked against the reading before it."])),
+    h("p", { class: "foot", text: x.km < x.before
+      ? `${Math.round(x.km).toLocaleString("en-CA")} km cannot follow ${Math.round(x.before).toLocaleString("en-CA")} km on ${prettyDates(x.before_date)}: an odometer only goes up. Correct it; until then it is left out.`
+      : `${Math.round(x.km).toLocaleString("en-CA")} km after ${Math.round(x.before).toLocaleString("en-CA")} km on ${prettyDates(x.before_date)} is ${Math.round(x.km - x.before).toLocaleString("en-CA")} km, far from your usual driving. Mistyped? Correct it. If it is right, tap It is right. Until then it is left out.` }),
+    h("div", { class: "acts" }, h("button", { class: "btn tinted", type: "button",
+      onclick: () => startCorrect({ kind: "reading", id: x.entry, fields: { what: "odometer", date: x.date, value: String(x.km) }, summary: `Odometer ${x.km}` }, "numbers") }, "Correct it"),
+      x.km >= x.before ? h("button", { class: "btn gray", type: "button",
+        onclick: () => submit("answer", { question: "reading-" + x.entry, answer: "The reading is right.", resolution: "reading-right" }, "", "Marked right.") }, "It is right") : null)));
   p.append(h("button", { class: "btn tinted wide", type: "button", onclick: () => startForm("reading", { what: "odometer" }) }, "Send an odometer reading"));
   p.append(h("p", { class: "foot", text: `${plainSource(V.source)}.` }));
   return p;
