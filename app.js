@@ -1108,9 +1108,10 @@ function upcoming() {
       h("span", { class: "dn", text: dt ? String(dt.getDate()) : "" }),
       h("span", { class: "mo", text: dt ? dt.toLocaleDateString("en-CA", { month: "short" }) : "" }));
     if (paidAtVisit(d)) continue;           // it is in the bank visit above, with its amount
-    const cut = d.what.search(/[:;]|\.\s/);
-    const title = cut > 0 ? d.what.slice(0, cut) : d.what;
-    let rest = cut > 0 ? d.what.slice(cut + 1).trim() : "";
+    const what = dropIds(d.what);
+    const cut = what.search(/[:;]|\.\s/);
+    const title = cut > 0 ? what.slice(0, cut) : what;
+    let rest = cut > 0 ? what.slice(cut + 1).trim() : "";
     const via = d.paid_via ? true : /^(already )?paid (by|through) the Chexy charge on the (\d{1,2})(st|nd|rd|th)/i.exec(rest);
     let paid = false, viaNote = "";
     if (via) {
