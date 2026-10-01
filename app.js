@@ -273,22 +273,35 @@ function plural(n, one, many) { return `${n} ${n === 1 ? one : (many || one + "s
 
 function sheet(title, msg, actions, closeLabel) {
   const scrim = h("div", { class: "scrim", role: "dialog", "aria-modal": "true", "aria-label": title });
+  const opener = document.activeElement;
+  let done = false;
   const close = () => {
+    if (done) return; done = true;
     document.removeEventListener("keydown", onKey);
+    if (opener && opener.isConnected && opener.focus) opener.focus({ preventScroll: true });
     if (!motionOK()) { scrim.remove(); return; }
     scrim.classList.add("leaving"); setTimeout(() => scrim.remove(), 200);
   };
-  const onKey = ev => { if (ev.key === "Escape") close(); };
+  const onKey = ev => {
+    if (!scrim.isConnected) { document.removeEventListener("keydown", onKey); return; }   // taken away by the lock
+    if (ev.key === "Escape") close();
+    else if (ev.key === "Tab") {
+      const bs = Array.from(box.querySelectorAll("button")); if (!bs.length) return;
+      const i = bs.indexOf(document.activeElement), n = ev.shiftKey ? (i <= 0 ? bs.length - 1 : i - 1) : (i + 1) % bs.length;
+      ev.preventDefault(); bs[n].focus();
+    }
+  };
   const box = h("div", { class: "sheet" }, h("div", { class: "grab" }), h("h3", { text: title }), msg ? h("p", { class: "msg", text: msg }) : null);
   const acts = h("div", { class: "acts" });
-  for (const a of actions) acts.append(h("button", { class: "btn wide " + (a.kind || "gray"), type: "button", onclick: () => { close(); if (a.run) a.run(); } }, a.label));
-  acts.append(h("button", { class: "btn wide gray", type: "button", onclick: close }, closeLabel || "Cancel"));
+  for (const a of actions) acts.append(h("button", { class: "btn wide " + (a.kind || "gray"), type: "button", onclick: () => { if (done) return; close(); if (a.run) a.run(); } }, a.label));
+  const cancel = h("button", { class: "btn wide gray", type: "button", onclick: close }, closeLabel || "Cancel");
+  acts.append(cancel);
   box.append(acts);
   scrim.append(box);
   scrim.addEventListener("click", ev => { if (ev.target === scrim) close(); });
   document.addEventListener("keydown", onKey);
   document.body.append(scrim);
-  const first = acts.querySelector("button"); if (first) first.focus();
+  const first = (actions[0] && actions[0].kind === "danger") ? cancel : acts.querySelector("button"); if (first) first.focus();
   box.close = close;
   return box;
 }
@@ -312,6 +325,8 @@ async function gh(path, opts = {}) {
   }
   const exp = r.headers.get("github-authentication-token-expiration");
   if (exp) save("expiry", exp);
+  if (r.status === 429 || (r.status === 403 && r.headers.get("x-ratelimit-remaining") === "0"))
+    throw new PageError("error", "GitHub asked the page to wait a little. Your entries are saved; it tries again by itself.");
   if (r.status === 401) throw new PageError("key", "GitHub did not accept this device's key. It may have been deleted or pasted wrongly: make a new one and paste it in Settings.");
   if (r.status === 403 || r.status === 404) throw new PageError("key", "This device's key cannot open your mailbox. It may be missing a permission.",
     "When the key was made, it needed two permissions on your mailbox: to read its files, and to read and write its entries. The web page's instructions on your MacBook show where.");
@@ -337,7 +352,7 @@ async function refresh() {
       gh(repo() + "/contents/webpage-summary.json", { accept: raw }).then(r => r.json()),
       gh(repo() + "/contents/webpage-forms.json", { accept: raw }).then(r => r.json()).catch(() => SCHEMA)
     ]);
-    const issues = await gh(repo() + "/issues?state=open&per_page=100").then(r => r.json());
+    const issues = await gh(repo() + "/issues?state=open&per_page=100").then(r => r.json()).catch(e => e);
     if (gen !== GEN || !MEM) return;                // locked while the answer was on its way
     const was = { snap: SNAP, schema: SCHEMA, waiting: load("waiting", 0), net: NET };
     const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -346,6 +361,12 @@ async function refresh() {
     const staleOf = x => !!(x && hoursSince(x.checked_at) > STALE_HOURS);
     if (s && s.format === "finance-system-webpage-summary" && !same(s, SNAP)) { redraw = !same(bare(s), bare(SNAP)) || staleOf(s) !== staleOf(SNAP); SNAP = s; save("snap", s); }
     if (f && f.forms && !same(f, SCHEMA)) { SCHEMA = f; save("schema", f); redraw = true; }
+    if (issues instanceof Error || !Array.isArray(issues)) {
+      const e = issues instanceof Error ? issues : new PageError("error", "GitHub is not answering just now. Try again in a few minutes.");
+      NET = e.kind || "error"; NET_MSG = e.message; NET_DETAIL = e.detail || "";
+      if (MEM) quietRender();
+      return;
+    }
     const waiting = issues.filter(i => !i.pull_request && typeof i.body === "string" && i.body.indexOf(MARKER) >= 0).length;
     if (waiting !== was.waiting) { save("waiting", waiting); redraw = true; }
     NET = "ok"; NET_MSG = "";
@@ -448,6 +469,11 @@ function openQuestions() {
   return ((SNAP && SNAP.questions) || []).filter(q => !q.answered && !mine.has(q.id))
     .sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999"));
 }
+function heldOpen() {
+  const local = load("outbox", []).concat(load("sent", []).map(x => x.entry)).filter(Boolean);
+  const done = new Set(local.map(e => e.corrects).filter(Boolean));
+  return ((SNAP && SNAP.held) || []).filter(e => !done.has(e.id));
+}
 function answeredHere() {
   const local = load("outbox", []).concat(load("sent", []).map(x => x.entry)).filter(Boolean);
   const gone = new Set(local.filter(e => e.kind === "withdraw").map(e => e.corrects));
@@ -473,7 +499,7 @@ function renderChrome() {
   document.body.classList.toggle("in-form", !!(VIEW && VIEW.type === "form"));
   document.body.classList.toggle("in-settings", !!(VIEW && VIEW.type === "settings"));
   const here = VIEW && VIEW.type === "settings" ? "" : VIEW && VIEW.type === "form" && VIEW.from === "today" && !STACK.length ? "today" : TAB;
-  const needs = ((SNAP && SNAP.held) || []).length + (NET === "key" ? 1 : 0), unsent = load("outbox", []).length;
+  const needs = heldOpen().length + (NET === "key" ? 1 : 0), unsent = load("outbox", []).length;
   for (const b of document.querySelectorAll("#seg button, #tabbar button")) {
     const old = b.querySelector(".tab-badge"); if (old) old.remove();
     const wp = (SNAP && SNAP.work_pay) || {};
@@ -582,7 +608,7 @@ function historyBack(n) {
 }
 const TABS = ["numbers", "work", "today", "add"];
 const TAB_NAME = { today: "Today", add: "Add", work: "Work", numbers: "Summary" };  // what each tab is called, in one place
-let ENTER = "";                // "l" or "r": the side the next page drawn slides in from
+let ENTER = "";                // "l" or "r": the side the next page drawn slides in from; "push" or "pop" a page opened or closed
 function go(tab) {
   saveDraftNow();                               // a tab tapped while a form is open keeps what was typed (r5-page-01)
   const depth = STACK.length + (VIEW ? 1 : 0);
@@ -593,10 +619,12 @@ function go(tab) {
   render(true); window.scrollTo(0, 0);
 }
 function openView(v) {
+  if (v.type === "form" && v.corrects && !v.original && !v.restored) v.original = v.prefill;
   if (VIEW) { VIEW.scroll = window.scrollY; STACK.push(VIEW); }
   VIEW = v;
   if (!ASIDE) try { history.pushState({ view: v.type }, ""); } catch (e) { /* ignore */ }
-  render(true); window.scrollTo(0, 0);
+  ENTER = ENTER || "push";                      // in from the right, as an iPhone's pages are (2026-10-01)
+  render(true); window.scrollTo(0, 0); focusTitle();
 }
 function closeView(fromPop) {
   if (!VIEW) return;
@@ -605,7 +633,13 @@ function closeView(fromPop) {
   VIEW = STACK.pop() || null;
   if (back) TAB = back;
   if (!fromPop) historyBack(1);
-  render(true); window.scrollTo(0, VIEW && VIEW.scroll ? VIEW.scroll : 0);
+  ENTER = ENTER || "pop";
+  render(true); window.scrollTo(0, VIEW && VIEW.scroll ? VIEW.scroll : 0); focusTitle();
+}
+function focusTitle() {
+  if (ASIDE) return;
+  const t = document.querySelector("#main .page .head h1");
+  if (t) { t.tabIndex = -1; t.focus({ preventScroll: true }); }
 }
 function parentName() {
   const under = STACK[STACK.length - 1];
@@ -909,8 +943,8 @@ function attention() {
   if (NET === "key" || NET === "error") out.push(alert("red", "warn", NET === "key" ? "The key needs you" : "GitHub did not answer",
     h("div", { class: "d" }, NET_MSG + " ", NET_DETAIL ? h("details", {}, h("summary", { text: "Details" }), h("div", { text: NET_DETAIL })) : null),
     NET === "key" ? h("button", { class: "btn small tinted", type: "button", onclick: () => openView({ type: "settings" }) }, "Open Settings") : null));
-  if (SNAP && SNAP.held && SNAP.held.length) {
-    for (const e of SNAP.held) {
+  if (heldOpen().length) {
+    for (const e of heldOpen()) {
       out.push(alert("orange", "warn", "Held back: " + prettyDates(e.summary), "It was not added to your books because " + e.reason + ".",
         e.fields ? h("button", { class: "btn small tinted", type: "button", onclick: () => startCorrect(e, "today") }, "Correct it") : null,
         h("button", { class: "btn small gray", type: "button", onclick: () => withdraw(e) }, "Delete it")));
@@ -1101,18 +1135,17 @@ function renderSitting() {
 
 function upcoming() {
   const s = h("section", { class: "section" }, h("h2", { text: "Coming up" }));
-  const due = (SNAP.due || []);
-  if (!due.length) { s.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "Nothing in the next six weeks." }))); return s; }
-  const ul = h("div", { class: "list glass" });
   const visitItems = ((SNAP.payday && SNAP.payday.items) || []).filter(i => i.due && money(i.amount) !== null);
   const paidAtVisit = d => visitItems.some(i => i.due === d.date && money(d.amount) !== null && Math.abs(money(i.amount) - money(d.amount)) < 1);
+  const due = (SNAP.due || []).filter(d => !paidAtVisit(d)).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  if (!due.length) { s.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "Nothing in the next six weeks." }))); return s; }
+  const ul = h("div", { class: "list glass" });
   for (const d of due) {
     const dt = dateOf(d.date);
     const leaf = h("span", { class: "day", "aria-hidden": "true" },
       h("span", { class: "wd", text: dt ? dt.toLocaleDateString("en-CA", { weekday: "short" }) : "" }),
       h("span", { class: "dn", text: dt ? String(dt.getDate()) : "" }),
       h("span", { class: "mo", text: dt ? dt.toLocaleDateString("en-CA", { month: "short" }) : "" }));
-    if (paidAtVisit(d)) continue;           // it is in the bank visit above, with its amount
     const what = dropIds(d.what);
     const cut = what.search(/[:;]|\.\s/);
     const title = cut > 0 ? what.slice(0, cut) : what;
@@ -1227,14 +1260,22 @@ function renderQuestions() {
 
 
 function startForm(kind, prefill, from) {
-  const d = !prefill ? load("drafts", {})[kind] : null;
-  openView({ type: "form", kind, corrects: "", prefill: prefill || d || null, restored: !!d, from: from || "add" });
+  const all = load("drafts", {});
+  const onlyQuestion = kind === "answer" && prefill && prefill.question && Object.keys(prefill).every(k => k === "question");
+  let d = !prefill ? all[kind] : onlyQuestion ? all["answer:" + prefill.question] : null;
+  if (!prefill && kind === "answer" && !d) { const k = Object.keys(all).filter(x => x.startsWith("answer:")).pop(); if (k) d = all[k]; }
+  const visit = SNAP && SNAP.payday && SNAP.payday.visit;
+  const lastSitting = visit && dateOf(visit) ? (todayISO() >= visit ? dateOf(visit) : new Date(dateOf(visit).getFullYear(), dateOf(visit).getMonth() - 1, dateOf(visit).getDate())) : null;
+  if (d && kind === "bankvisit" && lastSitting && d.date && dateOf(d.date) && d.date < isoOf(new Date(lastSitting.getTime() - 3 * 864e5))) {
+    delete all[kind]; save("drafts", all); d = null;
+  }
+  openView({ type: "form", kind, corrects: "", prefill: d || prefill || null, restored: !!d, from: from || "add" });
 }
 
-const draftKeyOf = (kind, corrects) => corrects ? "fix:" + corrects : kind;
+const draftKeyOf = (kind, corrects, question) => corrects ? "fix:" + corrects : kind === "answer" && question ? "answer:" + question : kind;
 function startCorrect(e, from) {
   const d = load("drafts", {})[draftKeyOf(e.kind, e.id)];
-  openView({ type: "form", kind: e.kind, corrects: e.id, prefill: d || e.fields || {}, restored: !!d, label: e.summary, from: from || "add" });
+  openView({ type: "form", kind: e.kind, corrects: e.id, prefill: d || e.fields || {}, original: e.fields || {}, restored: !!d, label: e.summary, from: from || "add" });
 }
 let DRAFT_NOW = null;
 function saveDraftNow() { if (DRAFT_NOW) { const f = DRAFT_NOW; DRAFT_NOW = null; f(); } }
@@ -1251,7 +1292,7 @@ function renderAdd() {
   const all = openQuestions(), rc = all.filter(q => receiptOf(q)).length, qc = all.length - rc;
   const descOf = f => f.kind === "answer" ? (all.length ? [qc ? plural(qc, "question") : "", rc ? plural(rc, "receipt") + " to explain" : ""].filter(Boolean).join(", ") : "None waiting") : (kindOf(f.kind).desc || f.title);
   const drafts = load("drafts", {});
-  const draftTag = f => drafts[f.kind] ? h("span", { class: "chip blue", text: "draft" }) : null;
+  const draftTag = f => drafts[f.kind] || (f.kind === "answer" && Object.keys(drafts).some(x => x.startsWith("answer:"))) ? h("span", { class: "chip blue", text: "draft" }) : null;
   const group = g => forms.filter(f => (kindOf(f.kind).group || "sometimes") === g);
   const tiles = h("div", { class: "tiles" });
   for (const f of group("often")) {
@@ -1452,6 +1493,10 @@ function renderForm() {
   const byPlace = f.kind === "shift" && f.fields.some(x => x.key === "place");   // forms of version 3 or later
   if (byPlace && VIEW.corrects) {
     const pre = VIEW.prefill || {};
+    if (!pre.date && !pre.place && !pre.description) {
+      p.append(head("Not available here yet", "This shift is not in this device's copy of your entries. Pull down to refresh, or try again after the MacBook's next round."));
+      return p;
+    }
     p.append(head(shiftTitle(pre), `${dayName(pre.date, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}. Add or change anything; this version replaces the one you sent, and the record keeps both.`));
     p.append(buildShiftForm(f));
     return p;
@@ -1476,10 +1521,11 @@ function buildForm(f) {
   const plan = (SNAP && SNAP.payday && SNAP.payday.savings_plan) || {};
   const pdS = (SNAP && SNAP.payday) || {};
   const sittingDay = !pdS.logged && (!pdS.visit || todayISO() >= pdS.visit);
-  const initial = fld => pre[fld.key] !== undefined ? pre[fld.key]
-    : (f.kind === "bankvisit" && fld.key === "savings" && !VIEW.corrects && plan.amount && sittingDay ? Number(plan.amount).toFixed(2)
+  const autoOf = fld => !fld ? ""
+    : f.kind === "bankvisit" && fld.key === "savings" && !VIEW.corrects && plan.amount && sittingDay ? Number(plan.amount).toFixed(2)
     : fld.type === "date" ? todayISO() : (f.kind === "bankvisit" && fromStatement(fld.key)
-        ? Number(fromStatement(fld.key).balance).toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ""));
+        ? Number(fromStatement(fld.key).balance).toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "");
+  const initial = fld => (pre._cleared || []).includes(fld.key) ? "" : pre[fld.key] !== undefined ? pre[fld.key] : autoOf(fld);
   let inMore = false;
   const fieldEl = fld => {
     const id = `f-${f.kind}-${fld.key}`;
@@ -1513,11 +1559,14 @@ function buildForm(f) {
           box.append(h("span", { class: "small muted", text: r.problem }), h("span", { class: "q", text: `${r.what}, ${r.amount}, on ${shortDate(r.date)}` }),
             h("span", { class: "small muted", text: "What was it, and how was it paid? If there is a receipt, say where it is." }));
           if (canKeepWithout(cur) && !VIEW.corrects) box.append(h("button", { class: "btn tinted wide", type: "button", onclick: () => {
-            const d = load("drafts", {}); delete d.answer; save("drafts", d);
+            const d = load("drafts", {}); delete d.answer; delete d["answer:" + cur.id]; save("drafts", d);
             keepWithout(cur); closeView();
           } }, "Keep it without a receipt"));
         } else if (cur) box.append(h("span", { class: "small muted", text: cur.due ? "Due " + shortDate(cur.due) : "Question" }), h("span", { class: "q", text: prettyDates(cur.text) }));
-        else box.append(h("span", { class: "q muted", text: "Which question are you answering?" }));
+        else {
+          if (!VIEW.corrects) hidden.value = "";
+          box.append(h("span", { class: "q muted", text: "Which question are you answering?" }));
+        }
         box.append(h("button", { class: "btn small tinted", type: "button", onclick: () => pickQuestion(hidden, draw) }, cur ? "Choose another" : "Choose a question"));
       };
       draw();
@@ -1625,7 +1674,7 @@ function buildForm(f) {
         inp.placeholder = name; inp.setAttribute("aria-label", name);
         wrap.append(inp);
       }
-      if (fld.key === "balance" || fld.key === "visa_owing" || fld.key === "amex_owing")
+      if (f.kind === "bankvisit" && (fld.key === "balance" || cardOf(fld.key)))
         inp.addEventListener("input", () => { updateSweep(form); });
     }
     const st = f.kind === "bankvisit" ? fromStatement(fld.key) : null;
@@ -1667,7 +1716,7 @@ function buildForm(f) {
         h("div", { class: "fields" }, rows)));
     } else {
       form.append(h("div", { class: "group" }, g.h ? h("div", { class: "gh", text: g.h }) : null,
-        isQuestion ? rows : cards(rows), g.foot ? h("div", { class: "gf", text: typeof g.foot === "function" ? g.foot() : g.foot }) : null));
+        isQuestion ? rows : cards(rows), g.foot ? h("div", { class: "gf", text: prettyDates(typeof g.foot === "function" ? g.foot() : g.foot) }) : null));
     }
   }
   const wpRes = f.kind === "answer" ? String((pre || {}).resolution || "") : "";
@@ -1708,12 +1757,22 @@ function buildForm(f) {
   };
   form._collect = collect;
   let draftTimer = null, sentAlready = false;
-  const typedIn = c => Object.keys(c).some(k => k !== "date");
-  const dkey = draftKeyOf(f.kind, VIEW && VIEW.corrects);
+  const AUTO_KEYS = ["date", "paid", "amounts", "estimated", "_cleared", "resolution", "deposit"];
+  const typedIn = c => Object.keys(c).some(k => !AUTO_KEYS.includes(k) && (!byKey[k] || String(c[k]) !== String(autoOf(byKey[k]))))
+    || (c._cleared || []).some(k => autoOf(byKey[k]) !== "");
+  const forDraft = () => {
+    const c = collect(), cleared = [];
+    for (const fld of f.fields) if (inputs[fld.key] && fld.type !== "checklist" && !String(inputs[fld.key].value || "").trim() && autoOf(fld) !== "") cleared.push(fld.key);
+    if (cleared.length) c._cleared = cleared;
+    return c;
+  };
+  let dkey = draftKeyOf(f.kind, VIEW && VIEW.corrects, inputs.question && inputs.question.value);
   const writeDraft = () => {
     clearTimeout(draftTimer);
     if (sentAlready || !form.isConnected) return;
-    const d = load("drafts", {}), c = collect();
+    const d = load("drafts", {}), c = forDraft();
+    const k = draftKeyOf(f.kind, VIEW && VIEW.corrects, inputs.question && inputs.question.value);
+    if (k !== dkey) { delete d[dkey]; dkey = k; }             // the question was changed: the draft moves with it
     if (typedIn(c)) d[dkey] = c; else delete d[dkey];
     save("drafts", d);
   };
@@ -1727,7 +1786,7 @@ function buildForm(f) {
   form.addEventListener("click", ev => { if (ev.target.closest && ev.target.closest(".tick")) keepDraft(); });
   if (VIEW.restored) {
     form.prepend(h("div", { class: "draftbar" }, h("span", { text: "Your unsent draft is back." }),
-      h("button", { class: "link", type: "button", onclick: () => { const d = load("drafts", {}); delete d[dkey]; save("drafts", d); VIEW.prefill = null; VIEW.restored = false; render(true); } }, "Start again")));
+      h("button", { class: "link", type: "button", onclick: () => { const d = load("drafts", {}); delete d[dkey]; save("drafts", d); VIEW.prefill = VIEW.corrects ? (VIEW.original || {}) : null; VIEW.restored = false; render(true); } }, "Start again")));
   }
 
   const syncShowIf = () => {
@@ -1924,7 +1983,7 @@ function buildShiftForm(f) {
   const dkey = draftKeyOf("shift", VIEW && VIEW.corrects);
   if (VIEW.restored) {
     form.append(h("div", { class: "draftbar" }, h("span", { text: "Your unsent draft is back." }),
-      h("button", { class: "link", type: "button", onclick: () => { const d = drafts(); delete d[dkey]; save("drafts", d); VIEW.prefill = null; VIEW.restored = false; render(true); } }, "Start again")));
+      h("button", { class: "link", type: "button", onclick: () => { const d = drafts(); delete d[dkey]; save("drafts", d); VIEW.prefill = VIEW.corrects ? (VIEW.original || {}) : null; VIEW.restored = false; render(true); } }, "Start again")));
   }
   let draftTimer = null, sent = false;
   const writeDraft = () => {
@@ -2131,12 +2190,25 @@ function buildShiftForm(f) {
   };
   form._collect = collect;
 
-  form.append(h("div", { class: "formbar" }, h("button", { class: "btn primary", type: "submit" }, VIEW.corrects ? "Send the change" : "Send")));
+  const sendBtn = h("button", { class: "btn primary", type: "submit" }, VIEW.corrects ? "Send the change" : "Send");
+  form.append(h("div", { class: "formbar" }, sendBtn));
+  const syncReady = () => {
+    const c = collect(), stipend = /stipend/i.test(c.description || "");
+    const missing = !c.place || !c.description || (site && !c.site && !stipend)
+      || ((c.place === "abp" || (c.place === "edlp" && stipend)) && !c.period);
+    sendBtn.classList.toggle("notready", !!missing);
+  };
+  for (const ev of ["input", "change"]) form.addEventListener(ev, syncReady);
+  form.addEventListener("click", () => setTimeout(syncReady, 0));
+  setTimeout(syncReady, 0);
   if (VIEW.corrects) {
     form.append(h("button", { class: "btn danger wide", type: "button", onclick: () => {
       const id = VIEW.corrects, label = VIEW.label;
       sheet("Delete this shift?", `${label}. It comes out of your books; the record keeps a copy, marked as deleted.`,
-        [{ label: "Delete it", kind: "danger", run: () => { submit("withdraw", {}, id); closeView(); } }]);
+        [{ label: "Delete it", kind: "danger", run: () => {
+          sent = true; clearTimeout(draftTimer); DRAFT_NOW = null;
+          const d = drafts(); delete d[dkey]; save("drafts", d);
+          submit("withdraw", {}, id); closeView(); } }]);
     } }, "Delete this shift"));
   }
   form.addEventListener("submit", ev => {
@@ -2156,6 +2228,13 @@ function buildShiftForm(f) {
       if (!/^-?\d{1,7}(\.\d{1,2})?$/.test(v)) bad(inputs[k] && inputs[k].closest(".field"), `${SHIFT_LABELS[k]}: type a number like 18.50`);
       else fields[k] = v;
     }
+    for (const k of BILLING_KEYS) {
+      if (fields[k] === undefined) continue;
+      const v = String(fields[k]).replace(/[,$\s]/g, ""), count = k.startsWith("patients_");
+      const el = inputs[k] && inputs[k].closest ? (inputs[k].closest(".billline") || inputs[k].closest(".field") || inputs[k]) : null;
+      if (count ? !/^\d{1,4}$/.test(v) : !/^\d{1,7}(\.\d{1,2})?$/.test(v)) bad(el, count ? "Patients billed: a whole number, like 12" : "What you submitted: an amount like 2,158.80");
+      else fields[k] = v;
+    }
     const partsSum = PAID_KEYS.slice(1).filter(k => fields[k] !== undefined).reduce((a1, k) => a1 + Number(fields[k]), 0);
     if (fields.amount !== undefined && PAID_KEYS.slice(1).some(k => fields[k] !== undefined) && Math.abs(partsSum - Number(fields.amount)) > 0.01)
       bad(inputs.amount && inputs.amount.closest(".field"), `Total pay is ${fmt$(fields.amount)} but the parts add up to ${fmt$(partsSum)}: leave the total blank, or make them agree`);
@@ -2165,29 +2244,30 @@ function buildShiftForm(f) {
     const st = hasStart ? /\b(\d{2})(\d{2})\b/.exec(fields.description || "") : null;
     if (!problems.length && fields.date > todayISO() && !VIEW.corrects)
       bad(date.closest(".field"), "This shift is dated after today, so the MacBook would hold it. Check the date, or send it once it has started");
+    const askedFor = [fields.date, fields.place, fields.site, fields.description, fields.period].join("|");
     if (!problems.length && fields.date === todayISO() && !VIEW.corrects) {
       const now = new Date(), nowMin = now.getHours() * 60 + now.getMinutes();
       const startMin = st ? +st[1] * 60 + +st[2] : null;
       if (startMin !== null && startMin < 24 * 60 && startMin > nowMin + 60) {
         bad(date.closest(".field"), `This ${st[0]} shift starts more than an hour from now, so the MacBook would hold it. If you worked it last night, tap Yesterday; otherwise send it after it starts`);
-      } else if (startMin === null && /\bcall\b/i.test(fields.description || "") && now.getHours() < 12 && !form._callOk) {
-        form._callOk = true;
+      } else if (startMin === null && /\bcall\b/i.test(fields.description || "") && now.getHours() < 12 && form._callOk !== askedFor) {
+        form._callOk = askedFor;
         bad(date.closest(".field"), "A call sent this morning is usually last night's: tap Yesterday if so; tap Send again to keep today");
       }
     }
-    if (!problems.length && !VIEW.corrects && !form._dupOk && fields.place === "abp" && fields.period) {
+    if (!problems.length && !VIEW.corrects && form._dupOk !== askedFor && fields.place === "abp" && fields.period) {
       const twin = allShifts().find(x => x.fields.place === "abp" && String(x.fields.period || "").slice(0, 7) === String(fields.period).slice(0, 7));
       if (twin) {
-        form._dupOk = true;
+        form._dupOk = askedFor;
         bad(inputs.period && inputs.period.closest(".field"), `ABP is one entry a month, and ${keyLabel(String(fields.period).slice(0, 7), true)} has one already. Open it under Your shifts and change its hours; tap Send again to send this one anyway, and the MacBook will hold it for a check`);
       }
     }
-    if (!problems.length && !VIEW.corrects && !form._dupOk && !/stipend/i.test(fields.description || "") && fields.place !== "abp") {
+    if (!problems.length && !VIEW.corrects && form._dupOk !== askedFor && !/stipend/i.test(fields.description || "") && fields.place !== "abp") {
       const norm = x => String(x || "").toLowerCase().replace(/\s*\b(we|covered)\b/g, "").replace(/\s+/g, " ").trim();
       const twin = allShifts().find(x => x.fields.place === fields.place && x.fields.date === fields.date
         && norm(x.fields.site) === norm(fields.site) && norm(x.fields.description) === norm(fields.description));
       if (twin) {
-        form._dupOk = true;
+        form._dupOk = askedFor;
         bad(date.closest(".field"), `You already sent this ${fields.description} shift for ${shortDate(fields.date)}. To change it, open it under Your shifts. Tap Send again to send it anyway: the MacBook will hold it for a check`);
       }
     }
@@ -2255,7 +2335,7 @@ function renderShifts() {
         holder.append(h("section", { class: "section" }, h("h2", { text: m ? keyLabel(m, true) : "No date" }), ul));
       }
       const miss = missingOf(x), f = x.fields;
-      const have = [f.hours ? `${f.hours} h` : "", f.patients ? plural(Number(f.patients), "patient") : "",
+      const have = [f.hours ? `${f.hours} h` : "", f.patients && Number.isFinite(Number(f.patients)) ? plural(Number(f.patients), "patient") : "",
                     PAID_KEYS.some(k => f[k]) ? fmtWhole$(Math.round(f.amount ? money(f.amount) : PAID_KEYS.slice(1).reduce((a1, k) => a1 + (money(f[k] || 0) || 0), 0))) : ""].filter(Boolean).join(" · ");
       const chips = [];
       if (x.state === "unsent") chips.push(h("span", { class: "chip orange", text: "Not sent" }));
@@ -2265,7 +2345,7 @@ function renderShifts() {
       if (miss.includes("pay")) chips.push(h("span", { class: "chip orange", text: "Pay to add" }));
       if (miss.includes("patients")) chips.push(h("span", { class: "chip", text: "Patients to add" }));
       const dt = dateOf(f.date);
-      ul.append(h("button", { class: "row", type: "button", onclick: () => openView({ type: "form", kind: "shift", corrects: x.id, prefill: load("drafts", {})[draftKeyOf("shift", x.id)] || f, restored: !!load("drafts", {})[draftKeyOf("shift", x.id)], details: true,
+      ul.append(h("button", { class: "row", type: "button", onclick: () => openView({ type: "form", kind: "shift", corrects: x.id, prefill: load("drafts", {})[draftKeyOf("shift", x.id)] || f, original: f, restored: !!load("drafts", {})[draftKeyOf("shift", x.id)], details: true,
                                                                                          label: `${shiftTitle(f)}, ${shortDate(f.date)}` }) },
         h("span", { class: "day", "aria-hidden": "true" }, h("span", { class: "wd", text: dt ? dt.toLocaleDateString("en-CA", { weekday: "short" }) : "" }),
           h("span", { class: "dn", text: dt ? String(dt.getDate()) : "" }), h("span", { class: "mo", text: dt ? dt.toLocaleDateString("en-CA", { month: "short" }) : "" })),
@@ -2352,7 +2432,7 @@ function updateSweep(form) {
   else if (v > 0 && !pd.ready) box.append(h("p", { class: "small muted", text: "Once step 2 is done and this page has the month's own figures, a button here puts the amount in the box below." }));
   else if (v > 0) {
     const use = h("button", { class: "btn small tinted", type: "button" }, `Put ${approx ? fmtWhole$(shown) : fmt$(v)} in the box below`);
-    use.addEventListener("click", () => { const s2 = form.querySelector('[name="sweep"]'); if (s2) { s2.value = (approx ? shown : v).toFixed(2); s2.focus(); } });
+    use.addEventListener("click", () => { const s2 = form.querySelector('[name="sweep"]'); if (s2) { s2.value = (approx ? shown : v).toFixed(2); s2.dispatchEvent(new Event("input", { bubbles: true })); s2.focus(); } });
     box.append(use);
   } else box.append(h("p", { class: "small muted", text: "Nothing to send this month: the balance does not cover what is still due plus the cushion." }));
 }
@@ -2473,7 +2553,10 @@ function pullDown(label, groups, value, onPick, name, opts) {
         const on = Array.isArray(value) ? value.includes(v) : v === value;
         const it = h("button", { class: "pullitem", type: "button", role: "menuitemradio", "aria-checked": String(on) },
           h("span", { class: "tick" }, on ? icon("check") : null), h("span", { class: "w", text: words }), aside != null ? h("span", { class: "a num", text: String(aside) }) : null);
-        it.addEventListener("click", e => { e.stopPropagation(); closePullDown(); onPick(v); });
+        it.addEventListener("click", e => {
+          e.stopPropagation(); closePullDown(); onPick(v);
+          setTimeout(() => { const nb = Array.from(document.querySelectorAll("#main .pull")).find(b => (b.getAttribute("aria-label") || "").startsWith(name + ":")); if (nb) nb.focus({ preventScroll: true }); }, 0);
+        });
         menu.append(it);
       }
     });
@@ -2489,13 +2572,21 @@ function pullDown(label, groups, value, onPick, name, opts) {
     closePullDown.btn = btn;
     const first = menu.querySelector('[aria-checked="true"]') || menu.querySelector(".pullitem");
     if (first && ev.detail === 0) first.focus({ preventScroll: true });
-    closePullDown.keys = e => { if (e.key === "Escape") { closePullDown(); btn.focus(); } };
+    closePullDown.keys = e => {
+      if (e.key === "Escape" || e.key === "Tab") { e.preventDefault(); closePullDown(); btn.focus(); return; }
+      const its = Array.from(menu.querySelectorAll(".pullitem")), i = its.indexOf(document.activeElement);
+      const to = e.key === "ArrowDown" ? (i + 1) % its.length : e.key === "ArrowUp" ? (i <= 0 ? its.length - 1 : i - 1)
+               : e.key === "Home" ? 0 : e.key === "End" ? its.length - 1 : null;
+      if (to !== null && its.length) { e.preventDefault(); its[to].focus(); }
+    };
     document.addEventListener("keydown", closePullDown.keys);
   });
   return btn;
 }
 function closePullDown() {
-  for (const x of document.querySelectorAll(".pullscrim, .pullmenu")) x.remove();
+  for (const x of document.querySelectorAll(".pullscrim, .pullmenu:not(.leaving)")) {
+    if (x.classList.contains("pullmenu") && motionOK()) { x.classList.add("leaving"); setTimeout(() => x.remove(), 160); } else x.remove();
+  }
   if (closePullDown.btn) closePullDown.btn.setAttribute("aria-expanded", "false");
   if (closePullDown.keys) document.removeEventListener("keydown", closePullDown.keys);
   closePullDown.btn = null; closePullDown.keys = null;
@@ -2610,7 +2701,7 @@ function summaryTotal() {
     worthLabel: "What it is all worth",
     basis: (S.net_worth || {}).basis, why: householdWhy(n),
     foot: "The corporation whole and your TFSA, RRSP and FHSA. Not the car, the condo or your personal chequing account.",
-    meta: [up !== null ? h("span", { class: "delta", text: `${up >= 0 ? "Up" : "Down"} ${compact(Math.abs(up), "$")} since ${prettyDates(nw.date)}.` }) : null,
+    meta: [up !== null ? h("span", { class: "delta", text: `${upDown(up)} since ${prettyDates(nw.date)}.` }) : null,
            n.since ? h("span", { class: "asof", text: n.since > 0 ? `Includes ${fmtWhole$(Math.round(n.since))} you put in since ${prettyDates(n.from)}, which no statement covers yet.`
                                                                : `Includes ${fmtWhole$(Math.round(-n.since))} taken out since ${prettyDates(n.from)}, net, which no statement covers yet.` }) : null,
            h("span", { class: "asof", text: "Before the tax paid to take money out of the corporation." })] });
@@ -2618,7 +2709,7 @@ function summaryTotal() {
   else {
     g.append(figCard({ label: "Household net worth", basis: n.basis }, { hero: true, label: `Household net worth, ${prettyDates(n.date)}`, value: fmtWhole$(Math.round(n.total)), about: n.est,
       series: S.household, onOpen: () => openTrendOf("household"), why: householdWhy(n),
-      meta: [up !== null ? h("span", { class: "delta", text: `${up >= 0 ? "Up" : "Down"} ${compact(Math.abs(up), "$")} since ${prettyDates(nw.date)}.` }) : null,
+      meta: [up !== null ? h("span", { class: "delta", text: `${upDown(up)} since ${prettyDates(nw.date)}.` }) : null,
              h("span", { class: "asof", text: "Before the tax paid to take money out of the corporation." })] }));
     const old = moneyCard({ worth: "total_market", put: "put_in_total", label: "Everything invested", nets: true,
                             foot: "The corporation's investments and yours together. Not the car, and not cash." });
@@ -2887,7 +2978,7 @@ function movesSection(accts, title, nowName, rowName) {
   if (!mine.length) return null;
   const nowRow = accts.map(a => (M.now || {})[a]).find(Boolean);
   const shown = mine.slice().reverse().sort((x, y) => (MOVE_ORDER[x.status] ?? 4) - (MOVE_ORDER[y.status] ?? 4)).slice(0, 8);
-  const rows = shown.map(m => moveRow(m, `${fmtWhole$(Math.round(money(m.amount)))} ${accts.includes(m.to) ? "into" : "out of"} ${rowName}`));
+  const rows = shown.map(m => moveRow(m, `${fmtWhole$(Math.round(money(m.amount)))} ${accts.includes(m.to) ? "into" : "out of"} ${rowName}`, true));
   const weakest = shown.every(m => m.label === "verified") ? "verified" : "recorded";
   const sec = h("section", { class: "card glass" },
     h("div", { class: "ftop" }, h("h3", { text: title }),
@@ -3071,13 +3162,13 @@ function summaryPersonal() {
     const at = vals[0][2][0], total = vals.reduce((s2, x) => s2 + x[2][1], 0);
     const same = vals.every(x => x[2][0] === at);
     const y = new Date().getFullYear();
-    const withRoom = vals.filter(([a]) => regOf(a).room_this_year !== undefined);
+    const withRoom = vals.filter(([a]) => regOf(a) && regOf(a).room_this_year !== undefined);
     const roomBasis = withRoom.some(([a]) => leftBasis(regOf(a)) === "estimate") ? "estimate" : "recorded";
     const head2 = h("div", { class: "regcols" }, h("span", { text: "Value" }),
       h("span", {}, String(y), withRoom.length ? basisDot(roomBasis, [`What has gone into each account in ${y}, against its room for the year.`,
         ...withRoom.map(([a, n]) => `${n}: ${roomWhy(regOf(a))[1]}`), roomWhy(regOf(withRoom[0][0]))[2]]) : null), h("span", {}));
     const rows = h("div", { class: "list flat regrows" }, head2, vals.map(([a, n, v], i) => {
-      const acct = regOf(a), hasRoom = acct.room_this_year !== undefined;
+      const acct = regOf(a) || {}, hasRoom = acct.room_this_year !== undefined;
       const room = money(acct.room_this_year), put = money(acct.this_year), left = Math.max(0, room - put);
       return h("button", { class: "row regrow", type: "button", onclick: ev => { ev.stopPropagation(); openView({ type: "account", account: a }); } },
         h("span", { class: "main" }, h("span", { class: "regname" }, h("span", { class: "sw2 s" + i }), n),
@@ -3188,7 +3279,7 @@ function cardLead(it) {
     if (!it.figure) return `No ${it.unit || "points"} balance sent yet.`;
     return /cash back|money/i.test(it.unit || "")
       ? `${$(it.figure)} paid${it.due ? " " + monthDay(it.due) : ""}; since, not known.`
-      : `${it.figure} ${it.unit}.`;
+      : `${money(it.figure) !== null ? Math.round(money(it.figure)).toLocaleString("en-CA") : it.figure} ${it.unit || "points"}.`;
   }
   const m = /^[\s\S]*?\.(?=\s|$)/.exec(String(it.note || ""));
   return m ? m[0] : String(it.note || "");
@@ -3245,7 +3336,8 @@ function summaryCards() {
     if (ms) sec.append(spendBar(ms));
     return tapArea(sec, `${c.name}. Open`, () => openView({ type: "card", card: c.id, title: c.name }));
   };
-  out.append(h("section", { class: "section" }, h("h2", { text: "Your cards" }), open.map(cardRow)));
+  out.append(h("section", { class: "section" }, h("h2", { text: "Your cards" }),
+    open.length ? open.map(cardRow) : h("div", { class: "card glass" }, h("p", { class: "muted", text: "No card is open." }))));
 
   const across = b.across || [];
   if (across.length) {
@@ -3305,7 +3397,7 @@ function renderCard() {
       h("div", { class: "cardline" }, cardChip(it.status, it.item),
         it.figure ? h("span", { class: "camt num", text: (it.unit === "CAD" || /cash back|money/i.test(it.unit || "")
           ? fmtWhole$(Math.round(Number(String(it.figure).replace(/[$,]/g, "")))) : `${it.figure} ${it.unit || ""}`.trim()) }) : null),
-      h("p", { class: "small", text: dropIds(it.note) }));
+      h("p", { class: "small", text: prettyDates(dropIds(it.note)) }));
     if (it.item === "minimum-spend" && it.need && it.due >= todayISO()
         && !["DONE", "MISSED", "EXPLAINED"].includes(it.status)) sec.append(spendBar(it));
     p.append(sec);
@@ -3420,7 +3512,7 @@ function renderReturns() {
   p.append(h("div", { class: "trend-top" },
     h("div", { class: "ftop" }, h("span", { class: "l", text: yearAt(r.year) }), basisDot(B.basis, [`${plainSource(B.source)}.`, B.note])),
     h("div", { class: "v rounded", text: fmtWhole$(Math.round(val)) }),
-    h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${fmtWhole$(Math.round(put))} put in. ${val >= put ? "Worth" : "Down"} ${fmtWhole$(Math.round(Math.abs(val - put)))} ${val >= put ? "more" : ""}.` }))));
+    h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${fmtWhole$(Math.round(put))} put in. ${val >= put ? `Worth ${fmtWhole$(Math.round(val - put))} more` : `Down ${fmtWhole$(Math.round(put - val))} on what was put in`}.` }))));
   const src = B.source;
   const line = (label, key) => ({ label, unit: "$", form: "line", basis: B.basis, source: src,
                                   points: B.years.filter(y => y[key] !== null && y[key] !== undefined).map(y => [y.year, money(y[key])]) });
@@ -3510,7 +3602,7 @@ function renderVehicle() {
     sec.append(h("div", { class: "list flat" }, bills.slice().reverse().map(b =>
       h("div", { class: "row plain" }, h("span", { class: "title", text: prettyDates(b.date) }),
         h("span", { class: "amt num", text: fmtWhole$(Math.round(money(b.amount))) })))));
-    sec.append(h("p", { class: "small muted", text: `${bills.length} bills since ${prettyDates(bills[0].date)}. A bill you have not typed on the Vehicle Maintenance tab is not here.` }));
+    sec.append(h("p", { class: "small muted", text: `${plural(bills.length, "bill")} since ${prettyDates(bills[0].date)}. A bill you have not typed on the Vehicle Maintenance tab is not here.` }));
     p.append(sec);
   }
   for (const x of (V.held || [])) p.append(h("section", { class: "card glass readflag" },
@@ -3550,7 +3642,7 @@ function renderIncome() {
         h("div", { class: "ftop" }, h("span", { class: "l", text: `Since ${ys[0]}` }), basisDot(basis, [ys.map(y => `${y}: ${BASIS_NAME[Y[y].basis].toLowerCase()}, ${Y[y].note}.`).join(" "), plainSource(I.source) + "."])),
         h("div", { class: "v rounded", text: fmtWhole$(Math.round(total)) }),
         h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${ys.length} years with a year tab; 2022 has none of its own, and its last days, from December 23, are counted in 2023.` +
-          (Y[now] && Y[now].so_far ? ` ${now} counts ${keyLabel(`${now}-01`, true).replace(/ \d{4}$/, "")} to ${keyLabel(Y[now].through, true).replace(/ \d{4}$/, "")} only.` : "") }))));
+          (Y[now] && Y[now].so_far && Y[now].through ? ` ${now} counts ${keyLabel(`${now}-01`, true).replace(/ \d{4}$/, "")} to ${keyLabel(Y[now].through, true).replace(/ \d{4}$/, "")} only.` : "") }))));
       const ser = { label: "Income", unit: "$", form: "bars", points: ys.map(y => [y, money(Y[y].total)]) };
       holder.append(h("div", { class: "card glass chartcard" }, chart([ser], { form: "bars", unit: "$", height: 220, axis: true, hover: true })));
       holder.append(h("div", { class: "list glass" }, ys.slice().reverse().map(y => {
@@ -3620,7 +3712,15 @@ function expectedCard(exp) {
       exp.months.filter(m => m[2] === "logged on the page").map(m => `${mon(m[0])} ${fmtWhole$(Math.round(m[1]))}`).join(", ") + ". The tab then replaces it, so nothing is counted twice." }) : null,
     ((SNAP.income || {}).logged_not_counted || []).length ? h("p", { class: "small muted", text: "Not counted until your year tab has it in dollars: " +
       SNAP.income.logged_not_counted.map(x => `${x.currency} ${Number(x.amount).toLocaleString("en-CA")} on ${shortDate(x.date)}`).join(", ") + "." }) : null,
-    (exp.counted_from_calendar || []).length ? h("p", { class: "small muted", text: "Counted from your calendar: " + exp.counted_from_calendar.map(x => `${x.what.replace(/^./, c => c.toLowerCase())}, ${fmtWhole$(Math.round(money(x.amount)))} in ${mon(x.month)}`).join("; ") + "." }) : null,
+    (exp.counted_from_calendar || []).length ? h("p", { class: "small muted", text: "Counted from your calendar: " + (() => {
+      const groups = [];
+      for (const x of exp.counted_from_calendar) {
+        const amt = fmtWhole$(Math.round(money(x.amount))), g = groups.find(y => y.what === x.what && y.amt === amt);
+        if (g) g.months.push(mon(x.month)); else groups.push({ what: x.what, amt, months: [mon(x.month)] });
+      }
+      const and = ms => ms.length > 1 ? ms.slice(0, -1).join(", ") + " and " + ms[ms.length - 1] : ms[0];
+      return groups.map(g => `${g.what.replace(/^./, c => c.toLowerCase())}, ${g.amt} in ${and(g.months)}`).join("; ");
+    })() + "." }) : null,
     (exp.left_out || []).length ? h("p", { class: "small muted", text: "Not counted: " + exp.left_out.map(x => `${x.what.replace(/^./, c => c.toLowerCase())} (${x.why.replace(/ \(Q-[\d-]+\)$/, "")})`).join("; ") + "." }) : null);
 }
 
@@ -3727,13 +3827,14 @@ function renderWork(embedded) {
       holder.append(h("div", { class: "trend-top" },
         h("div", { class: "ftop" }, h("span", { class: "l", text: label }), basisDot(rateBasis(c), why().concat(
           [rateBasis(c) === "estimate" ? "An estimate: more of it rests on the usual length of a shift, or on a commute not measured, than on hours typed or measured." : ""]))),
-        h("div", { class: "v rounded" }, estRow(c) ? h("span", { class: "about", text: "about " }) : null, `${fmtWhole$(Math.round(rate(c)))}/h`),
+        rate(c) ? h("div", { class: "v rounded" }, estRow(c) ? h("span", { class: "about", text: "about " }) : null, `${fmtWhole$(Math.round(rate(c)))}/h`)
+                : h("div", { class: "v rounded muted", text: "No pay in yet" }),
         c.travel_source && wc ? h("div", { class: "fmeta" }, h("span", { class: "asof commute-from" }, basisDot(c.basis_incl_travel || "recorded",
           ["Where the commute hours came from, by share.", "Measured: both legs of the round trip seen by your phone. Worked out: one leg seen and doubled, or the usual round trip for that place. Estimate: an assumption written down in profile/assumptions.csv, such as the Rudd walk and the Don Valley drive."]),
           ` The commute: ${commuteFrom(c.travel_source)}.`)) : null,
         wc && pl === "mgh" && ((W.commute || {}).mgh || {}).median_round_trip_hours && (y === "all" || y >= String(W.commute.mgh.from).slice(0, 4)) ? h("div", { class: "fmeta" }, h("span", { class: "asof",
           text: `MGH's round trip, as your phone measured it: ${Math.round(Number(W.commute.mgh.median_round_trip_hours) * 60)} minutes, the middle of ${W.commute.mgh.round_trips_measured} trips since the move, from ${keyLabel(W.commute.mgh.from, true)} to ${keyLabel(W.commute.mgh.to, true)}` })) : null,
-        h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${fmtWhole$(Math.round(other(c)))}/h ${wc ? "without" : "with"} the commute · ${fmtWhole$(Math.round(money(c.pay)))} over ${Math.round(paidHours(c)).toLocaleString("en-CA")} h` + (wc && tr ? ` and ${Math.round(tr).toLocaleString("en-CA")} h of commute` : "") +
+        h("div", { class: "fmeta" }, h("span", { class: "asof", text: (other(c) ? `${fmtWhole$(Math.round(other(c)))}/h ${wc ? "without" : "with"} the commute · ` : "") + `${fmtWhole$(Math.round(money(c.pay)))} over ${Math.round(paidHours(c)).toLocaleString("en-CA")} h` + (wc && tr ? ` and ${Math.round(tr).toLocaleString("en-CA")} h of commute` : "") +
           (money(c.hours_awaiting_pay) ? `; ${Math.round(money(c.hours_awaiting_pay))} h of shifts still waiting for their pay are left out` : "") +
           (ppHours ? `; the practice plan's ${Math.round(ppHours)} h are left out, since it is paid as points once a year, not per activity` : "") })),
         lagText ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: lagText })) : null,
@@ -3854,7 +3955,7 @@ function renderTrend() {
     const top = h("div", { class: "trend-top" },
       h("div", { class: "ftop" }, h("span", { class: "l", text: "At " + prettyDates(house.date) }), basisDot(house.basis, householdWhy(house))),
       h("div", { class: "v rounded", text: (house.est ? "about " : "") + fmtWhole$(Math.round(house.total)) }));
-    if (up !== null) top.append(h("div", { class: "fmeta rise" }, h("span", { class: "delta", text: `${up >= 0 ? "Up" : "Down"} ${compact(Math.abs(up), "$")} since ${prettyDates(nw.date)}, when it was ${fmtWhole$(Math.round(money(nw.household)))}.` })));
+    if (up !== null) top.append(h("div", { class: "fmeta rise" }, h("span", { class: "delta", text: `${upDown(up)} since ${prettyDates(nw.date)}, when it was ${fmtWhole$(Math.round(money(nw.household)))}.` })));
     top.append(h("div", { class: "fmeta" }, h("span", { class: "asof", text: "Before the tax paid to take money out of the corporation." })));
     p.append(top);
     p.append(h("div", { class: "card glass chartcard" }, chart(sers, { form: "line", unit: "$", height: 240, legend: true, axis: true, hover: true })));
@@ -3880,10 +3981,12 @@ function renderTrend() {
     }
   }
   const asOf = fig && fig.as_of ? prettyDates(fig.as_of) : keyLabel(last[0], true);
+  const anT = main.about_now, estNow = !fig && !!(anT && String(last[0]) >= anT.date);
   const big = h("div", { class: "trend-top" },
-    h("div", { class: "ftop" }, h("span", { class: "l", text: "At " + asOf }),
-      basisDot(fig ? fig.basis : main.basis, fig ? whyLines(fig) : [plainSource(main.source) + "."])),
-    h("div", { class: "v rounded", text: lead }));
+    h("div", { class: "ftop" }, h("span", { class: "l", text: estNow ? "About now, " + asOf : "At " + asOf }),
+      basisDot(estNow ? "estimate" : fig ? fig.basis : main.basis, estNow ? [`About now: ${anT.note}.`, `The statements stop at ${prettyDates(anT.from)}; the next statement replaces this estimate.`]
+                                                         : fig ? whyLines(fig) : [plainSource(main.source) + "."])),
+    h("div", { class: "v rounded" }, estNow ? h("span", { class: "about", text: "about " }) : null, lead));
   if (fig && fig.note) big.append(h("div", { class: "fmeta" }, h("span", { class: "asof", text: fig.note + "." })));
   if (leadNote) big.append(leadNote);
   const rise = deltaOf(main, keys[0]);
@@ -3950,8 +4053,10 @@ function compact(v, unit, full) {
   if (a >= 1e3) return `${sg}$${(a / 1e3).toFixed(a >= 1e4 ? 0 : 1).replace(/\.0$/, "")}K`;
   return `${sg}$${Math.round(a)}`;
 }
+function upDown(d) { return compact(Math.abs(d), "$") === compact(0, "$") || Math.abs(d) < 500 ? "About the same" : `${d >= 0 ? "Up" : "Down"} ${compact(Math.abs(d), "$")}`; }
 function niceTicks(lo, hi, n) {
-  if (hi === lo) hi = lo + 1;
+  if (!(hi > lo)) [lo, hi] = [Math.min(lo, hi), Math.max(lo, hi) > Math.min(lo, hi) ? Math.max(lo, hi) : Math.min(lo, hi) + 1];
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [0, 1];
   const raw = (hi - lo) / n, mag = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / mag;
   const step = (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * mag;
   const out = [];
@@ -3967,6 +4072,7 @@ function estAt(s2, k) { return !!((s2.est_from && String(k) >= s2.est_from) || (
 function motionOK() { return !(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches); }
 
 function chart(sers, o) {
+  sers = (sers || []).filter(s2 => s2 && Array.isArray(s2.points) && s2.points.length);
   const box = h("div", { class: "chart" + (o.spark ? " spark-chart" : "") + (o.hover !== false && !o.spark ? " scrub" : "") });
   const tip = h("div", { class: "tip", hidden: true });
   if (!o.spark) box.append(tip);
@@ -3987,10 +4093,10 @@ function chart(sers, o) {
     const keys = bars || S2.length === 1 ? S2[0].points.map(p2 => p2[0])
       : [...new Set(S2.flatMap(s2 => s2.points.map(p2 => p2[0])))].sort((a1, b1) => tOf(a1) - tOf(b1));
     const vals = S2.flatMap(s2 => s2.points.map(p2 => p2[1]));
-    let lo = bars ? 0 : Math.min(...vals), hi = Math.max(...vals);
+    let lo = bars ? Math.min(0, ...vals) : Math.min(...vals), hi = bars ? Math.max(0, ...vals) : Math.max(...vals);
     if (!bars) { const pad2 = (hi - lo) * .08 || Math.abs(hi) * .05 || 1; lo -= pad2; hi += pad2; }
     const ticks = o.axis ? niceTicks(Math.min(lo, bars ? 0 : lo), hi, 3) : [lo, hi];
-    if (o.axis) { lo = bars ? 0 : ticks[0]; hi = ticks[ticks.length - 1]; }
+    if (o.axis) { lo = bars ? Math.min(0, ticks[0]) : ticks[0]; hi = ticks[ticks.length - 1]; }
     const L = o.axis ? 46 : 2, R = o.axis ? 10 : 2, T = o.spark ? 3 : 8, B = o.axis ? 22 : 3;
     const iw = Math.max(10, W - L - R), ih = H - T - B, n = keys.length;
     const band = iw / Math.max(1, n);
@@ -4036,10 +4142,11 @@ function chart(sers, o) {
       if (bars) {
         const bw = Math.max(2, Math.min(24, band - Math.max(2, band * .32)));
         s2.points.forEach((p2, i) => {
-          const x0 = x(i, p2[0]) - bw / 2, y0 = y(Math.max(0, p2[1])), hh = Math.max(0, y(0) - y0), r = Math.min(4, bw / 2, hh);
-          if (hh <= 0) { svg.append(sv("line", { class: "zero", x1: x0 + 1, x2: x0 + bw - 1, y1: y(0) - .5, y2: y(0) - .5 })); return; }
-          const d = `M${x0},${y(0)} V${y0 + r} Q${x0},${y0} ${x0 + r},${y0} H${x0 + bw - r} Q${x0 + bw},${y0} ${x0 + bw},${y0 + r} V${y(0)} Z`;
-          const bar = sv("path", { class: "col s" + j + (anim ? " grow" : "") + (estAt(s2, p2[0]) ? " est" : ""), d });
+          const x0 = x(i, p2[0]) - bw / 2, y0 = y(p2[1]), hh = Math.abs(y(0) - y0), r = Math.min(4, bw / 2, hh);
+          if (hh <= .5) { svg.append(sv("line", { class: "zero", x1: x0 + 1, x2: x0 + bw - 1, y1: y(0) - .5, y2: y(0) - .5 })); return; }
+          const d = p2[1] >= 0 ? `M${x0},${y(0)} V${y0 + r} Q${x0},${y0} ${x0 + r},${y0} H${x0 + bw - r} Q${x0 + bw},${y0} ${x0 + bw},${y0 + r} V${y(0)} Z`
+                               : `M${x0},${y(0)} V${y0 - r} Q${x0},${y0} ${x0 + r},${y0} H${x0 + bw - r} Q${x0 + bw},${y0} ${x0 + bw},${y0 - r} V${y(0)} Z`;
+          const bar = sv("path", { class: "col s" + j + (anim ? " grow" : "") + (estAt(s2, p2[0]) ? " est" : "") + (p2[1] < 0 ? " below" : ""), d });
           if (anim) bar.style.setProperty("--d", `${Math.min(i * 12, 400)}ms`);
           svg.append(bar);
         });
@@ -4171,7 +4278,8 @@ function renderSettings() {
   let expText = "Never expires";
   if (exp) {
     const days = Math.round((Date.parse(exp.replace(" UTC", "Z").replace(" ", "T")) - Date.now()) / 864e5);
-    expText = Number.isFinite(days) ? (days < 30 ? `Expires in ${days} days: make a new one soon` : `Expires in ${days} days`) : "Expires " + exp;
+    expText = Number.isFinite(days) ? (days < 0 ? "Expired: make a new key and paste it below" : days === 0 ? "Expires today: make a new one now"
+      : days < 30 ? `Expires in ${plural(days, "day")}: make a new one soon` : `Expires in ${plural(days, "day")}`) : "Expires " + exp;
   }
   const inp = h("input", { id: "token", type: "text", class: "masked", autocomplete: "off", autocapitalize: "off", spellcheck: "false", placeholder: "Paste a new key to replace it" });
   p.append(h("section", { class: "section" }, h("h2", { text: "This device's key" }), h("div", { class: "list glass" },
@@ -4435,6 +4543,8 @@ function lockNow() {
   historyBack(STACK.length + (VIEW ? 1 : 0));    // the pages' history steps go with the pages
   GEN++;
   MEM = null; VKEY = null; VMETA = null; SNAP = null; SCHEMA = null; VIEW = null; STACK = [];
+  ENTER = "";                                   // no slide is left waiting for the page after the lock
+  closePop(); closePullDown();
   for (const s of document.querySelectorAll(".scrim, .pop")) s.remove();
   lockScreen(hasVault() ? "unlock" : "setup-key");
 }
@@ -4479,9 +4589,18 @@ function issueOf(key) { return (workPay().issues || []).find(i => i.key === key)
 function issuesAnsweredHere() { return answeredHere(); }
 
 const PART_STATE_WORDS = { overdue: "Overdue", rejected: "Rejected", "in question": "In question" };
+let ANSWERED_KEYS = null;
+function answeredKeys() {
+  if (!ANSWERED_KEYS) {
+    const mine = issuesAnsweredHere();
+    ANSWERED_KEYS = new Set((workPay().issues || []).filter(i => mine.has(i.id)).map(i => i.key));
+    setTimeout(() => { ANSWERED_KEYS = null; }, 0);         // worked out once per drawing
+  }
+  return ANSWERED_KEYS;
+}
 function partState(x) {
   const k = STATUS_KIND(x.status);
-  if (k === "problem") return "prob";
+  if (k === "problem") return answeredKeys().has(x.key) ? "wait" : "prob";
   if (k === "paid") return /^(not owed|written off)/.test(x.status) ? "none" : "paid";
   return money(x.expected) ? "wait" : "tbc";
 }
@@ -4502,6 +4621,7 @@ function unitMoney(u) {
 }
 function unitState(u) {
   const ss = u.parts.map(partState);
+  if (ss.length && ss.every(x => x === "none")) return "none";     // every part not owed or written off
   return ss.includes("prob") ? "prob" : ss.includes("tbc") ? "tbc" : ss.includes("wait") ? "wait" : "paid";
 }
 function unitWord(u) {
@@ -4513,6 +4633,7 @@ function unitWord(u) {
     return d < 0 ? `${Math.abs(d) < 10 ? fmt$(-d) : fmtWhole$(Math.round(-d))} short` : `${Math.abs(d) < 10 ? fmt$(d) : fmtWhole$(Math.round(d))} over`;
   }
   if (st === "tbc") return "Pay to come";
+  if (st === "none") return u.parts.some(x => /^written off/.test(x.status)) ? "Written off" : "Not owed";
   if (st === "wait") return m.paid ? `${fmtWhole$(Math.round(m.paid))} in` : "Waiting";
   return "Paid";
 }
@@ -4522,6 +4643,11 @@ function unitDid(u) {
   if (money(d.hours)) b.push(`${Math.round(money(d.hours) * 10) / 10} h`);
   if (money(d.patients)) b.push(plural(Number(d.patients), "patient"));
   return b.join(" · ") || (/call/.test(u.type) ? "On call" : "");
+}
+function workedWords(us) {
+  const lists = us.filter(u => u.payer === "bochner" || u.payer === "endoscopy").length, calls = us.filter(u => /call/.test(u.type || "")).length;
+  const shifts = us.length - lists - calls;
+  return [shifts ? plural(shifts, "shift") : "", lists ? plural(lists, "list") : "", calls ? plural(calls, "call") : ""].filter(Boolean).join(" · ") || plural(0, "shift");
 }
 function unitShort(u) {
   if (/stipend/.test(u.type)) return `${PLACE_NAMES_PAGE[u.payer] || u.payer} · stipend`;
@@ -4569,11 +4695,13 @@ function workOwed() {
   const issues = (wp.issues || []).filter(i => !mine.has(i.id));
   const chase = issues.filter(i => i.status === "CHASE"), ask = issues.filter(i => i.status !== "CHASE");
   const waiting = (wp.items || []).filter(i => /^waiting|partly|details/.test(i.status));
+  const answeredOverdue = (wp.issues || []).filter(i => mine.has(i.id) && i.status === "CHASE").reduce((a, i) => a + (money(i.amount) || 0), 0);
+  const overdue = Math.max(0, (money(t.overdue) || 0) - answeredOverdue);
   out.append(h("div", { class: "card glass owedlead" },
-    h("div", {}, h("span", { class: "k", text: "Overdue" }), h("span", { class: "fv num " + (money(t.overdue) > 0 ? "red" : ""), text: fmtWhole$(Math.round(money(t.overdue) || 0)) }),
+    h("div", {}, h("span", { class: "k", text: "Overdue" }), h("span", { class: "fv num " + (overdue > 0 ? "red" : ""), text: fmtWhole$(Math.round(overdue)) }),
       h("span", { class: "small muted", text: plural(chase.length, "payment") })),
     h("div", {}, h("span", { class: "k", text: "To explain" }), h("span", { class: "fv num " + (ask.length ? "orange" : ""), text: String(ask.length) }),
-      h("span", { class: "small muted", text: "questions" })),
+      h("span", { class: "small muted", text: ask.length === 1 ? "question" : "questions" })),
     h("div", {}, h("span", { class: "k", text: "Waiting" }), h("span", { class: "fv num", text: fmtWhole$(Math.round(money(t.waiting) || 0)) }),
       h("span", { class: "small muted", text: `${plural(waiting.length, "part")}${t.unknown && Number(t.unknown) ? `, ${t.unknown} with no figure yet` : ""}` }))));
   const issueRow = i => {
@@ -4603,10 +4731,10 @@ function workOwed() {
       const ul = h("div", { class: "list glass" });
       for (const i of its.sort((a, b) => (a.expected_by || "9999").localeCompare(b.expected_by || "9999"))) {
         const u = (wp.units || []).find(x => x.id === (i.row_ids || "").split(";")[0]);
-        ul.append(h("button", { class: "row plain", type: "button", onclick: () => u && openView({ type: "workunit", id: u.id, title: unitTitle(u) }) },
+        ul.append(h(u ? "button" : "div", u ? { class: "row plain", type: "button", onclick: () => openView({ type: "workunit", id: u.id, title: unitTitle(u) }) } : { class: "row plain" },
           h("span", { class: "main" }, h("span", { class: "title", text: `${i.part_name} · ${u ? unitTitle(u) : i.description}` }),
             h("span", { class: "meta", text: `${shortDate(i.date)}` + (i.expected_by ? ` · expected by ${shortDate(i.expected_by)}` : "") + (i.status === "waiting (bank statement not filed)" ? " · the bank statement is not filed yet" : i.status === "waiting (amount not yet known)" ? " · amount not known yet" : "") })),
-          h("span", { class: "amt", text: i.expected ? fmt$(i.expected) : "" }), icon("chevR")));
+          h("span", { class: "amt", text: i.expected ? fmt$(i.expected) : "" }), u ? icon("chevR") : null));
       }
       out.append(h("section", { class: "section" }, h("h2", { text: PLACE_NAMES_PAGE[payer] || payer.toUpperCase() }), ul));
     }
@@ -4663,7 +4791,7 @@ function workShifts() {
       const ul = h("div", { class: "list glass" });
       holder.append(h("section", { class: "section shmonth" },
         h("div", { class: "shmonth-h" }, h("h2", { text: m ? keyLabel(m, true) : "No date" }),
-          h("span", { class: "shmonth-t num", text: `${plural(worked.length, "shift")}${hours ? ` · ${Math.round(hours)} h` : ""}` })),
+          h("span", { class: "shmonth-t num", text: `${workedWords(worked)}${hours ? ` · ${Math.round(hours)} h` : ""}` })),
         payBar({ paid: t.paid, short: t.short, over: t.over, wait: t.wait, tbc: 0 }, "shbar"),
         h("p", { class: "shcap", text: said.join(" · ") }), ul));
       for (const u of us) {
@@ -4707,9 +4835,15 @@ function renderWorkUnit() {
   const verified = parts.length && parts.every(x => x.used_label === "verified");
   const hero = h("div", { class: "fig hero glass shhero" }, h("div", { class: "ftop" }, h("span", { class: "l", text: "Pay" }),
     m.known ? basisDot(verified ? "verified" : "recorded", [verified ? "Every part is on a statement or a remittance advice." : "What you logged, until a statement or remittance advice shows it."]) : null));
-  if (!m.known) {
+  const isMgh = u.payer === "mgh";
+  if (!parts.length) {
+    const off = u.parts.some(x => /^written off/.test(x.status));
+    hero.append(h("div", { class: "v shnone", text: off ? "Written off" : "Not owed" }),
+      h("p", { class: "fmeta", text: off ? "Its pay was written off, so it counts in no total." : "Nothing is owed for it, so it counts in no total." }));
+  } else if (!m.known) {
     hero.append(h("div", { class: "v shnone", text: m.lump ? "Paid" : "Not priced yet" }), payBar(m.lump && !m.tbc ? { paid: 1, wait: 0, short: 0, over: 0, tbc: 0 } : m, "shbar big"),
-      h("p", { class: "fmeta", text: m.lump ? "Paid in the month's deposit; this shift's own figure comes with MGH's billing summary." : "MGH prices a shift in its monthly billing summary, and pays it about seven weeks later." }));
+      h("p", { class: "fmeta", text: m.lump ? (isMgh ? "Paid in the month's deposit; this shift's own figure comes with MGH's billing summary." : "Paid in a deposit that covers more than this shift; its own figure is to come.")
+                                   : isMgh ? "MGH prices a shift in its monthly billing summary, and pays it about seven weeks later." : "Its amount is not known yet; it is filled in when the payment or its statement shows it." }));
   } else {
     const leg = h("div", { class: "shlegend" });
     const item = (c, v, w) => leg.append(h("span", {}, h("i", { class: c }), h("b", { class: "num", text: fmt$(v) }), " " + w));
@@ -4718,7 +4852,7 @@ function renderWorkUnit() {
     if (m.over) item("r", m.over, "more than billed");
     if (m.wait) item("o", m.wait, "on its way");
     hero.append(h("div", { class: "v num" }, fmt$(m.known), m.tbc ? h("span", { class: "shsofar", text: " so far" }) : null), payBar(m, "shbar big"), leg);
-    if (m.tbc) hero.append(h("p", { class: "fmeta", text: "Plus the parts MGH has not priced yet: its monthly billing summary prices them." }));
+    if (m.tbc) hero.append(h("p", { class: "fmeta", text: isMgh ? "Plus the parts MGH has not priced yet: its monthly billing summary prices them." : "Plus the parts with no amount yet." }));
   }
   p.append(hero);
 
@@ -4730,7 +4864,7 @@ function renderWorkUnit() {
       h("div", { class: "v num" + (v ? "" : " none") }, v || "\u2013", dot || null), h("div", { class: "s", text: sub || "\u00a0" }));
     p.append(h("div", { class: "shstats glass" },
       stat("Hours", hrs ? String(Math.round(hrs * 10) / 10) : "", trv ? `+ ${Math.round(trv * 60)} min travel` : "", hrs ? basisDot(d.hours_label) : null),
-      stat("Patients", pts ? String(pts) : "", pts && hrs ? `${(pts / hrs).toFixed(1)} an hour` : pts ? "" : u.entry_id ? "Add on the shift" : ""),
+      stat("Patients", pts ? String(pts) : "", pts && hrs ? `${(pts / hrs).toFixed(1)} an hour` : pts ? "" : u.entry_id && allShifts().some(z => z.id === u.entry_id) ? "Add on the shift" : ""),
       stat("Per hour", perh ? fmtWhole$(perh) : "", perh ? (commute && trv ? "with the commute" : "") : m.tbc || m.lump ? "once it is priced" : "")));
   }
 
@@ -4756,14 +4890,17 @@ function renderWorkUnit() {
     if (issue && !mine.has(issue.id)) row.append(h("span", { class: "pm" }, h("button", { class: "btn small tinted", type: "button", onclick: () => workpayAnswer(issue) }, "Say what happened")));
     list.append(row);
   }
-  p.append(h("section", { class: "section" }, h("h2", { text: "Where the money is" }), list));
+  if (parts.length) p.append(h("section", { class: "section" }, h("h2", { text: "Where the money is" }), list));
 
   if (d.note) p.append(h("section", { class: "section" }, h("h2", { text: "Note" }), h("div", { class: "card glass shnotecard" }, icon("bubble"), h("span", { text: d.note }))));
 
-  if (u.entry_id) {
-    const x = allShifts().find(z => z.id === u.entry_id);
-    p.append(h("div", { class: "list glass" }, h("button", { class: "row", type: "button", onclick: () => openView({ type: "form", kind: "shift", corrects: u.entry_id, prefill: (x && x.fields) || {}, details: true, label: unitTitle(u) }) },
+  const sentAs = u.entry_id ? allShifts().find(z => z.id === u.entry_id) : null;
+  if (sentAs) {
+    const x = sentAs;
+    p.append(h("div", { class: "list glass" }, h("button", { class: "row", type: "button", onclick: () => openView({ type: "form", kind: "shift", corrects: u.entry_id, prefill: x.fields, details: true, label: unitTitle(u) }) },
       h("span", { class: "ico blue" }, icon("pencil")), h("span", { class: "main" }, h("span", { class: "title", text: "Edit this shift" }), h("span", { class: "meta", text: "Hours, patients, billing or the note" })), icon("chevR"))));
+  } else if (u.entry_id) {
+    p.append(h("p", { class: "foot", text: "Sent from this page, and changed by the MacBook since: it can be edited here again once the MacBook's next summary arrives." }));
   } else {
     p.append(h("p", { class: "foot", text: "Typed in the workbook: change its hours, patients or note on its Work tab. What is paid comes from the bank and the Ministry's remittance advice." }));
   }
@@ -4774,20 +4911,21 @@ function workpayAnswer(i) {
   const wp = workPay();
   const words = i.kind === "payment" ? "This deposit" : "This payment";
   const send = (resolution, extra, said) => submit("answer", Object.assign({ question: i.id, answer: said, resolution }, extra || {}), "", said);
-  const pickThen = (title, choices, then) => {
+  const NO_SHIFTS = "No set of shifts still waiting fits this deposit; type what you know.";
+  const pickThen = (title, choices, then, none) => {
     const acts = choices.slice(0, 8).map(c => ({ label: c.label, kind: "tinted", run: () => then(c.key) }));
     acts.push({ label: "Something else: type it", run: () => startForm("answer", { question: i.id }, "work") });
-    sheet(title, choices.length ? "" : "No deposit still to place fits; type what you know.", acts);
+    sheet(title, choices.length ? "" : none || "No deposit still to place fits; type what you know.", acts);
   };
   const deposits = (wp.payments_open || []).map(x => ({ key: x.key, label: `${shortDate(x.date)} · ${fmt$(x.amount)}${x.label ? ` · ${x.label}` : x.source === "page" ? " · logged here" : ""}` }));
   const acts = [];
   if (i.kind === "payment") {
-    acts.push({ label: "It paid these shifts", kind: "tinted", run: () => pickThen("Which shifts did it pay?", i.candidates, key => send("paid-by", { deposit: key }, "Paid by this deposit.")) });
-    acts.push({ label: "It paid part of them; the rest is to come", run: () => pickThen("Which shifts, in part?", i.candidates, key => startForm("answer", { question: i.id, resolution: "partly-paid", deposit: key, answer: "Partly paid; the rest is to come." }, "work")) });
+    acts.push({ label: "It paid these shifts", kind: "tinted", run: () => pickThen("Which shifts did it pay?", i.candidates, key => send("paid-by", { deposit: key }, "Paid by this deposit."), NO_SHIFTS) });
+    acts.push({ label: "It paid part of them; the rest is to come", run: () => pickThen("Which shifts, in part?", i.candidates, key => startForm("answer", { question: i.id, resolution: "partly-paid", deposit: key, answer: "Partly paid; the rest is to come." }, "work"), NO_SHIFTS) });
     acts.push({ label: "It is not for any shift", run: () => send("not-owed", {}, "Not for any shift.") });
   } else if (i.kind === "ohip-no-work" || i.kind === "ohip-which") {
     acts.push({ label: "Add that day's shift or list", kind: "tinted", run: () => startForm("shift", { date: i.date }, "work") });
-    if (i.candidates && i.candidates.length) acts.push({ label: "It belongs to one of these", run: () => pickThen("Which one?", i.candidates, key => send("paid-by", { deposit: key }, "It belongs to this one.")) });
+    if (i.candidates && i.candidates.length) acts.push({ label: "It belongs to one of these", run: () => pickThen("Which one?", i.candidates, key => send("paid-by", { deposit: key }, "It belongs to this one."), NO_SHIFTS) });
   } else {
     acts.push({ label: "It was paid", kind: "tinted", run: () => pickThen("By which deposit?", deposits, key => send("paid-by", { deposit: key }, "Paid by this deposit.")) });
     acts.push({ label: "Partly paid; the rest is to come", run: () => pickThen("By which deposit, in part?", deposits, key => startForm("answer", { question: i.id, resolution: "partly-paid", deposit: key, answer: "Partly paid; the rest is to come." }, "work")) });
@@ -4831,7 +4969,7 @@ async function boot() {
   window.addEventListener("resize", measureBar);
   window.addEventListener("popstate", () => {
     if (OWN_BACKS) { OWN_BACKS -= 1; return; }     // a step back the page took itself has already been drawn
-    if (VIEW) closeView(true);
+    if (VIEW) { if (!standalone()) ENTER = ENTER || "none"; closeView(true); }
   });
   for (const ev of ["pointerdown", "keydown", "scroll", "touchstart"]) window.addEventListener(ev, touch, { passive: true });
   setInterval(checkIdle, 20000);
