@@ -410,18 +410,22 @@ function submit(kind, fields, corrects, said) {
 
 
 const KINDS = {
-  shift: { name: "Shift", desc: "MGH, EDLP, Bochner, Endoscopy, ABP", icon: "work", color: "blue", group: "often",
-           help: "Where, and which shift, is all it needs. Everything else can wait: add it any time from Your shifts." },
-  expense: { name: "Paid it myself", desc: "Cash, your own card, a split bill", icon: "receipt", color: "green", group: "often" },
-  income: { name: "Income received", desc: "Pay, OHIP, a stipend, a refund", icon: "income", color: "purple", group: "often" },
-  bankvisit: { name: "Monthly banking", desc: "Download, pay yourself and CRA, sweep", icon: "bank", color: "orange", group: "often",
+  shift: { name: "Shift", desc: "Where, and which shift", icon: "work", color: "blue", group: "often",
+           help: "Where and which shift is all it needs. Add the rest later, from Your shifts." },
+  expense: { name: "Paid it myself", desc: "Cash or your own card", icon: "receipt", color: "green", group: "often",
+             help: "Keep photographing the receipt as usual." },
+  income: { name: "Income", desc: "Pay, OHIP, a refund", icon: "income", color: "purple", group: "often",
+            help: "Money that reached the corporation." },
+  bankvisit: { name: "Monthly banking", desc: "The day's sweep", icon: "bank", color: "orange", group: "often",
                help: "Step 4 of your one day a month. Once the two payments are sent (nothing to tick), type what each card still owes and the chequing balance you see, and the amount to send to Questrade is worked out below. Steps 1 to 3 are on Today." },
-  registered: { name: "TFSA, RRSP or FHSA", desc: "Money in or out", icon: "vault", color: "blue", group: "sometimes" },
-  reading: { name: "A reading", desc: "Odometer, an account's value", icon: "gauge", color: "gray", group: "sometimes" },
-  card: { name: "A credit card change", desc: "Opened, bonus, fee, closed", icon: "card", color: "gray", group: "sometimes" },
-  life: { name: "A change in life or plans", desc: "A move, the wedding, insurance, salary", icon: "heart", color: "red", group: "sometimes" },
+  registered: { name: "TFSA, RRSP or FHSA", desc: "Money in or out", icon: "vault", color: "blue", group: "sometimes",
+                help: "Contribution room is counted from these." },
+  reading: { name: "Reading", desc: "Odometer, an account's value", icon: "gauge", color: "gray", group: "sometimes", help: "" },
+  card: { name: "Credit card", desc: "Points, bonus spend, a fee, closed", icon: "card", color: "gray", group: "sometimes", help: "" },
+  life: { name: "Life change", desc: "A move, the wedding, salary", icon: "heart", color: "red", group: "sometimes",
+          help: "Anything that changes the plan." },
   answer: { name: "Answer a question", desc: "", icon: "bubble", color: "purple", group: "any", help: "" },
-  note: { name: "Note", desc: "Anything else for the record", icon: "pencil", color: "gray", group: "any" },
+  note: { name: "Note", desc: "Anything else for the record", icon: "pencil", color: "gray", group: "any", help: "" },
 };
 function kindOf(k) {
   const o = KINDS[k] || { name: k, desc: "", icon: "pencil", color: "gray" };
@@ -1240,7 +1244,7 @@ function withdraw(e) {
 
 function renderAdd() {
   const p = h("div", { class: "page" });
-  p.append(head("Add", "The MacBook files what you send within 15 minutes of being open.", true));
+  p.append(head("Add", "", true));
   const forms = formsList();
   if (!forms.length) { p.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "The forms have not arrived yet. They come with the first summary." }))); return p; }
   const all = openQuestions(), rc = all.filter(q => receiptOf(q)).length, qc = all.length - rc;
@@ -1256,28 +1260,24 @@ function renderAdd() {
       h("div", { class: "t", text: k.name }), h("div", { class: "d", text: descOf(f) })));
   }
   p.append(tiles);
+  const rowOf = f => {
+    const k = kindOf(f.kind);
+    return h("button", { class: "row", type: "button", onclick: () => startForm(f.kind) }, h("span", { class: "ico " + k.color }, icon(k.icon)),
+      h("span", { class: "main" }, h("span", { class: "title", text: k.name }), descOf(f) ? h("span", { class: "meta", text: descOf(f) }) : null),
+      h("span", { class: "trail" }, draftTag(f), icon("chevR")));
+  };
+  const some = group("sometimes");
+  if (some.length) p.append(h("div", { class: "list glass" }, some.map(rowOf)));
+  const any = h("div", { class: "list glass" }, group("any").map(rowOf));
   if (forms.some(f => f.kind === "shift")) {
     const mine = allShifts(), needs = mine.filter(x => missingOf(x).some(m => m !== "hours")).length;
-    p.append(h("div", { class: "list glass" }, h("button", { class: "row", type: "button", onclick: () => { save("workpart", "shifts"); go("work"); } },
+    any.append(h("button", { class: "row", type: "button", onclick: () => { save("workpart", "shifts"); go("work"); } },
       h("span", { class: "ico blue" }, icon("work")),
       h("span", { class: "main" }, h("span", { class: "title", text: "Your shifts" }),
-        h("span", { class: "meta", text: mine.length ? `${plural(mine.length, "shift")} sent from here` + (needs ? ` · ${needs} missing pay or patients` : "") : "Add hours, patients or pay to a shift later" })),
-      h("span", { class: "trail" }, needs ? h("span", { class: "chip orange", text: String(needs) }) : null, icon("chevR")))));
+        h("span", { class: "meta", text: needs ? `${needs} missing pay or patients` : "Add hours, patients or pay later" })),
+      h("span", { class: "trail" }, needs ? h("span", { class: "chip orange", text: String(needs) }) : null, icon("chevR"))));
   }
-  const listOf = (title, g) => {
-    const fs = group(g);
-    if (!fs.length) return null;
-    const ul = h("div", { class: "list glass" });
-    for (const f of fs) {
-      const k = kindOf(f.kind);
-      ul.append(h("button", { class: "row", type: "button", onclick: () => startForm(f.kind) }, h("span", { class: "ico " + k.color }, icon(k.icon)),
-        h("span", { class: "main" }, h("span", { class: "title", text: k.name }), h("span", { class: "meta", text: descOf(f) })),
-        h("span", { class: "trail" }, draftTag(f), icon("chevR"))));
-    }
-    return h("section", { class: "section" }, h("h2", { text: title }), ul);
-  };
-  p.append(listOf("Now and then", "sometimes"));
-  p.append(listOf("Questions and notes", "any"));
+  if (any.firstChild) p.append(any);
   p.append(recentSection());
   return p;
 }
@@ -1306,8 +1306,8 @@ function recentSection() {
     const canAct = (r.status === "current" || r.status === "held") && r.kind !== "withdraw";
     ul.append(row(prettyDates(r.summary), r.received_at ? "Received " + ago(r.received_at) : "", lab, col, canAct ? () => entryActions(r) : null));
   }
-  if (!ul.firstChild) ul.append(h("div", { class: "row plain" }, h("span", { class: "muted", text: "Nothing yet. What you send appears here." })));
-  s.append(ul);
+  if (ul.firstChild) s.append(ul);
+  s.append(h("p", { class: "foot", text: (ul.firstChild ? "" : "Nothing sent yet. ") + "The MacBook files what you send within 15 minutes of being open." }));
   return s;
 }
 
@@ -1359,10 +1359,10 @@ const LAYOUT = {
     { keys: [["note"]] },
   ],
   expense: [
-    { keys: [["what"], ["amount", "date"]] },
+    { keys: [["what"], ["amount"], ["date"]], foot: "The amount includes tip and tax." },
     { keys: [["paid"]] },
     { keys: [["meal"], ["who_why"]] },
-    { more: "Receipt", hint: "Optional", keys: [["receipt"]] },
+    { keys: [["receipt"]] },
   ],
   bankvisit: [
     { keys: [["date"]] },
@@ -1375,14 +1375,60 @@ const LAYOUT = {
     { keys: [["note"]] },
   ],
   answer: [{ keys: [["question"]] }, { keys: [["answer"]] }],
-  income: [{ keys: [["payer"], ["amount", "date"]] }, { keys: [["month"], ["what"]] }, { keys: [["note"]] }],
-  registered: [{ keys: [["account"], ["direction"]] }, { keys: [["amount", "date"]] }, { keys: [["note"]] }],
-  reading: [{ keys: [["what"]] }, { keys: [["value", "date"]] }, { keys: [["note"]] }],
-  card: [{ keys: [["card"], ["event"]] }, { keys: [["date", "amount"]] }, { keys: [["note"]] }],
-  life: [{ keys: [["what"], ["date", "amount"]] }, { keys: [["text"]] }],
+  income: [{ keys: [["payer"]] }, { keys: [["amount"], ["date"], ["month"]] }, { keys: [["what"], ["note"]] }],
+  registered: [{ keys: [["account"]] }, { keys: [["direction"]] }, { keys: [["amount"], ["date"], ["tax_year"]] }, { keys: [["note"]] }],
+  reading: [{ keys: [["what"]] }, { keys: [["value"], ["date"]] }, { keys: [["note"]] }],
+  card: [{ keys: [["card"]] }, { keys: [["event"]] }, { keys: [["points"], ["amount"], ["date"]] }, { keys: [["note"]] }],
+  life: [{ keys: [["what"]] }, { keys: [["text"]] }, { keys: [["date"], ["amount"]] }],
   note: [{ keys: [["text"]] }, { keys: [["date"]] }],
 };
 const LONG_TEXT = new Set(["text", "answer", "note", "who_why"]);
+const LONG_PLACEHOLDER = { note: "Note", answer: "What you know, or where to find it", who_why: "Who was there, and why it was work",
+                           "life.text": "Tell it in your words", "note.text": "Your note" };
+const SHORT = {
+  "expense.paid": { cash: "Cash", "personal-card": "My own card", "split-etransfer": "Split bill", "corporate-card": "Corporate card" },
+  "income.payer": { mgh: "MGH", ohip: "OHIP", edlp: "EDLP", bochner: "Bochner", endoscopy: "Endoscopy", abp: "ABP", wsib: "WSIB", refund: "Refund", interest: "Interest", other: "Someone else" },
+  "registered.account": { "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA", other: "Other" },
+  "registered.direction": { contribution: "Money in", withdrawal: "Money out", "transfer-in": "Moved in", "transfer-out": "Moved out", between: "Between" },
+  "reading.what": { odometer: "Odometer", "tfsa-value": "TFSA", "rrsp-value": "RRSP", "fhsa-value": "FHSA", "car-value": "Car's value", other: "Other" },
+  "card.event": { points: "Points", spend: "Bonus spend", bonus: "Bonus earned", fee: "Annual fee", limit: "Limit", applied: "Applied", opened: "Opened", closed: "Closed" },
+  "life.what": { moved: "Moved", together: "Together", wedding: "Wedding", insurance: "Insurance", pay: "Salary", car: "The car", other: "Other" },
+};
+const CURRENCY_SHORT = { CAD: "CAD", USD: "USD", EUR: "EUR", GBP: "GBP" };
+function pickColumns(labels) {
+  const n = labels.length;
+  if (n <= 3) return n;
+  if (n === 4) return labels.every(l => l.length <= 6) ? 4 : 2;
+  return 3;
+}
+function dateField(id, name, value, label, onChange) {
+  const inp = h("input", { id, name, type: "date", class: "date-native" });
+  inp.value = value || "";
+  const shown = h("span", { class: "date-shown", "aria-hidden": "true" });
+  const alt = h("button", { class: "datealt", type: "button" });
+  const yday = () => { const d = new Date(); d.setDate(d.getDate() - 1); return isoOf(d); };
+  const sync = () => {
+    const v = inp.value;
+    shown.textContent = !v ? "Choose" : v === todayISO() ? "Today" : v === yday() ? "Yesterday" : shortDate(v);
+    alt.textContent = v === todayISO() ? "Yesterday" : "Today";
+  };
+  const changed = () => { sync(); if (onChange) onChange(inp.value); };
+  alt.addEventListener("click", () => {
+    inp.value = inp.value === todayISO() ? yday() : todayISO();
+    changed(); inp.dispatchEvent(new Event("input", { bubbles: true })); inp.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  inp.addEventListener("input", changed); inp.addEventListener("change", changed);
+  inp.addEventListener("click", () => { try { if (inp.showPicker) inp.showPicker(); } catch (e) { /* not allowed here; typing still works */ } });
+  sync();
+  const el = h("div", { class: "field inline datefield" }, h("label", { for: id, text: label }),
+    h("span", { class: "daterow" }, alt, h("span", { class: "datepill" }, shown, inp)));
+  return { el, input: inp, sync };
+}
+function fitWidth(inp) {
+  const fit = () => { inp.size = Math.max(4, String(inp.value || inp.placeholder || "").length); };
+  inp.addEventListener("input", fit); fit();
+  return fit;
+}
 function monthsAround() {
   const out = [], d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + 1);
   for (let i = 0; i < 15; i++) { out.push({ value: `${d.getFullYear()}-${pad(d.getMonth() + 1)}`, label: d.toLocaleDateString("en-CA", { month: "long", year: "numeric" }) }); d.setMonth(d.getMonth() - 1); }
@@ -1391,7 +1437,10 @@ function monthsAround() {
 const LABELS = { description: "Which shift", pay_ffs: "Paid, all payers", billed_total: "Submitted, all payers", ffs_billed: "Fees MGH billed", shadow_pct: "Shadow billing %", pay_shadow: "Shadow billing pay", pay_travel: "Travel time paid", patients_private: "Private patients",
                  who_why: "Who was there, and why it was work", receipt: "Where the receipt photo is", balance: "Chequing balance you see now", sweep: "Sent to Questrade (the corporation's cash account)",
                  visa_owing: "Corporate Visa: balance owing", amex_owing: "Amex Business Platinum: balance still owing" };
-function labelOf(fld) { return LABELS[fld.key] || fld.label.replace(/\s*\(.*?\)\s*$/, ""); }
+const KIND_LABELS = { "expense.amount": "Amount", "expense.meal": "A meal or entertainment?", "income.month": "For the month", "income.what": "What it was for",
+                      "registered.tax_year": "Tax year", "reading.value": "Reading", "card.points": "Points", "life.amount": "Amount, if any",
+                      "expense.receipt": "Receipt file name, if you have it" };
+function labelOf(fld, kind) { return (kind && KIND_LABELS[kind + "." + fld.key]) || LABELS[fld.key] || fld.label.replace(/\s*\(.*?\)\s*$/, ""); }
 function hintOf(fld) { const m = /\((.*)\)\s*$/.exec(fld.label); return m ? m[1] : ""; }
 
 function renderForm() {
@@ -1434,7 +1483,8 @@ function buildForm(f) {
   const fieldEl = fld => {
     const id = `f-${f.kind}-${fld.key}`;
     const v = initial(fld);
-    const label = h("label", { for: id }, labelOf(fld), fld.required || inMore || ["who_why", "balance", "visa_owing", "amex_owing"].includes(fld.key) ? null : h("span", { class: "opt", text: "optional" }));
+    const name = labelOf(fld, f.kind);
+    const label = h("label", { for: id }, name);
     const wrap = h("div", { class: "field" }, label);
     let inp;
     if (fld.type === "checklist") {
@@ -1474,7 +1524,11 @@ function buildForm(f) {
       const holder = h("div", {}, hidden, box);
       return holder;
     }
-    const opts = fld.type === "choice" ? (fld.options || []) : fld.type === "month" ? monthsAround() : null;
+    let opts = fld.type === "choice" ? (fld.options || []) : fld.type === "month" ? monthsAround() : null;
+    const inline = name.length <= 26 && !(f.kind === "bankvisit" && fld.type === "money");
+    const short = SHORT[f.kind + "." + fld.key] || {};
+    const shortOf = o => short[o.value] || o.label;
+    const changed = () => form.dispatchEvent(new Event("change"));
     if (opts && opts.length <= 2 && opts.every(o => o.label.length <= 16)) {
       const hidden = h("input", { type: "hidden", id, name: fld.key });
       hidden.value = v || "";
@@ -1484,42 +1538,98 @@ function buildForm(f) {
         b.addEventListener("click", () => {
           hidden.value = o.value;
           for (const x of segs.children) x.setAttribute("aria-checked", String(x === b));
-          form.dispatchEvent(new Event("change"));
+          changed();
         });
         segs.append(b);
       }
+      if (inline) wrap.classList.add("inline", "segrow");
       wrap.append(hidden, segs);
       inp = hidden;
+    } else if (opts && fld.type === "choice" && opts.length <= 10 && opts.every(o => shortOf(o).length <= 18)) {
+      const hidden = h("input", { type: "hidden", id, name: fld.key });
+      hidden.value = v || "";
+      const order = Object.keys(short);
+      opts = opts.slice().sort((a, b) => (order.includes(a.value) ? order.indexOf(a.value) : 99) - (order.includes(b.value) ? order.indexOf(b.value) : 99));
+      const labels = opts.map(shortOf);
+      const pills = h("div", { class: "pills pick", role: "radiogroup", "aria-label": name, style: `grid-template-columns: repeat(${pickColumns(labels)}, minmax(0, 1fr))` });
+      const said = h("div", { class: "gf picksaid" });
+      const syncSaid = () => {
+        const o = opts.find(x => x.value === hidden.value), full = o ? o.label.replace(/^[a-z0-9-]+:\s*/, "") : "";
+        said.textContent = o && full.toLowerCase() !== shortOf(o).toLowerCase() ? full.replace(/\s*\((.{1,4})\)$/, "").replace(/\s*\((.*)\)$/, ": $1") : "";
+        said.hidden = !said.textContent;
+      };
+      opts.forEach((o, i) => {
+        const b = h("button", { type: "button", role: "radio", "aria-checked": String(o.value === hidden.value), "data-value": o.value }, labels[i]);
+        b.addEventListener("click", () => {
+          hidden.value = o.value;
+          for (const x of pills.children) x.setAttribute("aria-checked", String(x === b));
+          wrap.classList.remove("bad"); syncSaid(); changed();
+        });
+        pills.append(b);
+      });
+      syncSaid();
+      const pick = h("div", { class: "pickgroup" }, h("div", { class: "gh", text: name }), hidden, pills, said);
+      inputs[fld.key] = hidden; wraps[fld.key] = pick;
+      return pick;
     } else if (opts) {
       inp = h("select", { id, name: fld.key });
-      inp.append(h("option", { value: "" }, fld.type === "month" ? "Choose the month…" : "Choose…"));
+      inp.append(h("option", { value: "" }, inline ? "Choose" : fld.type === "month" ? "Choose the month…" : "Choose…"));
       for (const o of opts) inp.append(h("option", { value: o.value, selected: o.value === v }, o.label.replace(/^[a-z0-9-]+:\s*/, "")));
-      inp.addEventListener("change", () => form.dispatchEvent(new Event("change")));
+      inp.addEventListener("change", changed);
       wrap.classList.add("menu");
+      if (inline && opts.every(o => o.label.length <= 20)) wrap.classList.add("inline");
       wrap.append(h("span", { class: "menu-arrows", "aria-hidden": "true" }, icon("updown")), inp);
     } else if (LONG_TEXT.has(fld.key)) {
-      inp = h("textarea", { id, name: fld.key, maxlength: 500, rows: 3, placeholder: fld.key === "answer" ? "What you know, or where to find it" : fld.key === "who_why" ? "" : hintOf(fld) });
+      const ph = LONG_PLACEHOLDER[f.kind + "." + fld.key] || LONG_PLACEHOLDER[fld.key] || name;
+      const rows = fld.key === "note" ? 1 : 3;
+      inp = h("textarea", { id, name: fld.key, maxlength: 500, rows, placeholder: ph, "aria-label": name });
       inp.value = v; wrap.append(inp);
-      const grow = () => { inp.rows = 3; while (inp.scrollHeight > inp.clientHeight + 2 && inp.rows < 14) inp.rows += 1; };
+      wrap.classList.add("bare", fld.key === "note" ? "noteline" : "longtext");
+      const grow = () => { inp.rows = rows; while (inp.scrollHeight > inp.clientHeight + 2 && inp.rows < 14) inp.rows += 1; };
       inp.addEventListener("input", grow); setTimeout(grow, 0);
+    } else if (fld.type === "date") {
+      const d = dateField(id, fld.key, v, name);
+      inputs[fld.key] = d.input; wraps[fld.key] = d.el;
+      return d.el;
     } else {
-      const type = { date: "date", time: "time" }[fld.type] || "text";
+      const type = { time: "time" }[fld.type] || "text";
       const isNum = fld.type === "money" || fld.type === "number";
       const listId = fld.suggest && fld.suggest.length ? id + "-list" : null;
       inp = h("input", { id, name: fld.key, type, maxlength: 500, inputmode: isNum ? "decimal" : null, autocomplete: "off",
-                         list: listId, placeholder: type === "text" && fld.type !== "money" ? hintOf(fld) : null });
+                         list: listId, placeholder: type === "text" && !isNum ? hintOf(fld) : null });
       if (listId) wrap.append(h("datalist", { id: listId }, fld.suggest.map(x => h("option", { value: x }))));
       inp.value = v;
-      if (fld.type === "money") wrap.append(h("div", { class: "money" }, h("span", { text: "$", "aria-hidden": "true" }), inp));
-      else if (fld.key === "shadow_pct") wrap.append(h("div", { class: "money" }, inp, h("span", { text: "%", "aria-hidden": "true" })));
-      else if (fld.key !== "shadow_pct") wrap.append(inp);
+      if (isNum && inline) {
+        wrap.classList.add("inline");
+        inp.placeholder = fld.type === "money" ? "0.00" : "0";
+        const fit = fitWidth(inp);
+        const cur = fld.key === "amount" && byKey.currency ? byKey.currency : null;
+        let curSel = null;
+        if (cur) {
+          curSel = h("select", { id: `f-${f.kind}-currency`, name: "currency", class: "cur", "aria-label": "Currency" });
+          const cv = pre.currency && pre.currency !== "CAD" ? pre.currency : "";
+          curSel.append(h("option", { value: "" }, "CAD"));
+          for (const o of cur.options || []) if (o.value !== "CAD") curSel.append(h("option", { value: o.value, selected: o.value === cv }, CURRENCY_SHORT[o.value] || o.value));
+          curSel.addEventListener("change", changed);
+          inputs.currency = curSel; wraps.currency = wrap;
+        }
+        wrap.append(h("div", { class: "money" }, fld.type === "money" ? h("span", { text: "$", "aria-hidden": "true" }) : null, inp, curSel));
+        if (fld.type === "money") inp.addEventListener("blur", () => { const n = money(inp.value); if (inp.value.trim() && n !== null) { inp.value = n.toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); fit(); } });
+      } else if (fld.type === "money") {
+        wrap.append(h("div", { class: "money" }, h("span", { text: "$", "aria-hidden": "true" }), inp));
+        inp.addEventListener("blur", () => { const n = money(inp.value); if (inp.value.trim() && n !== null) inp.value = n.toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); });
+      } else if (fld.key === "shadow_pct") wrap.append(h("div", { class: "money" }, inp, h("span", { text: "%", "aria-hidden": "true" })));
+      else {
+        wrap.classList.add("bare");
+        inp.placeholder = name; inp.setAttribute("aria-label", name);
+        wrap.append(inp);
+      }
       if (fld.key === "balance" || fld.key === "visa_owing" || fld.key === "amex_owing")
         inp.addEventListener("input", () => { updateSweep(form); });
-      if (fld.type === "money") inp.addEventListener("blur", () => { const n = money(inp.value); if (inp.value.trim() && n !== null) inp.value = n.toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); });
     }
     const st = f.kind === "bankvisit" ? fromStatement(fld.key) : null;
     if (st) wrap.append(h("span", { class: "small muted", text: `Filled in from the statement closing ${dayName(st.date, { day: "numeric", month: "long" })}: ${fmt$(st.balance)}. Change it if the card's screen says otherwise.` }));
-    else if (fld.type === "money" && hintOf(fld)) wrap.append(h("span", { class: "small muted", text: hintOf(fld).replace(/^./, c => c.toUpperCase()) }));
+    else if (fld.type === "money" && hintOf(fld) && !wrap.classList.contains("inline")) wrap.append(h("span", { class: "small muted", text: hintOf(fld).replace(/^./, c => c.toUpperCase()) }));
     inputs[fld.key] = inp; wraps[fld.key] = wrap;
     return wrap;
   };
@@ -1530,7 +1640,17 @@ function buildForm(f) {
     return h("div", { class: "pair" }, present.map(k => fieldEl(byKey[k])));
   };
 
-  const used = new Set();
+  const used = new Set(byKey.amount && byKey.currency ? ["currency"] : []);
+  const cards = rows => {
+    const out = [];
+    let card = null;
+    for (const r of rows) {
+      if (r.classList && r.classList.contains("pickgroup")) { card = null; out.push(r); continue; }
+      if (!card) { card = h("div", { class: "fields glass" }); out.push(card); }
+      card.append(r);
+    }
+    return out;
+  };
   const layout = LAYOUT[f.kind] || [{ keys: f.fields.map(x => [x.key]) }];
   for (const g of layout) {
     if (g.sweep) { form.append(h("div", { class: "sweep glass", id: "sweep" })); continue; }
@@ -1546,14 +1666,14 @@ function buildForm(f) {
         h("div", { class: "fields" }, rows)));
     } else {
       form.append(h("div", { class: "group" }, g.h ? h("div", { class: "gh", text: g.h }) : null,
-        isQuestion ? rows : h("div", { class: "fields glass" }, rows), g.foot ? h("div", { class: "gf", text: typeof g.foot === "function" ? g.foot() : g.foot }) : null));
+        isQuestion ? rows : cards(rows), g.foot ? h("div", { class: "gf", text: typeof g.foot === "function" ? g.foot() : g.foot }) : null));
     }
   }
   const wpRes = f.kind === "answer" ? String((pre || {}).resolution || "") : "";
   const wpShow = { deposit: wpRes === "partly-paid" || wpRes === "paid-by", amount: wpRes === "partly-paid" || wpRes === "paid-amount", expect_by: wpRes === "resubmitted" };
   const rest = f.fields.filter(x => !used.has(x.key) && !(f.kind === "answer" && x.key === "resolution")
                                     && !(f.kind === "answer" && x.key in wpShow && !wpShow[x.key]));
-  if (rest.length) form.append(h("div", { class: "group" }, h("div", { class: "fields glass" }, rest.map(fieldEl))));
+  if (rest.length) form.append(h("div", { class: "group" }, cards(rest.map(fieldEl))));
 
   const drafts = load("drafts", {});
   const collect = () => {
@@ -1618,10 +1738,10 @@ function buildForm(f) {
   };
   form.addEventListener("change", syncShowIf); setTimeout(syncShowIf, 0);
   if (f.kind === "reading" && inputs.what && wraps.value) {
-    const unitMark = h("span", { class: "unitmark", "aria-hidden": "true" });
-    const ip = inputs.value; ip.before(unitMark);
-    const syncUnit = () => { const dollars = /value$/.test(inputs.what.value); unitMark.textContent = dollars ? "$" : ""; ip.placeholder = inputs.what.value === "odometer" ? "in km" : ""; };
-    inputs.what.addEventListener("change", syncUnit); syncUnit();
+    const unitMark = h("span", { class: "unitmark", "aria-hidden": "true" }), kmMark = h("span", { class: "unitmark", "aria-hidden": "true" });
+    const ip = inputs.value; ip.before(unitMark); ip.after(kmMark);
+    const syncUnit = () => { const dollars = /value$/.test(inputs.what.value); unitMark.textContent = dollars ? "$" : ""; kmMark.textContent = inputs.what.value === "odometer" ? "km" : ""; };
+    form.addEventListener("change", syncUnit); syncUnit();
   }
 
   const syncMeal = () => {
@@ -1632,8 +1752,15 @@ function buildForm(f) {
 
   if (f.kind === "bankvisit")
     form.append(h("p", { class: "small muted", text: "This only records the day. It moves no money: make the transfer to Questrade yourself, from corporate chequing, as a bill payment." }));
-  form.append(h("div", { class: "formbar" }, h("button", { class: "btn primary", type: "submit" },
-    VIEW.corrects ? "Send the correction" : f.kind === "bankvisit" ? "Record the day" : "Send")));
+  const sendBtn = h("button", { class: "btn primary", type: "submit" },
+    VIEW.corrects ? "Send the correction" : f.kind === "bankvisit" ? "Record the day" : "Send");
+  form.append(h("div", { class: "formbar" }, sendBtn));
+  const syncReady = () => {
+    const missing = f.fields.some(fld => fld.required && inputs[fld.key] && !(wraps[fld.key] && wraps[fld.key].hidden)
+      && fld.type !== "checklist" && !String(inputs[fld.key].value || "").trim());
+    sendBtn.classList.toggle("notready", missing);
+  };
+  form.addEventListener("input", syncReady); form.addEventListener("change", syncReady); setTimeout(syncReady, 0);
   form.addEventListener("submit", ev => {
     ev.preventDefault();
     const fields = {}, problems = [];
@@ -1648,8 +1775,8 @@ function buildForm(f) {
       if (wraps[fld.key] && wraps[fld.key].hidden) continue;   // not asked, so not sent
       const val = String(inp.value || "").trim();
       let bad = false;
-      if (fld.required && !val) { problems.push(labelOf(fld) + " is missing"); bad = true; }
-      if (val && (fld.type === "money" || fld.type === "number") && !/^-?\d{1,7}(\.\d{1,2})?$/.test(val.replace(/[,$\s]/g, ""))) { problems.push(labelOf(fld) + ": type a number like 18.50"); bad = true; }
+      if (fld.required && !val) { problems.push(labelOf(fld, f.kind) + " is missing"); bad = true; }
+      if (val && (fld.type === "money" || fld.type === "number") && !/^-?\d{1,7}(\.\d{1,2})?$/.test(val.replace(/[,$\s]/g, ""))) { problems.push(labelOf(fld, f.kind) + ": type a number like 18.50"); bad = true; }
       if (bad && wraps[fld.key] && wraps[fld.key].classList) wraps[fld.key].classList.add("bad");
       if (val) fields[fld.key] = (fld.type === "money" || fld.type === "number") ? val.replace(/[,$\s]/g, "") : val;
     }
@@ -1715,7 +1842,7 @@ function mineFor(place) {
 }
 
 function combo(o) {
-  const wrap = h("div", { class: "field menu combo" });
+  const wrap = h("div", { class: "field menu combo inline" });
   const lab = h("label", { for: o.id, text: o.label });
   const sel = h("select", { id: o.id, name: o.name });
   const txt = h("input", { id: o.id + "-new", type: "text", maxlength: 120, autocomplete: "off", autocapitalize: "words", placeholder: o.placeholder || "", hidden: true });
@@ -1725,7 +1852,7 @@ function combo(o) {
   const changed = () => { if (o.onChange) o.onChange(api.value); };
   const fill = groups => {
     clear(sel); all = new Set();
-    sel.append(h("option", { value: "" }, "Choose…"));
+    sel.append(h("option", { value: "" }, "Choose"));
     for (const [g, vals] of groups) {
       const vs = vals.filter(Boolean);
       if (!vs.length) continue;
@@ -1755,10 +1882,11 @@ function combo(o) {
 
 function numField(key, value, onInput, label) {
   const id = "f-shift-" + key;
-  const wrap = h("div", { class: "field" }, h("label", { for: id, text: label || SHIFT_LABELS[key] || key }));
+  const name = label || SHIFT_LABELS[key] || key, inline = name.length <= 26;
+  const wrap = h("div", { class: "field" + (inline ? " inline" : "") }, h("label", { for: id, text: name }));
   if (key === "period") {
     const sel = h("select", { id, name: key });
-    sel.append(h("option", { value: "" }, "Choose the month…"));
+    sel.append(h("option", { value: "" }, "Choose"));
     const months = monthsAround();
     if (value && !months.some(o => o.value === value)) months.push({ value, label: keyLabel(value, true) });   // an older month, kept
     for (const o of months) sel.append(h("option", { value: o.value, selected: o.value === value }, o.label));
@@ -1769,11 +1897,13 @@ function numField(key, value, onInput, label) {
   }
   const isMoney = PAY_KEYS.includes(key) && key !== "shadow_pct";
   const inp = h("input", { id, name: key, type: "text", inputmode: "decimal", autocomplete: "off", maxlength: 12,
-                           placeholder: key === "hours" ? "Leave blank to use your phone's measure" : key === "amount" ? "Leave blank to add up the parts above" : key === "patients" ? "How many you saw" : "" });
+                           placeholder: key === "hours" ? "0" : key === "amount" ? "Sum of parts" : isMoney ? "0.00" : "0" });
   inp.value = value || "";
+  if (inline) fitWidth(inp);
   const unit = key === "shadow_pct" ? "%" : key === "hours" || key === "travel_hours" ? "h" : "";
   wrap.append(h("div", { class: "money" }, isMoney ? h("span", { text: "$", "aria-hidden": "true" }) : null, inp, unit ? h("span", { text: unit, "aria-hidden": "true" }) : null));
-  if (key === "amount") wrap.append(h("span", { class: "small muted", text: "Paid as part of a block, on another shift? Type 0." }));
+  if (key === "amount") wrap.append(h("span", { class: "small muted", text: "Left blank, it is the parts added up. Paid as part of a block, on another shift? Type 0." }));
+  if (key === "hours") wrap.append(h("span", { class: "small muted", text: "Left blank, your phone's record of the time at work is used." }));
   inp.addEventListener("input", () => onInput(key, inp.value));
   if (isMoney) inp.addEventListener("blur", () => { const n = money(inp.value); if (inp.value.trim() && n !== null) { inp.value = n.toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); onInput(key, inp.value); } });
   return { el: wrap, input: inp };
@@ -1811,15 +1941,8 @@ function buildShiftForm(f) {
   };
   const setVal = (k, v) => { vals[k] = v; keepDraft(); };
 
-  const date = h("input", { id: "f-shift-date", name: "date", type: "date" });
-  date.value = vals.date;
-  const yday = h("button", { class: "btn small gray", type: "button" }, "Yesterday");
-  const syncY = () => { yday.textContent = date.value === todayISO() ? "Yesterday" : "Today"; };
-  yday.addEventListener("click", () => { const d = new Date(); if (date.value === todayISO()) d.setDate(d.getDate() - 1); date.value = isoOf(d); setVal("date", date.value); syncY(); });
-  date.addEventListener("input", () => { setVal("date", date.value); syncY(); });
-  date.addEventListener("change", () => { setVal("date", date.value); syncY(); });
-  syncY();
-  const dateWrap = h("div", { class: "field datefield" }, h("label", { for: "f-shift-date", text: "Date" }), h("div", { class: "daterow" }, date, yday));
+  const dated = dateField("f-shift-date", "date", vals.date, "Date", v => setVal("date", v));
+  const date = dated.input, dateWrap = dated.el;
   const identity = h("div", { class: "shiftpart" });
   const moreBox = h("div", { class: "shiftpart" });
   identity.append(h("div", { class: "group" }, h("div", { class: "fields glass" }, dateWrap)));
@@ -1846,7 +1969,7 @@ function buildShiftForm(f) {
   }
   const wraps = { place: pills };
   identity.append(h("div", { class: "group" }, h("div", { class: "gh", text: "Where" }), pills,
-    h("div", { class: "gf", text: "Somewhere new? Send a note: it is set up on the MacBook, then appears here." })));
+    h("div", { class: "gf", text: "Somewhere new? Send a note saying where, and it appears here once the MacBook has it." })));
 
   const rest = h("div", { class: "shiftpart" });
   identity.append(rest);
@@ -1873,10 +1996,9 @@ function buildShiftForm(f) {
     const box = h("div", { class: "fields glass" });
     if (!pl.site) {
       const sites = pl.sites.slice();
-      site = combo({ id: "f-shift-site", name: "site", label: vals.siteAuto && vals.site ? "Site, as your last shift there" : "Site", groups: [[null, sites]], value: vals.site || "", noNew: true, placeholder: "The town or clinic",
+      site = combo({ id: "f-shift-site", name: "site", label: "Site", groups: [[null, sites]], value: vals.site || "", noNew: true, placeholder: "The town or clinic",
                      onChange: v => { setVal("site", v); if (shift) { const cur = shift.value; shift.el.replaceWith((shift = shiftCombo(pl, mine, cur)).el); } } });
       box.append(site.el);
-      box.append(h("p", { class: "foot", text: "A site not listed? Send a Note saying where: it is added on the MacBook, then appears here." }));
     }
     shift = shiftCombo(pl, mine, vals.description || "");
     box.append(shift.el);
@@ -1886,7 +2008,7 @@ function buildShiftForm(f) {
       box.append(stipendMonth.el);
       syncStipend();
     }
-    rest.append(h("div", { class: "group" }, box));
+    rest.append(h("div", { class: "group" }, box, pl.site ? null : h("div", { class: "gf", text: "A site not listed? Send a note saying where, and it appears here once the MacBook has it." })));
     const asks = pl.asks || ["hours"];
     const section = (title, hint, keys, open) => {
       const rows = keys.map(k => { const nf = numField(k, vals[k], setVal, payLabel(k, pl.value)); inputs[k] = nf.input; return nf.el; });
@@ -1900,10 +2022,11 @@ function buildShiftForm(f) {
     moreBox.append(section(hk.includes("patients") ? "What you did" : "Hours", hk.includes("patients") ? "Hours, and how many you saw" : (later || "Optional"), hk, !!VIEW.details));
     moreBox.append(billingSection(pl, asks));
     moreBox.append(section("What it paid", later || "Optional", pk, !!VIEW.details));
-    const note = h("textarea", { id: "f-shift-note", name: "note", maxlength: 500, rows: 2, placeholder: "Anything to add" });
+    const note = h("textarea", { id: "f-shift-note", name: "note", maxlength: 500, rows: 1, placeholder: "Note", "aria-label": "Note" });
     note.value = vals.note || "";
-    note.addEventListener("input", () => setVal("note", note.value));
-    moreBox.append(h("div", { class: "fields glass" }, h("div", { class: "field" }, h("label", { for: "f-shift-note" }, "Note", h("span", { class: "opt", text: "optional" })), note)));
+    const grow = () => { note.rows = 1; while (note.scrollHeight > note.clientHeight + 2 && note.rows < 14) note.rows += 1; };
+    note.addEventListener("input", () => { setVal("note", note.value); grow(); }); setTimeout(grow, 0);
+    moreBox.append(h("div", { class: "fields glass" }, h("div", { class: "field bare noteline" }, h("label", { for: "f-shift-note" }, "Note"), note)));
     if (focus && motionOK()) { rest.classList.add("fadein"); moreBox.classList.add("fadein"); }
   }
   function billingSection(pl, asks) {
@@ -2416,13 +2539,17 @@ function openTrendOf(id) {
 function householdNow() {
   const nw = (SNAP && SNAP.networth) || {};
   if (nw.now) return { date: nw.now.date, total: money(nw.now.household), corp: money(nw.now.corporation), pers: money(nw.now.personal),
-                       since: money(nw.now.personal_since), from: nw.now.personal_from, basis: nw.now.basis || "estimate", corpBasis: nw.now.corporation_label, note: nw.now.note, est: nw.now.basis !== "verified" };
+                       since: money(nw.now.personal_since), from: nw.now.personal_from, basis: nw.now.basis || "estimate", corpBasis: nw.now.corporation_label, note: nw.now.note, est: nw.now.basis !== "verified",
+                       aboutNow: !!nw.now.about_now, corpFrom: nw.now.corporation_from || nw.now.date, corpNote: nw.now.corporation_note, persNote: nw.now.personal_note };
   if (nw.household) return { date: nw.date, total: money(nw.household), corp: money(nw.corporation), pers: money(nw.personal), since: 0, from: nw.date,
                              basis: "recorded", corpBasis: nw.corporation_label, est: false };
   return null;
 }
 function householdWhy(n) {
   const nw = (SNAP && SNAP.networth) || {};
+  if (n.aboutNow) return [`About now, ${prettyDates(n.date)}: the statements to ${prettyDates(n.from)}, carried to today.`,
+          "It counts the corporation, at market, and your TFSA, RRSP and FHSA. Before the tax paid to take money out of the corporation.",
+          `The corporation: ${n.corpNote}.`, `Your accounts: ${n.persNote}.`, `An estimate: ${n.note}.`];
   return [`At ${prettyDates(n.date)}${n.est ? ", the corporation's latest month-end with a bank and Questrade statement" : ""}.`,
           "It counts the corporation, at market, and your TFSA, RRSP and FHSA. Before the tax paid to take money out of the corporation.",
           n.est ? `An estimate: ${n.note}.` : "", nw.household && n.est ? `At ${prettyDates(nw.date)}, the last year end with every account's value, it was ${fmtWhole$(Math.round(money(nw.household)))}.` : "",
@@ -2440,8 +2567,8 @@ function summaryTotal() {
     basis: (S.net_worth || {}).basis, why: householdWhy(n),
     foot: "The corporation whole and your TFSA, RRSP and FHSA. Not the car, the condo or your personal chequing account.",
     meta: [up !== null ? h("span", { class: "delta", text: `${up >= 0 ? "Up" : "Down"} ${compact(Math.abs(up), "$")} since ${prettyDates(nw.date)}.` }) : null,
-           n.since ? h("span", { class: "asof", text: n.since > 0 ? `Plus ${fmtWhole$(Math.round(n.since))} put in since, which no statement covers yet.`
-                                                               : `Less ${fmtWhole$(Math.round(-n.since))} taken out since, net, which no statement covers yet.` }) : null,
+           n.since ? h("span", { class: "asof", text: n.since > 0 ? `Includes ${fmtWhole$(Math.round(n.since))} you put in since ${prettyDates(n.from)}, which no statement covers yet.`
+                                                               : `Includes ${fmtWhole$(Math.round(-n.since))} taken out since ${prettyDates(n.from)}, net, which no statement covers yet.` }) : null,
            h("span", { class: "asof", text: "Before the tax paid to take money out of the corporation." })] });
   if (tmc) g.append(tmc);
   else {
@@ -2460,16 +2587,16 @@ function summaryTotal() {
     h("span", { class: "amt", text: fmtWhole$(Math.round(v)) }), basisDot(basis, why)), `${label}, ${fmtWhole$(Math.round(v))}. Show in detail`, () => { save("sumpart", part); render(); window.scrollTo(0, 0); });
   const oneDate = new Set(Object.values(((SNAP.networth || {}).now || {}).personal_dates || { x: n.from })).size === 1;
   const valueWord = oneDate ? `${monthDay(n.from)} value` : "latest values";
-  const persSub = n.since ? `${pct(n.pers)} · ${valueWord} + ${fmtWhole$(Math.round(n.since))} put in to ${monthDay(n.date)}` : `${pct(n.pers)} · ${valueWord}`;
+  const persSub = n.aboutNow ? `${pct(n.pers)} · about now` : n.since ? `${pct(n.pers)} · ${valueWord} + ${fmtWhole$(Math.round(n.since))} put in to ${monthDay(n.date)}` : `${pct(n.pers)} · ${valueWord}`;
   out.append(h("section", { class: "section" }, h("h2", { text: "Breakdown" }),
     h("div", { class: "card glass splitcard" },
       meter([{ value: n.corp, cls: "s0", label: "Corporation" }, { value: n.pers, cls: "s1", label: "TFSA, RRSP, FHSA" }]),
       h("div", { class: "list flat" },
-        row("s0", "Corporation", `${pct(n.corp)} · at market, ${monthDay(n.date)}`, n.corp, n.corpBasis,
-            [`At ${prettyDates(n.date)}.`, "Its investments and chequing, plus money on its way from chequing to Questrade, less what it owes on its Visa.", "Before the tax paid to take money out of the corporation, and before a payroll remittance still to be paid."], "corporation"),
-        row("s1", "TFSA, RRSP, FHSA", persSub, n.pers, n.since ? "estimate" : Object.entries(((SNAP.networth || {}).now || {}).personal_dates || {}).some(([a, d]) =>
+        row("s0", "Corporation", `${pct(n.corp)} · ${n.aboutNow ? "about now" : "at market, " + monthDay(n.date)}`, n.corp, n.corpBasis,
+            (n.aboutNow ? [`About now: ${n.corpNote}.`] : [`At ${prettyDates(n.date)}.`]).concat(["Its investments and chequing, plus money on its way from chequing to Questrade, less what it owes on its Visa.", "Before the tax paid to take money out of the corporation, and before a payroll remittance still to be paid."]), "corporation"),
+        row("s1", "TFSA, RRSP, FHSA", persSub, n.pers, n.aboutNow || n.since ? "estimate" : Object.entries(((SNAP.networth || {}).now || {}).personal_dates || {}).some(([a, d]) =>
               ((regOf(a) || {}).values || []).some(v => v[0] === d && basisOf(v[2]) !== "verified")) ? "recorded" : nw.personal_label,
-            [oneDate ? `Their values at ${prettyDates(n.from)}, from each account's own Questrade statement (or a reading you sent from this page).`
+            n.aboutNow ? [`About now: ${n.persNote}.`] : [oneDate ? `Their values at ${prettyDates(n.from)}, from each account's own Questrade statement (or a reading you sent from this page).`
                      : `Each at its latest value: ${Object.entries(((SNAP.networth || {}).now || {}).personal_dates || {}).map(([a, d]) => `${({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[a]} ${monthDay(d)}`).join(", ")}, from each account's own Questrade statement (or a reading you sent from this page).`,
              n.since ? `Plus ${fmtWhole$(Math.round(n.since))} you put in between then and ${prettyDates(n.date)}, from your Registered Contributions tab and this page. How their investments moved since is not known until the next statements, so this is an estimate.` : ""], "personal"))),
       h("p", { class: "foot", text: "Choose either line to see it in detail." })));
@@ -2519,6 +2646,8 @@ function moneyCard(opts) {
   const last = k => { const p = (S[k] || {}).points; return p && p.length ? p[p.length - 1] : null; };
   const lw = last(opts.worth), la = opts.all ? last(opts.all) : null;
   const head = la ? la[1] : lw[1];
+  const an = (all || worth).about_now, est = !!(an && String((la || lw)[0]) >= an.date);
+  const anWhy = est ? [`About now: ${an.note}.`, `The statements stop at ${prettyDates(an.from)}; the dashed end of the line is today's estimate, and the next statement replaces it.`] : [];
   const putLabel = opts.nets ? "Put in, less taken out" : "Put in";
   const worthLabel = opts.worthLabel || (all ? "Invested" : "What it is worth");
   const sers = [];
@@ -2542,10 +2671,11 @@ function moneyCard(opts) {
     return out;
   };
   const body = chart(sers, { form: "line", unit: "$", height: 128, legend: true, tip: rows });
-  return figCard(o, { hero: true, label: opts.label, value: fmtWhole$(Math.round(head)), body,
-    basis: opts.basis, why: opts.why,
+  return figCard(o, { hero: true, label: opts.label, value: fmtWhole$(Math.round(head)), body, about: est,
+    basis: est ? "estimate" : opts.basis, why: est ? anWhy.concat(opts.why || []) : opts.why,
     onOpen: () => openView({ type: "trend", keys: [opts.all, opts.worth, opts.put].filter(Boolean), title: opts.label }),
-    meta: (opts.meta || []).concat([h("span", { class: "asof", text: opts.foot })]) });
+    meta: (est ? [h("span", { class: "asof", text: `About now, ${prettyDates(an.date)}: the statements to ${prettyDates(an.from)}, carried to today${an.price_day ? " at VEQT's close of " + prettyDates(an.price_day) : ""}.` })] : [])
+      .concat(opts.meta || []).concat([h("span", { class: "asof", text: opts.foot })]) });
 }
 
 function returnsCard(side) {
@@ -2620,7 +2750,7 @@ function summaryCorp() {
     for (const [id, title, keys] of cards) {
       let sub = null, basis = S[keys[0]].basis, why = [plainSource(S[keys[0]].source) + "."];
       if (id === "invest") {
-        const mv = S.invest_market.points, cv = S.invest_cost.points, lm = mv[mv.length - 1], lc = cv[cv.length - 1];
+        const mv = settled(S.invest_market).points, cv = settled(S.invest_cost).points, lm = mv[mv.length - 1], lc = cv[cv.length - 1];
         if (lm && lc && lm[0] === lc[0]) {
           const gv = lm[1] - lc[1];
           sub = h("span", { class: "tc-sub" }, `Worth ${compact(Math.abs(gv), "$", true)} ${gv >= 0 ? "more" : "less"} than they cost, at ${keyLabel(lm[0], true)}`);
@@ -2639,9 +2769,20 @@ function summaryCorp() {
   return out;
 }
 
+function corpPriceSince(day) {
+  const cm = ((SNAP && SNAP.series) || {}).corp_market;
+  if (!cm || !cm.about_now || cm.about_now.from !== day || cm.points.length < 2) return null;
+  return Math.round((cm.points[cm.points.length - 1][1] - cm.points[cm.points.length - 2][1]) * 100) / 100;
+}
+function corpSinceWords(day) {
+  return corpPriceSince(day) === null ? "" : " The price since is an estimate, from VEQT's latest close. What the corporation sent to Questrade or paid out since counts from its next statements.";
+}
 function corpPartsCard() {
-  const C = ((SNAP && SNAP.networth) || {}).corp_parts;
-  if (!C || !(C.parts || []).length) return null;
+  const C0 = ((SNAP && SNAP.networth) || {}).corp_parts;
+  if (!C0 || !(C0.parts || []).length) return null;
+  const pm = corpPriceSince(C0.date);
+  const C = pm === null ? C0 : { ...C0, label: "estimate", total: String(money(C0.total) + pm),
+    parts: C0.parts.concat([{ id: "price_since", label: `VEQT's price since ${monthDay(C0.date)}`, value: String(pm) }]) };
   const total = money(C.total), held = C.parts.filter(pt => money(pt.value) > 0);
   const share = v => { const p = v / total * 100; return (Math.abs(p) < 1 ? p.toFixed(1) : String(Math.round(p))) + "%"; };
   const swatch = pt => { const i = held.indexOf(pt); return i >= 0 ? "sw2 s" + (i % 3) : "sw2 owed"; };
@@ -2649,16 +2790,17 @@ function corpPartsCard() {
     const v = money(pt.value);
     return h("div", { class: "row plain legendrow2" },
       h("span", { class: "main" }, h("span", { class: "title" }, h("span", { class: swatch(pt) }), pt.label),
-        h("span", { class: "meta", text: v < 0 ? "Owed, and taken off" : share(v) })),
-      h("span", { class: "amt" + (v < 0 ? " owed" : ""), text: (v < 0 ? "−" : "") + fmtWhole$(Math.round(Math.abs(v))) }));
+        h("span", { class: "meta", text: pt.id === "price_since" ? (v < 0 ? "A fall, taken off; an estimate" : share(v) + "; an estimate") : v < 0 ? "Owed, and taken off" : share(v) })),
+      h("span", { class: "amt" + (v < 0 ? " owed" : ""), text: (v < 0 && pt.id !== "price_since" ? "−" : pt.id === "price_since" ? (v < 0 ? "−" : "+") : "") + fmtWhole$(Math.round(Math.abs(v))) }));
   }));
   const why = [`At ${prettyDates(C.date)}, the corporation's latest month-end with a bank and a Questrade statement.`,
                "Questrade at market, with its cash, from its statement; the chequing account from its statement; money that left chequing for Questrade and had not yet arrived; less what the corporation owed on its Visa, from the statement that covers that day.",
-               "Together they make the corporation's figure above. Before the tax paid to take money out of the corporation."];
+               "Together they make the corporation's figure above. Before the tax paid to take money out of the corporation."]
+    .concat(pm === null ? [] : [`With VEQT's price since, from its latest public close: its units at ${prettyDates(C0.date)} times the change. An estimate.`]);
   return h("section", { class: "section" }, h("h2", {}, "Breakdown", basisDot(C.label, why)),
     h("div", { class: "card glass splitcard corpparts" },
       meter(held.map((pt, i) => ({ value: money(pt.value), cls: "s" + (i % 3), label: pt.label }))), rows,
-      h("p", { class: "foot", text: `At ${prettyDates(C.date)}, its latest month-end.` })));
+      h("p", { class: "foot", text: `At ${prettyDates(C.date)}, its latest month-end.` + corpSinceWords(C.date) })));
 }
 
 const MOVE_STATE = {
@@ -2708,7 +2850,9 @@ function movesSection(accts, title, nowName, rowName) {
       basisDot(weakest, ["What was logged the day it was sent, matched to the statement that later shows it: the same amount to the cent, within the business days that route has taken before. A row not yet on a statement rests on the log alone.",
                             `Worked out on the MacBook: ${plainSource(M.source || "")}.`])),
     h("div", { class: "list flat" }, rows));
-  if (nowRow && Number(nowRow.moves_since) > 0) sec.append(nowLine(nowRow, nowName));
+  const an = accts.length === 1 && (((SNAP && SNAP.about_now) || {}).accounts || {})[accts[0]];
+  if (an) sec.append(nowLine({ statement_value: an.base, statement_date: an.base_date, on_its_way: 0, now: an.now, now_label: "estimate", note: an.note }, nowName, true));
+  else if (nowRow && Number(nowRow.moves_since) > 0) sec.append(nowLine(nowRow, nowName));
   return sec;
 }
 
@@ -2725,15 +2869,13 @@ function bankingDaySection() {
       basisDot(weakest, ["What you sent on each banking day, as logged that day, matched to what later shows it: the Questrade statement for the sweep, CRA's payroll account for its payment, your chequing statement for your pay, and the corporation's chequing for each leaving. A row not yet shown rests on the log alone.",
                           `Worked out on the MacBook: ${plainSource(M.source || "")}.`])),
     h("div", { class: "list flat" }, rows));
-  const nowRow = (M.now || {})["qt-corp-cash"];
-  if (nowRow && Number(nowRow.moves_since) > 0) sec.append(nowLine(nowRow, "The Questrade account alone"));
   return sec;
 }
-function nowLine(nowRow, nowName) {
+function nowLine(nowRow, nowName, withPrice) {
   return h("div", { class: "list flat" }, h("div", { class: "row plain" },
     h("span", { class: "main" }, h("span", { class: "title", text: `${nowName}, about now` }),
       h("span", { class: "meta", text: `${fmtWhole$(Math.round(money(nowRow.statement_value)))} at ${prettyDates(nowRow.statement_date)}`
-        + (money(nowRow.on_its_way) ? `, ${fmtWhole$(Math.round(money(nowRow.on_its_way)))} then on its way to it` : "") + ", and what was sent since" })),
+        + (money(nowRow.on_its_way) ? `, ${fmtWhole$(Math.round(money(nowRow.on_its_way)))} then on its way to it` : "") + ", and what was sent since" + (withPrice ? ", at VEQT's latest price" : "") })),
     h("span", { class: "est-wrap" }, h("span", { class: "amt", text: fmtWhole$(Math.round(money(nowRow.now))) }),
       basisDot(nowRow.now_label, [nowRow.note + "."]))));
 }
@@ -2875,9 +3017,11 @@ function summaryPersonal() {
   const pmLast = (((S.personal_market || {}).points) || []).slice(-1)[0];
   const pmc = moneyCard({ worth: "personal_market", put: "put_in_personal", label: "Your registered accounts",
                           nets: true,
-                          foot: (pmLast ? `At ${prettyDates(pmLast[0])}, from the statements. ` : "") + "Your TFSA, RRSP and FHSA. Not the car, and not cash." });
+                          foot: (pmLast && !(S.personal_market || {}).about_now ? `At ${prettyDates(pmLast[0])}, from the statements. ` : "") + "Your TFSA, RRSP and FHSA. Not the car, and not cash." });
   if (pmc) g.append(pmc);
-  const vals = ACCOUNTS.map(([a, n]) => [a, n, lastValue(regOf(a))]).filter(x => x[2]);
+  const AN = (SNAP && SNAP.about_now) || {}, anA = AN.accounts || {};
+  const aboutNow = !!(S.personal_market || {}).about_now && ACCOUNTS.every(([a]) => !regOf(a) || anA[a]);
+  const vals = ACCOUNTS.map(([a, n]) => [a, n, aboutNow && anA[a] ? [AN.date, money(anA[a].now), "estimate"] : lastValue(regOf(a))]).filter(x => x[2]);
   const tabTo = ACCOUNTS.map(([a]) => (regOf(a) || {}).last_row || "").sort().pop();
   if (vals.length) {
     const at = vals[0][2][0], total = vals.reduce((s2, x) => s2 + x[2][1], 0);
@@ -2904,11 +3048,12 @@ function summaryPersonal() {
     const weakestVal = vals.map(x => basisOf(x[2][2]) || "recorded").sort((p, q) => rank.indexOf(q) - rank.indexOf(p))[0];
     const anyReading = vals.some(x => basisOf(x[2][2]) !== "verified");
     g.append(figCard({ label: "Your registered accounts", basis: weakestVal },
-      { hero: true, label: same ? `Each account, ${prettyDates(at)}` : "Each account, latest values", value: fmtWhole$(Math.round(total)),
-        why: [same ? `At ${prettyDates(at)}.` : "Each at its latest value: " + vals.map(([a, n, v]) => `${n} ${prettyDates(v[0])}`).join(", ") + ".",
+      { hero: true, label: aboutNow ? "Each account, about now" : same ? `Each account, ${prettyDates(at)}` : "Each account, latest values", value: fmtWhole$(Math.round(total)), about: aboutNow,
+        why: aboutNow ? vals.map(([a, n]) => `${n}: ${anA[a].note}.`)
+           : [same ? `At ${prettyDates(at)}.` : "Each at its latest value: " + vals.map(([a, n, v]) => `${n} ${prettyDates(v[0])}`).join(", ") + ".",
               "From each account's own Questrade statement, or a value you read off Questrade and sent from this page (Add › A reading)."],
         body: h("div", {}, meter(vals.map(([a, n, v], i) => ({ value: v[1], cls: "s" + i, label: n }))), rows),
-        meta: [h("span", { class: "asof", text: (since > 0 ? `${fmtWhole$(Math.round(since))} more has gone in since ${anyReading ? "these values" : "the statements"}. `
+        meta: [h("span", { class: "asof", text: (aboutNow ? `Including what you logged since the statements, and VEQT's price. ` : since > 0 ? `${fmtWhole$(Math.round(since))} more has gone in since ${anyReading ? "these values" : "the statements"}. `
                                                    : since < 0 ? `${fmtWhole$(Math.round(-since))} more has come out than gone in since ${anyReading ? "these values" : "the statements"}. ` : "")
                                                    + (withRoom.length ? `${y} is counted${tabTo ? " to " + monthDay(tabTo) : ""}, from your Registered Contributions tab${withRoom.some(([a]) => (regOf(a).waiting || []).length) ? " and this page" : ""}.` : "") })] }));
   }
@@ -3296,7 +3441,7 @@ function renderSpending() {
     sec.append(h("p", { class: "small muted", text: `Averaged over the twelve months to ${keyLabel(B.as_of, true)}. Money into your TFSA, RRSP and FHSA is not spending and is not here.` }));
     p.append(sec);
   }
-  p.append(h("p", { class: "foot", text: `${plainSource(B.source)}. The whole table is rebuilt from your YNAB export each time, so a change you make in YNAB comes through by itself.` }));
+  p.append(h("p", { class: "foot", text: `${plainSource(B.source)}. The whole table is written from your YNAB budget each day, so a change you make in YNAB comes through by the next day.` }));
   return p;
 }
 
@@ -3614,13 +3759,14 @@ function wholeValue(v) {
 function priceSplit(d0, d1, ch) {
   const S = (SNAP && SNAP.series) || {};
   if (!S.invest_market || !S.invest_cost || !ch) return "";
-  const at = (ser2, d) => ser2.points.find(q => String(q[0]).slice(0, 7) === String(d).slice(0, 7));
+  const at = (ser2, d) => settled(ser2).points.find(q => String(q[0]).slice(0, 7) === String(d).slice(0, 7));
   const m0 = at(S.invest_market, d0), m1 = at(S.invest_market, d1), b0 = at(S.invest_cost, d0), b1 = at(S.invest_cost, d1);
   if (!(m0 && m1 && b0 && b1)) return "";
   const prices = Math.round(((m1[1] - b1[1]) - (m0[1] - b0[1])) / 1000) * 1000, kept = ch - prices;
   return ` Prices ${prices >= 0 ? "added" : "took away"} ${compact(Math.abs(prices), "$")}; ${kept >= 0 ? "the other " + compact(kept, "$") + " is money it kept from your work and its funds' reinvested distributions" : "money also went out"}.`;
 }
 function deltaOf(ser, sid) {
+  ser = settled(ser);
   if (!ser || ser.form !== "line" || ser.points.length < 6) return null;
   const pts = ser.points, last = pts[pts.length - 1], lastD = dateOf(last[0]);
   let prev = null, bestGap = Infinity;
@@ -3635,7 +3781,7 @@ function deltaOf(ser, sid) {
   let text = ch === 0 ? `About the same since ${prettyDates(prev[0])}.` : `${ch > 0 ? "Up" : "Down"} ${compact(Math.abs(ch), ser.unit)} since ${prettyDates(prev[0])}.`;
   const S = (SNAP && SNAP.series) || {};
   if (sid === "invest_market" && S.invest_cost) {
-    const c = S.invest_cost.points, c0 = c.find(q => q[0] === prev[0]), c1 = c.find(q => q[0] === last[0]);
+    const c = settled(S.invest_cost).points, c0 = c.find(q => q[0] === prev[0]), c1 = c.find(q => q[0] === last[0]);
     if (c0 && c1 && c1[1] - c0[1] > 0) {
       const moved = k1((last[1] - c1[1]) - (prev[1] - c0[1])), put = ch - moved;
       text += ` ${compact(put, "$")} was money put in or distributions reinvested; ` + (moved === 0 ? "prices made little difference." : `prices ${moved > 0 ? "added" : "took away"} ${compact(Math.abs(moved), "$")}.`);
@@ -3768,6 +3914,10 @@ function niceTicks(lo, hi, n) {
   for (let v = Math.floor(lo / step) * step; v <= hi + step * .01; v += step) out.push(v);
   if (out[out.length - 1] < hi) out.push(out[out.length - 1] + step);
   return out;
+}
+function settled(ser) {
+  if (!ser || !ser.about_now) return ser;
+  return { ...ser, points: ser.points.filter(p2 => String(p2[0]) < ser.about_now.date) };
 }
 function estAt(s2, k) { return !!((s2.est_from && String(k) >= s2.est_from) || (s2.estimate_keys && s2.estimate_keys.includes(String(k)))); }
 function motionOK() { return !(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches); }
