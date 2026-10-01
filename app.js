@@ -1034,7 +1034,7 @@ function visitCard() {
     h("span", { class: "when", text: dayName(iso, { weekday: "short", day: "numeric", month: "long" }) }),
     h("span", { class: "in", text: rel(iso) }),
     h("span", { class: "chev-go", "aria-hidden": "true" }, icon("chevR"))));
-  if (pd.late) c.append(h("p", { class: "foot warnline", text: "The day has passed and this month's banking is not finished yet: it stays here until the calculation is read and the day is recorded (step 4)." }));
+  if (pd.late) c.append(h("p", { class: "foot warnline", text: "Not finished yet: it stays here until the day is recorded (step 4)." }));
   else if (passed) c.append(h("p", { class: "foot warnline", text: "This visit's date has passed and the MacBook has not updated since: the next one is worked out when it does." }));
   if (pd.warning) c.append(h("p", { class: "foot warnline", text: pd.warning }));
   for (const m of (pd.missed || [])) c.append(h("p", { class: "foot warnline", text: `${m}'s banking day has no payroll calculation on record: was it done? If the PDF exists, put it in the Inbox.` }));
@@ -1045,11 +1045,10 @@ function visitCard() {
       h("span", { class: "l", text: (pd.logged ? what.replace(/^to pay/, "paid") : what) + (pd.ready ? "" : " (last month's figures until step 2 is done)") })));
   }
   c.append(visitItemsEl(pd));
-  if (pd.ready) c.append(h("p", { class: "visit-foot" }, h("span", { text: `${months[0] || "This month"}'s own calculation has been read: these are the amounts${pd.logged ? ", paid" : " to pay"}.` })));
-  else c.append(h("p", { class: "visit-foot" }, ring(), h("span", { text: "Last month's figures: step 2 replaces them with this month's own." })));
-  if (pd.logged) c.append(h("p", { class: "foot", text: `Logged ${dayName(pd.logged.date, { day: "numeric", month: "long" })}` + (money(pd.logged.sweep) ? `: ${fmt$(pd.logged.sweep)} sent to Questrade.` : ".")
-    + (pd.next_visit ? ` Nothing more until ${dayName(pd.next_visit, { weekday: "long", day: "numeric", month: "long" })}.` : "") }));
-  else c.append(h("p", { class: "foot", text: STEP_WORDS[step] + "." }));
+  const nextWords = pd.logged ? `Logged ${dayName(pd.logged.date, { day: "numeric", month: "long" })}` + (money(pd.logged.sweep) ? `: ${fmt$(pd.logged.sweep)} sent to Questrade.` : ".")
+    + (pd.next_visit ? ` Nothing more until ${dayName(pd.next_visit, { weekday: "long", day: "numeric", month: "long" })}.` : "") : STEP_WORDS[step] + ".";
+  if (pd.ready) c.append(h("p", { class: "visit-foot" }, h("span", { text: `${months[0] || "This month"}'s own calculation has been read. ${nextWords}` })));
+  else c.append(h("p", { class: "visit-foot" }, ring(), h("span", { text: `Last month's figures: step 2 replaces them with this month's own. ${nextWords}` })));
   if ((pd.year_end || []).length) c.append(h("p", { class: "foot", text: `December: look once more before the 31st (${pd.year_end.length} thing${pd.year_end.length === 1 ? "" : "s"}, on the steps page).` }));
   c.append(h("button", { class: "btn primary wide", type: "button", onclick: () => openView({ type: "sitting" }) }, "Open the day's steps"));
   return tapArea(c, `Monthly banking, ${sittingName().toLowerCase()}: every step of the day`, () => openView({ type: "sitting" }));
@@ -1082,7 +1081,16 @@ function renderSitting() {
   if (asleep) p.append(h("div", { class: "alert orange" }, h("span", { class: "ico orange" }, icon("moon")),
     h("div", { class: "t", text: "Open the MacBook first" }), h("div", { class: "d", text: "Steps 1 to 3 need it awake: it files what you download, runs CRA's calculator, and sends this page the amounts." })));
   const step = (n, title, state, note, body) => {
-    const s = h("section", { class: "section" }, h("h2", {}, `${n}. ${title}`, state ? h("span", { class: "chip " + (state === "done" ? "green" : state === "now" ? "orange" : ""), text: state === "done" ? "done" : state === "now" ? "next" : "later" }) : null));
+    const chip = state ? h("span", { class: "chip " + (state === "done" ? "green" : state === "now" ? "orange" : ""), text: state === "done" ? "done" : state === "now" ? "next" : "later" }) : null;
+    if (state === "done") {
+      const inner = h("div", { class: "stepbody", hidden: true });
+      if (note) inner.append(h("p", { class: "foot", text: note }));
+      if (body) inner.append(body);
+      const btn = h("button", { class: "link steptoggle", type: "button", "aria-expanded": "false", text: "Show" });
+      btn.addEventListener("click", () => { const open = inner.hidden; inner.hidden = !open; btn.textContent = open ? "Hide" : "Show"; btn.setAttribute("aria-expanded", String(open)); });
+      return h("section", { class: "section stepdone" }, h("h2", {}, h("span", { class: "steph", text: `${n}. ${title}` }), h("span", { class: "steptrail" }, chip, btn)), inner);
+    }
+    const s = h("section", { class: "section" }, h("h2", {}, `${n}. ${title}`, chip));
     if (note) s.append(h("p", { class: "foot", text: note }));
     if (body) s.append(body);
     return s;
@@ -1179,6 +1187,17 @@ function upcoming() {
     if (more) row.addEventListener("click", () => { const o = row.classList.toggle("open"); row.setAttribute("aria-expanded", String(o)); });
     ul.append(row);
   }
+  const soon = isoOf(new Date(Date.now() + 14 * 864e5));
+  const shown = Math.max(5, due.filter(d => String(d.date) <= soon).length);
+  if (due.length - shown >= 3) {
+    const later = [...ul.children].slice(shown);
+    later.forEach(r => { r.hidden = true; });
+    const last = due[due.length - 1];
+    const more = h("button", { class: "row rowmore", type: "button" },
+      h("span", { class: "main" }, h("span", { class: "title link", text: `Show ${later.length} more, to ${monthDay(last.date)}` })));
+    more.addEventListener("click", () => { later.forEach(r => { r.hidden = false; }); more.remove(); });
+    ul.append(more);
+  }
   s.append(ul);
   if (due.some(d => (d.basis || "").startsWith("estimate"))) s.append(h("p", { class: "foot", text: "Amounts are as planned in your calendar: estimates until paid. Tap a line for its details." }));
   return s;
@@ -1205,7 +1224,8 @@ function questionRow(q, from) {
   const n = daysFrom(q.due);
   const wp = q.workpay ? Object.assign({ id: q.id, text: q.text }, q.workpay) : null;
   return h("button", { class: "row plain", type: "button", onclick: () => q.chq ? chqAnswer(q, from) : wp ? workpayAnswer(wp) : startForm("answer", { question: q.id }, from) },
-    h("span", { class: "main" }, h("span", { class: "title clamp", text: prettyDates(q.text) }),
+    h("span", { class: "main" }, ...(wp ? (([hd, why]) => [h("span", { class: "title", text: hd }), why ? h("span", { class: "meta clamp", text: why }) : null])(issueWords(wp, workPay()))
+                                        : [h("span", { class: "title clamp", text: prettyDates(q.text) })]),
       q.due ? h("span", { class: "meta" + (n !== null && n < 0 ? " overdue" : ""), text: (n !== null && n < 0 ? "Overdue · " : "Due ") + shortDate(q.due) }) : null),
     icon("chevR"));
 }
@@ -2510,7 +2530,7 @@ function figCard(o, opts) {
   card.append(h("div", { class: "ftop" }, h("span", { class: "l", text: opts.label || o.label }),
     basisDot(opts.basis || o.basis, opts.why || whyLines(o)),
     tap ? h("span", { class: "chev-go", "aria-hidden": "true" }, icon("chevR")) : null));
-  card.append(h("span", { class: "v rounded" + (opts.hero ? "" : " num") }, opts.about ? h("span", { class: "about", text: "about " }) : null, opts.value || wholeValue(o.value)));
+  if (!opts.noValue) card.append(h("span", { class: "v rounded" + (opts.hero ? "" : " num") }, opts.about ? h("span", { class: "about", text: "about " }) : null, opts.value || wholeValue(o.value)));
   const ser = opts.series;
   if (opts.body && ser && ser.points.length >= 4) {
     card.append(h("span", { class: "spark" }, chart([sparkOf(ser, o)], { form: ser.form, unit: ser.unit, spark: true, height: 64 })));
@@ -2699,12 +2719,11 @@ function summaryTotal() {
   const tmc = moneyCard({
     worth: "net_worth", put: "put_in_total", label: "Net worth and investments", nets: true,
     worthLabel: "What it is all worth",
-    basis: (S.net_worth || {}).basis, why: householdWhy(n),
+    basis: (S.net_worth || {}).basis,
+    why: householdWhy(n).concat(n.since ? [n.since > 0 ? `Includes ${fmtWhole$(Math.round(n.since))} you put in since ${prettyDates(n.from)}, which no statement covers yet.`
+                                                      : `Includes ${fmtWhole$(Math.round(-n.since))} taken out since ${prettyDates(n.from)}, net, which no statement covers yet.`] : []),
     foot: "The corporation whole and your TFSA, RRSP and FHSA. Not the car, the condo or your personal chequing account.",
-    meta: [up !== null ? h("span", { class: "delta", text: `${upDown(up)} since ${prettyDates(nw.date)}.` }) : null,
-           n.since ? h("span", { class: "asof", text: n.since > 0 ? `Includes ${fmtWhole$(Math.round(n.since))} you put in since ${prettyDates(n.from)}, which no statement covers yet.`
-                                                               : `Includes ${fmtWhole$(Math.round(-n.since))} taken out since ${prettyDates(n.from)}, net, which no statement covers yet.` }) : null,
-           h("span", { class: "asof", text: "Before the tax paid to take money out of the corporation." })] });
+    meta: [up !== null ? h("span", { class: "delta", text: `${upDown(up)} since ${prettyDates(nw.date)}.` }) : null] });
   if (tmc) g.append(tmc);
   else {
     g.append(figCard({ label: "Household net worth", basis: n.basis }, { hero: true, label: `Household net worth, ${prettyDates(n.date)}`, value: fmtWhole$(Math.round(n.total)), about: n.est,
@@ -2782,7 +2801,7 @@ function moneyCard(opts) {
   const lw = last(opts.worth), la = opts.all ? last(opts.all) : null;
   const head = la ? la[1] : lw[1];
   const an = (all || worth).about_now, est = !!(an && String((la || lw)[0]) >= an.date);
-  const anWhy = est ? [`About now: ${an.note}.`, `The statements stop at ${prettyDates(an.from)}; the dashed end of the line is today's estimate, and the next statement replaces it.`] : [];
+  const anWhy = est ? [`About now, ${prettyDates(an.date)}: the statements to ${prettyDates(an.from)}, carried to today${an.price_day ? " at VEQT's close of " + prettyDates(an.price_day) : ""}.`, `About now: ${an.note}.`, `The statements stop at ${prettyDates(an.from)}; the dashed end of the line is today's estimate, and the next statement replaces it.`] : [];
   const putLabel = opts.nets ? "Put in, less taken out" : "Put in";
   const worthLabel = opts.worthLabel || (all ? "Invested" : "What it is worth");
   const sers = [];
@@ -2809,8 +2828,7 @@ function moneyCard(opts) {
   return figCard(o, { hero: true, label: opts.label, value: fmtWhole$(Math.round(head)), body, about: est,
     basis: est ? "estimate" : opts.basis, why: est ? anWhy.concat(opts.why || []) : opts.why,
     onOpen: () => openView({ type: "trend", keys: [opts.all, opts.worth, opts.put].filter(Boolean), title: opts.label }),
-    meta: (est ? [h("span", { class: "asof", text: `About now, ${prettyDates(an.date)}: the statements to ${prettyDates(an.from)}, carried to today${an.price_day ? " at VEQT's close of " + prettyDates(an.price_day) : ""}.` })] : [])
-      .concat(opts.meta || []).concat([h("span", { class: "asof", text: opts.foot })]) });
+    meta: (opts.meta || []).concat([h("span", { class: "asof", text: opts.foot })]) });
 }
 
 function returnsCard(side) {
@@ -2851,11 +2869,13 @@ function summaryCorp() {
   else { const cm = ov("corp_market");
          if (cm) g.append(figCard(cm, { hero: true, series: S.corp_market, onOpen: () => openTrendOf("corp_market"), meta: [deltaOf(S.corp_market, "corp_market")] })); }
   const made = corpPartsCard();
-  if (made) { out.append(balance(g), made); const mv = bankingDaySection(); if (mv) out.append(mv); }
+  if (made) out.append(balance(g), made);
+  const invest = corpInvestSection(S);
+  if (made && invest) out.append(invest);
   const g2 = made ? h("div", { class: "figs" }) : g;
   const inc = ov("income");
   const exp = ((SNAP && SNAP.income) || {}).expected;
-  if (inc) g2.append(figCard(inc, { label: inc.label.replace("Income into the corporation", "Income"), series: S.income, onOpen: () => openView({ type: "income" }),
+  if (inc) g2.append(figCard(inc, { label: inc.label.replace("Income into the corporation", "Income").replace(/ so far$/, ""), series: S.income, onOpen: () => openView({ type: "income" }),
     meta: [h("span", { class: "asof" }, exp ? h("span", { class: "expect" }, h("span", { class: "bd estimate", "aria-hidden": "true" }), `About ${compact(money(exp.total), "$")} expected by Dec 31`) : (incomeVsLastYear() || "Every year, by month"))] }));
   const wh = ov("work_hours"), pph = ov("pay_per_hour");
   const lagNote = o => daysFrom(o.mgh_through || o.as_of) < -35 ? `MGH counted to ${monthDay(o.mgh_through || o.as_of)}` : "";
@@ -2871,13 +2891,18 @@ function summaryCorp() {
                                    : [`Without the commute. With it, ${wholeValue(pph.value_incl_travel || pph.value)}/h.`]),
       onOpen: () => openView({ type: "work", metric: "rate" }),
       meta: [h("span", { class: "asof" }, h("span", { class: "which", text: wc ? "With the commute" : "Without the commute" }),
-               " · " + ([lagNote(pph), (wc ? pph.note_incl_travel : pph.note)].filter(Boolean).join(" · ") || "By year, by place and site"))] }));
+               lagNote(pph) ? " · " + lagNote(pph) : "")] }));
   }
   const rm = ov("remit");
-  if (rm) g2.append(figCard(rm, { series: S.remit, onOpen: () => openTrendOf("remit"), meta: [h("span", { class: "asof", text: "Due by the 15th of the next month" })] }));
+  if (rm) g2.append(figCard(rm, { label: String(rm.label || "").replace(/^Sent to CRA for payroll/, "Payroll to CRA").replace(/ so far$/, ""), series: S.remit, onOpen: () => openTrendOf("remit"), meta: [h("span", { class: "asof", text: "Due by the 15th of the next month" })] }));
   const tx = ov("tax_left");
   if (tx) g2.append(figCard(tx, { label: "Tax instalments left this year", meta: [h("span", { class: "asof", text: tx.note || "As planned" })] }));
   out.append(balance(g2));
+  if (made) { const mv = bankingDaySection(); if (mv) out.append(mv); }
+  else if (invest) out.append(invest);
+  return out;
+}
+function corpInvestSection(S) {
   const cards = [["invest", "Their value, and what they cost", ["invest_market", "invest_cost"]]].filter(c => c[2].every(k => S[k]));
   if (cards.length) {
     const sec = h("section", { class: "section" }, h("h2", { text: "Investments" }));
@@ -2899,9 +2924,9 @@ function summaryCorp() {
       grid.append(tapArea(b, `Investments: ${title}. Open`, () => openView({ type: "trend", keys, title: "Investments" })));
     }
     sec.append(grid);
-    out.append(sec);
+    return sec;
   }
-  return out;
+  return null;
 }
 
 function corpPriceSince(day) {
@@ -3058,9 +3083,10 @@ function owedByCorpCard() {
         basisDot(m.label, [m.note + "."])));
   });
   const total = money(M.owed_total || 0);
+  const owing = total > 0 || Number(M.owed_foreign || 0) > 0 || shown.some(m => !["arrived", "paid", "explained"].includes(m.status));
   const labels = shown.map(m => m.label).concat(M.owed_label ? [M.owed_label] : []);
   const weakest = labels.includes("estimate") ? "estimate" : labels.every(l => l === "verified") ? "verified" : "recorded";
-  return h("section", { class: "card glass" },
+  return h("section", Object.assign({ class: "card glass" }, owing ? {} : { "data-settled": "1" }),
     h("div", { class: "ftop" }, h("h3", { text: "Expenses you paid, not yet paid back" }),
       basisDot(weakest, ["What you paid for the corporation yourself, from your receipts and the page, and the corporation's transfer that paid it back, as your chequing or the savings shows it arriving. It is due the day you paid.",
                           "Not the shareholder loan on the balance sheet, which is a car allowance and the card's cash back."])),
@@ -3070,7 +3096,15 @@ function owedByCorpCard() {
       return (total > 0 ? `${fmt$(total)} owed to you now, and ${each}` : `Owed to you now: ${each}`)
         + " in another currency, its dollars known when it is paid back.";
     })() }),
-    h("div", { class: "list flat" }, rows));
+    owing ? h("div", { class: "list flat" }, rows) : laterRows(rows, `Show the last ${rows.length} paid back`));
+}
+function laterRows(rows, words) {
+  const ul = h("div", { class: "list flat" }, rows);
+  rows.forEach(r => { r.hidden = true; });
+  const more = h("button", { class: "row rowmore", type: "button" }, h("span", { class: "main" }, h("span", { class: "title link", text: words })));
+  more.addEventListener("click", () => { rows.forEach(r => { r.hidden = false; }); more.remove(); });
+  ul.append(more);
+  return ul;
 }
 
 function readingFlagCard(f) {
@@ -3183,7 +3217,7 @@ function summaryPersonal() {
     const weakestVal = vals.map(x => basisOf(x[2][2]) || "recorded").sort((p, q) => rank.indexOf(q) - rank.indexOf(p))[0];
     const anyReading = vals.some(x => basisOf(x[2][2]) !== "verified");
     g.append(figCard({ label: "Your registered accounts", basis: weakestVal },
-      { hero: true, label: aboutNow ? "Each account, about now" : same ? `Each account, ${prettyDates(at)}` : "Each account, latest values", value: fmtWhole$(Math.round(total)), about: aboutNow,
+      { hero: true, noValue: !!pmc && aboutNow, label: aboutNow ? "Each account, about now" : same ? `Each account, ${prettyDates(at)}` : "Each account, latest values", value: fmtWhole$(Math.round(total)), about: aboutNow,
         why: aboutNow ? vals.map(([a, n]) => `${n}: ${anA[a].note}.`)
            : [same ? `At ${prettyDates(at)}.` : "Each at its latest value: " + vals.map(([a, n, v]) => `${n} ${prettyDates(v[0])}`).join(", ") + ".",
               "From each account's own Questrade statement, or a value you read off Questrade and sent from this page (Add › A reading)."],
@@ -3198,7 +3232,7 @@ function summaryPersonal() {
   let g2 = g;
   if (cash || owedCard || flags.length) {
     out.append(balance(g)); for (const f of flags) out.append(f);
-    if (cash) out.append(cash); if (owedCard) out.append(owedCard); g2 = h("div", { class: "figs" });
+    if (cash) out.append(cash); if (owedCard && !owedCard.dataset.settled) out.append(owedCard); g2 = h("div", { class: "figs" });
   }
   const sal = ov("salary");
   if (sal && sal.rrsp_target) g2.append(salaryCard(sal, S));
@@ -3206,10 +3240,11 @@ function summaryPersonal() {
     meta: [h("span", { class: "asof", text: "Before tax and deductions" })] }));
   const sp = ov("spending");
   const spendable = ((SNAP && SNAP.spending) || {}).months;
-  if (sp) g2.append(figCard(sp, { label: "What you spend a month", onOpen: spendable ? () => openView({ type: "spending" }) : null,
+  if (sp) g2.append(figCard(sp, { label: "Monthly spending", onOpen: spendable ? () => openView({ type: "spending" }) : null,
     meta: [h("span", { class: "asof", text: spendable ? "Average of recent months · where it goes" : "Average of recent months, now rent is gone" })] }));
   const car = vehicleCard(); if (car) g2.append(car);
   out.append(balance(g2));
+  if (owedCard && owedCard.dataset.settled) out.append(owedCard);
   return out;
 }
 
@@ -3331,7 +3366,8 @@ function summaryCards() {
       h("div", { class: "ftop" },
         h("span", { class: "l" }, h("span", { class: "cname", text: c.name }), h("span", { class: "cwhose", text: c.whose })),
         basisDot(it ? it.basis : "recorded", [it ? cardItemName(it.item) : "", it ? it.note : "",
-                                              "Worked out in the card workings on the MacBook, from what you have typed and the issuers' own pages."])),
+                                              "Worked out in the card workings on the MacBook, from what you have typed and the issuers' own pages."]),
+        h("span", { class: "chev-go", "aria-hidden": "true" }, icon("chevR"))),
       h("div", { class: "cardline" }, cardChip(it ? it.status : c.status, it ? it.item : ""), h("span", { class: "clead", text: cardLead(it) })));
     if (ms) sec.append(spendBar(ms));
     return tapArea(sec, `${c.name}. Open`, () => openView({ type: "card", card: c.id, title: c.name }));
@@ -3344,10 +3380,11 @@ function summaryCards() {
     const sec = h("section", { class: "section" }, h("h2", { text: "Across all your cards" }));
     const list = h("div", { class: "list glass" });
     for (const a of across) {
+      const chip = cardChip(a.status, "across-cards");
       const r = h("button", { class: "row nextcard acrossrow", type: "button" },
-        h("span", { class: "main" }, h("span", { class: "title", text: a.what }),
-          h("span", { class: "meta" }, cardChip(a.status, "across-cards"),
-            a.figure ? h("span", { text: ` ${a.unit === "CAD" ? fmtWhole$(Math.round(Number(String(a.figure).replace(/[$,]/g, "")))) : a.figure + " " + (a.unit || "")}` }) : null)),
+        h("span", { class: "main" }, h("span", { class: "title", text: a.what.replace(/ earned$/, "") }),
+          chip ? h("span", { class: "meta" }, chip) : null),
+        h("span", { class: "amt", text: a.figure ? (a.unit === "CAD" ? fmtWhole$(Math.round(Number(String(a.figure).replace(/[$,]/g, "")))) : a.figure) : "" }),
         h("span", { class: "chev" }, icon("chevR")));
       const why = h("p", { class: "small muted detail", text: a.note, hidden: true });
       r.addEventListener("click", () => { why.hidden = !why.hidden; r.classList.toggle("open", !why.hidden); });
@@ -3360,19 +3397,21 @@ function summaryCards() {
   if (nxt.length) {
     const sec = h("section", { class: "section" }, h("h2", { text: "Worth opening next" }));
     const list = h("div", { class: "list glass" });
-    for (const o of nxt) {
+    const OPEN_ORDER = { ACT: 0, WATCH: 0, "CHECK FIRST": 1, "NOT ELIGIBLE": 2 };
+    const ranked = nxt.map((o, i) => [o, i]).sort((p, q) => (OPEN_ORDER[p[0].status] ?? 1) - (OPEN_ORDER[q[0].status] ?? 1) || p[1] - q[1]).map(x => x[0]);
+    for (const o of ranked) {
       const r = h("button", { class: "row nextcard", type: "button" },
         h("span", { class: "main" }, h("span", { class: "title", text: o.card }),
           h("span", { class: "meta" }, cardChip(o.status, "next-card"),
-            o.figure ? h("span", { text: ` ${fmtWhole$(Math.round(Number(String(o.figure).replace(/[$,]/g, ""))))} after the fees it costs to get` }) : h("span", { text: " worth unknown" }),
             / does NOT fit/.test(o.note || "") ? h("span", { class: "cchip off", text: "More than you spend" }) : null)),
+        h("span", { class: "amt", text: o.figure ? fmtWhole$(Math.round(Number(String(o.figure).replace(/[$,]/g, "")))) : "Not known" }),
         h("span", { class: "chev" }, icon("chevR")));
       const why = h("p", { class: "small muted detail", text: o.note, hidden: true });
       r.addEventListener("click", () => { why.hidden = !why.hidden; r.classList.toggle("open", !why.hidden); });
       list.append(h("div", { class: "rowpair" }, r, why));
     }
     const tail = (b.next || []).find(x => !x.id);
-    sec.append(list, h("p", { class: "small muted", text: tail ? tail.note : "" }));
+    sec.append(list, h("p", { class: "foot", text: "What each is worth after the fees it costs to collect its bonus. Tap one for why." + (tail ? " " + tail.note : "") }));
     out.append(sec);
   }
   if (shut.length) {
@@ -3829,16 +3868,18 @@ function renderWork(embedded) {
           [rateBasis(c) === "estimate" ? "An estimate: more of it rests on the usual length of a shift, or on a commute not measured, than on hours typed or measured." : ""]))),
         rate(c) ? h("div", { class: "v rounded" }, estRow(c) ? h("span", { class: "about", text: "about " }) : null, `${fmtWhole$(Math.round(rate(c)))}/h`)
                 : h("div", { class: "v rounded muted", text: "No pay in yet" }),
+        h("div", { class: "fmeta" }, h("span", { class: "asof", text: (other(c) ? `${fmtWhole$(Math.round(other(c)))}/h ${wc ? "without" : "with"} the commute · ` : "") + `${fmtWhole$(Math.round(money(c.pay)))} over ${Math.round(paidHours(c)).toLocaleString("en-CA")} h` + (wc && tr ? ` and ${Math.round(tr).toLocaleString("en-CA")} h of commute` : "") })),
+        null));
+      const later = [
         c.travel_source && wc ? h("div", { class: "fmeta" }, h("span", { class: "asof commute-from" }, basisDot(c.basis_incl_travel || "recorded",
           ["Where the commute hours came from, by share.", "Measured: both legs of the round trip seen by your phone. Worked out: one leg seen and doubled, or the usual round trip for that place. Estimate: an assumption written down in profile/assumptions.csv, such as the Rudd walk and the Don Valley drive."]),
           ` The commute: ${commuteFrom(c.travel_source)}.`)) : null,
         wc && pl === "mgh" && ((W.commute || {}).mgh || {}).median_round_trip_hours && (y === "all" || y >= String(W.commute.mgh.from).slice(0, 4)) ? h("div", { class: "fmeta" }, h("span", { class: "asof",
           text: `MGH's round trip, as your phone measured it: ${Math.round(Number(W.commute.mgh.median_round_trip_hours) * 60)} minutes, the middle of ${W.commute.mgh.round_trips_measured} trips since the move, from ${keyLabel(W.commute.mgh.from, true)} to ${keyLabel(W.commute.mgh.to, true)}` })) : null,
-        h("div", { class: "fmeta" }, h("span", { class: "asof", text: (other(c) ? `${fmtWhole$(Math.round(other(c)))}/h ${wc ? "without" : "with"} the commute · ` : "") + `${fmtWhole$(Math.round(money(c.pay)))} over ${Math.round(paidHours(c)).toLocaleString("en-CA")} h` + (wc && tr ? ` and ${Math.round(tr).toLocaleString("en-CA")} h of commute` : "") +
-          (money(c.hours_awaiting_pay) ? `; ${Math.round(money(c.hours_awaiting_pay))} h of shifts still waiting for their pay are left out` : "") +
-          (ppHours ? `; the practice plan's ${Math.round(ppHours)} h are left out, since it is paid as points once a year, not per activity` : "") })),
+        money(c.hours_awaiting_pay) || ppHours ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: sentence([money(c.hours_awaiting_pay) ? `${Math.round(money(c.hours_awaiting_pay))} h of shifts still waiting for their pay are left out` : "",
+          ppHours ? `the practice plan's ${Math.round(ppHours)} h are left out, since it is paid as points once a year, not per activity` : ""].filter(Boolean).join("; ")) })) : null,
         lagText ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: lagText })) : null,
-        caveats(c, true)));
+        caveats(c, true)];
       const sh = kind(pl + ":shifts");
       const st = pl === "edlp" || pl === "all" ? kind("edlp-stipend") : null, pp = pl === "mgh" || pl === "all" ? kind("mgh-practice-plan") : null;
       if (sh && st) holder.append(h("div", { class: "facts glass card" },
@@ -3863,6 +3904,7 @@ function renderWork(embedded) {
                + (wc && C[k].travel_source ? `; commute ${commuteShort(C[k].travel_source)}` : "") + thin(C[k]),
                pl === "edlp" ? "The shifts alone: the monthly stipend belongs to no site." : "", k => estRow(C[k]));
       }
+      if (later.some(Boolean)) holder.append(h("div", { class: "worknotes" }, later.filter(Boolean)));
     }
     if (metric === "hours" && pl !== "all") bySite(k => money(C[k].hours), v => `${Math.round(v).toLocaleString("en-CA")} h`, k => unitWord(pl, Number(C[k].units)), "");
     const stEnd = W.last && W.last["edlp-stipend"], shEnd = W.last && W.last.edlp;
@@ -4581,7 +4623,8 @@ function unitTitle(u) {
   const place = PLACE_NAMES_PAGE[u.payer] || u.payer;
   const site = u.site && !["MGH", "Bochner Eye Institute", "ABP"].includes(u.site) ? ` ${u.site}` : "";
   const esc = t => String(t || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const desc = String(u.description || "").replace(new RegExp("^" + esc(u.site) + "\\s+", "i"), "").replace(new RegExp("^" + esc(place) + "\\s+", "i"), "");
+  const desc = String(u.description || "").replace(new RegExp("^" + esc(u.site) + "\\s+", "i"), "").replace(new RegExp("^" + esc(place) + "\\s+", "i"), "")
+    .replace(u.site ? new RegExp(",?\\s*" + esc(u.site) + "$", "i") : /$^/, "");
   return `${place}${site} · ${desc}`.replace(/ · $/, "");
 }
 const PLACE_NAMES_PAGE = { mgh: "MGH", edlp: "EDLP", bochner: "Bochner", endoscopy: "Endoscopy", abp: "ABP" };
@@ -4706,12 +4749,14 @@ function workOwed() {
       h("span", { class: "small muted", text: `${plural(waiting.length, "part")}${t.unknown && Number(t.unknown) ? `, ${t.unknown} with no figure yet` : ""}` }))));
   const issueRow = i => {
     const dt = dateOf(i.date);
+    const [head, why] = issueWords(i, wp);
     return tapArea(h("div", { class: "row" },
       dt ? h("span", { class: "day", "aria-hidden": "true" }, h("span", { class: "wd", text: dt.toLocaleDateString("en-CA", { weekday: "short" }) }),
         h("span", { class: "dn", text: String(dt.getDate()) }), h("span", { class: "mo", text: dt.toLocaleDateString("en-CA", { month: "short" }) })) : null,
-      h("span", { class: "main" }, h("span", { class: "title clamp", text: prettyDates(i.text) }),
+      h("span", { class: "main" }, h("span", { class: "title", text: head }),
+        why ? h("span", { class: "meta clamp", text: why }) : null,
         h("span", { class: "meta" }, h("span", { class: "chip " + (i.status === "CHASE" ? "red" : "orange"), text: i.status === "CHASE" ? "Overdue" : "Explain" }),
-          i.amount ? ` ${fmtWhole$(Math.round(money(i.amount)))}` : "", ` · ${PLACE_NAMES_PAGE[i.payer] || i.payer.toUpperCase()}`)),
+          i.amount ? ` ${fmtWhole$(Math.round(money(i.amount)))}` : "")),
       icon("chevR")), `${prettyDates(i.text)}. Answer`, () => workpayAnswer(i));
   };
   if (chase.length || ask.length) {
@@ -4724,31 +4769,34 @@ function workOwed() {
     out.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "Nothing is overdue and nothing needs explaining." })));
   }
   if (waiting.length) {
-    const sec = h("section", { class: "section" }, h("h2", { text: "Waiting, as expected" }));
     const byPayer = {};
     for (const i of waiting) (byPayer[i.payer] = byPayer[i.payer] || []).push(i);
-    for (const [payer, its] of Object.entries(byPayer)) {
-      const ul = h("div", { class: "list glass" });
-      for (const i of its.sort((a, b) => (a.expected_by || "9999").localeCompare(b.expected_by || "9999"))) {
-        const u = (wp.units || []).find(x => x.id === (i.row_ids || "").split(";")[0]);
-        ul.append(h(u ? "button" : "div", u ? { class: "row plain", type: "button", onclick: () => openView({ type: "workunit", id: u.id, title: unitTitle(u) }) } : { class: "row plain" },
-          h("span", { class: "main" }, h("span", { class: "title", text: `${i.part_name} · ${u ? unitTitle(u) : i.description}` }),
-            h("span", { class: "meta", text: `${shortDate(i.date)}` + (i.expected_by ? ` · expected by ${shortDate(i.expected_by)}` : "") + (i.status === "waiting (bank statement not filed)" ? " · the bank statement is not filed yet" : i.status === "waiting (amount not yet known)" ? " · amount not known yet" : "") })),
-          h("span", { class: "amt", text: i.expected ? fmt$(i.expected) : "" }), u ? icon("chevR") : null));
-      }
-      out.append(h("section", { class: "section" }, h("h2", { text: PLACE_NAMES_PAGE[payer] || payer.toUpperCase() }), ul));
+    const ul = h("div", { class: "list glass" });
+    for (const [payer, its] of Object.entries(byPayer).sort((a, b) => b[1].length - a[1].length)) {
+      const shifts = new Set(its.map(i => (i.row_ids || "").split(";")[0] || i.date)).size;
+      const known = its.reduce((a, i) => a + (money(i.expected) || 0), 0);
+      const next = its.map(i => i.expected_by).filter(Boolean).sort()[0];
+      const unfiled = its.every(i => i.status === "waiting (bank statement not filed)");
+      ul.append(h("button", { class: "row amtrow", type: "button", onclick: () => { save("workpart", "shifts"); save("workshifts", "waiting"); ENTER = ""; render(true); window.scrollTo(0, 0); } },
+        h("span", { class: "main" }, h("span", { class: "title", text: PLACE_NAMES_PAGE[payer] || payer.toUpperCase() }),
+          h("span", { class: "meta", text: `${plural(shifts, "shift")}, ${plural(its.length, "part")}` + (next ? ` · next by ${shortDate(next)}` : "")
+            + (unfiled ? " · bank statement not filed yet" : "") })),
+        h("span", { class: "amt", text: known ? fmtWhole$(Math.round(known)) : "" }), icon("chevR")));
     }
+    out.append(h("section", { class: "section" }, h("h2", { text: "Waiting, as expected" }), ul));
   }
   const bp = (wp.by_payer || []).filter(x => money(x.expected) > 0 || money(x.paid) > 0);
   if (bp.length) {
-    const sec = h("section", { class: "section" }, h("h2", { text: `By payer, since ${prettyDates(wp.since)}` }));
-    for (const x of bp) {
-      sec.append(h("div", { class: "facts glass card" },
-        h("div", {}, h("span", { class: "k", text: x.label }), h("span", { class: "fv num", text: `${fmtWhole$(Math.round(money(x.paid)))} paid` })),
-        h("div", {}, h("span", { class: "k", text: "Waiting" }), h("span", { class: "fv num", text: fmtWhole$(Math.round(money(x.waiting))) })),
-        h("div", {}, h("span", { class: "k", text: "Overdue" }), h("span", { class: "fv num" + (money(x.overdue) > 0 ? " red" : ""), text: fmtWhole$(Math.round(money(x.overdue))) })),
-        Number(x.problems) ? h("div", {}, h("span", { class: "k", text: "To explain" }), h("span", { class: "fv num orange", text: String(x.problems) })) : null));
+    const ul = h("div", { class: "list glass" });
+    for (const x of bp.sort((p, q) => money(q.paid) - money(p.paid))) {
+      const rest = [];
+      if (money(x.overdue) > 0) rest.push(`${fmtWhole$(Math.round(money(x.overdue)))} overdue`);
+      if (Number(x.problems)) rest.push(`${x.problems} to explain`);
+      ul.append(h("div", { class: "row amtrow" }, h("span", { class: "main" }, h("span", { class: "title", text: x.label }),
+        rest.length ? h("span", { class: "meta" + (money(x.overdue) > 0 ? " overdue" : ""), text: rest.join(" · ") }) : null),
+        h("span", { class: "amt", text: `${fmtWhole$(Math.round(money(x.paid)))} paid` })));
     }
+    const sec = h("section", { class: "section" }, h("h2", { text: `Paid since ${prettyDates(wp.since)}` }), ul);
     out.append(sec);
   }
   out.append(h("p", { class: "foot", text: `Matched to the bank's deposits to ${prettyDates(wp.reach)}, the Ministry's remittance advices, and what you logged here; nothing is overdue past that day. Work before ${prettyDates(wp.settled_to)} was settled by hand and is not chased. Worked out on the MacBook by the work-pay workings.` }));
@@ -4907,6 +4955,21 @@ function renderWorkUnit() {
   return p;
 }
 
+const PART_WORDS = { ohip: "OHIP", private: "the clinic's fee", base: "base pay", shadow: "shadow billing", travel: "travel", expense: "expenses", stipend: "the stipend", invoice: "the invoice" };
+function issueWords(i, wp) {
+  const text = prettyDates(i.text), [uid, part] = String(i.key || "").split("|");
+  const u = (wp.units || []).find(x => x.id === uid);
+  const cap = t => t ? t[0].toUpperCase() + t.slice(1) : "";
+  if (i.kind === "receivable" && u) {
+    const late = /was expected by (\d{4}-\d\d-\d\d) and has not arrived/.exec(i.text);
+    const why = late ? `${cap(PART_WORDS[part] || part || "")}, expected by ${shortDate(late[1])}, has not arrived` : cap(text.split(/: /).slice(1).join(": ") || text);
+    return [unitTitle(u), why];
+  }
+  if (i.kind === "ohip-no-work") return ["OHIP paid, no work logged", text];
+  if (i.kind === "ohip-which") return ["OHIP paid: which shift?", text];
+  if (i.kind === "payment") return [`A deposit from ${PLACE_NAMES_PAGE[i.payer] || String(i.payer || "").toUpperCase()} to match`, text];
+  return [cap(text.split(/: /)[0]).slice(0, 60), text.includes(": ") ? cap(text.split(/: /).slice(1).join(": ")) : ""];
+}
 function workpayAnswer(i) {
   const wp = workPay();
   const words = i.kind === "payment" ? "This deposit" : "This payment";
