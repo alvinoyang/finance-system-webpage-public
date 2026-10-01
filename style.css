@@ -474,14 +474,41 @@ form { display: grid; gap: 22px; }
 .field input::placeholder, .field textarea::placeholder { color: var(--ink-3); }
 .field:has(input:focus, textarea:focus, select:focus) { background: var(--accent-soft); }
 .field.bad { background: var(--red-soft); }
+.field.inline { grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px; min-height: 50px; padding: 6px 16px; }
+.field.inline > label { font-size: 1.02rem; font-weight: 400; color: var(--ink); }
+.field.inline :is(input, select) { text-align: right; text-align-last: right; }
+.field.inline > :not(label):not(.small) { justify-self: end; }
+.field.inline > .small { grid-column: 1 / -1; }
+.field.inline > .combo-back { grid-column: 1 / -1; justify-self: start; }
+.field.inline.combo input[type="text"] { text-align: right; }
+.field.inline .money { justify-content: flex-end; }
+.field.inline .money { gap: 2px; }
+.field.inline .money input { flex: none; width: auto; min-width: 0; text-align: left; field-sizing: content; min-width: 2.5ch; }
+.field.inline.menu select { color: var(--ink-2); padding-right: 22px; }
+.field.inline.menu .menu-arrows { bottom: auto; top: 50%; transform: translateY(-50%); }
+.field.inline.segrow .segs { width: 112px; margin-top: 0; }
+.field .money select.cur { width: auto; min-height: 30px; padding: 2px 8px; margin-left: 6px; border-radius: 8px; background: var(--fill); color: var(--ink-2);
+  font-size: .85rem; font-weight: 600; text-align: center; text-align-last: center; background-image: none; }
+.field.bare { padding-top: 12px; padding-bottom: 12px; }
+.field.bare > label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.field.bare textarea { min-height: 0; }
+.field.longtext textarea { min-height: 84px; }
+.datefield .daterow { display: inline-flex; align-items: center; gap: 12px; }
+.datepill { position: relative; display: inline-flex; align-items: center; min-height: 34px; padding: 4px 12px; border-radius: 8px; background: var(--fill); font-weight: 500; font-variant-numeric: tabular-nums; }
+.field .datepill input.date-native { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; padding: 0; opacity: 0; cursor: pointer; }
+.datealt { color: var(--accent); font-size: .95rem; font-weight: 500; min-height: 34px; }
+.field:has(.date-native:focus) { background: transparent; }
+.field:has(.date-native:focus-visible) .datepill { box-shadow: 0 0 0 2px var(--accent); }
 .field .money { display: flex; align-items: center; gap: 4px; }
 .field .money span { color: var(--ink-3); font-size: 1.02rem; }
 .field .money span:last-child:not(:first-child) { margin-left: 2px; }
 .field .money input { flex: 1; min-width: 0; }
 .field .same { justify-self: start; margin-top: 8px; }
 .unitmark { color: var(--ink-3); font-size: 1.02rem; margin-right: 2px; }
-.field:has(.unitmark) { grid-template-columns: auto 1fr; }
-.field:has(.unitmark) > label { grid-column: 1 / -1; }
+.field:not(.inline):has(.unitmark) { grid-template-columns: auto 1fr; }
+.field:not(.inline):has(.unitmark) > label { grid-column: 1 / -1; }
+.field.inline .unitmark { margin: 0 0 0 4px; }
+.field.inline .unitmark:first-child { margin: 0; }
 .field.menu { position: relative; }
 .field.menu select { background-image: none; padding-right: 28px; color: var(--ink); }
 .field.menu .menu-arrows { position: absolute; right: 14px; bottom: 16px; width: 16px; height: 16px; color: var(--ink-3); pointer-events: none; }
@@ -511,10 +538,15 @@ details.more > .fields::before { content: ""; display: block; height: 1px; margi
 details.identity > .identity-in { padding: 4px 12px 14px; display: grid; }
 details.identity .fields.glass, details.identity .pills button { box-shadow: inset 0 0 0 1px var(--sep); }
 .pills { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.pills button { min-height: 48px; padding: 10px 6px; border-radius: 14px; font-weight: 650; font-size: .98rem; background: var(--glass);
+.pills button { min-height: 44px; padding: 8px 6px; border-radius: 14px; font-weight: 600; font-size: .92rem; line-height: 1.2; background: var(--glass);
   -webkit-backdrop-filter: blur(28px) saturate(170%); backdrop-filter: blur(28px) saturate(170%); box-shadow: inset 0 1px 0 var(--glass-edge), var(--shadow); }
 .pills button[aria-checked="true"] { background: var(--accent); color: var(--accent-ink); box-shadow: 0 4px 14px rgba(0, 122, 255, .28); }
 .pills.bad { border-radius: 16px; outline: 2px solid var(--red); outline-offset: 3px; }
+.pickgroup { display: grid; gap: 6px; }
+.pickgroup + .pickgroup, .fields + .pickgroup, .pickgroup + .fields { margin-top: 16px; }
+.pickgroup > .gh { padding: 0 16px; font-size: .8rem; font-weight: 600; color: var(--ink-2); text-transform: uppercase; letter-spacing: .04em; }
+.pickgroup > .gf { padding: 0 16px; font-size: .8rem; color: var(--ink-2); }
+.pickgroup.bad .pills { border-radius: 16px; outline: 2px solid var(--red); outline-offset: 3px; }
 .daterow { display: flex; align-items: center; gap: 10px; }
 .daterow input { flex: 1; min-width: 0; }
 .daterow .btn.small { flex: none; }
@@ -535,8 +567,12 @@ details.identity .fields.glass, details.identity .pills button { box-shadow: ins
   background: var(--glass-bar); -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
   box-shadow: 0 -1px 0 var(--sep);
 }
-.formbar .btn { width: 100%; max-width: 640px; }
+.formbar .btn { width: 100%; max-width: 640px; transition: opacity .2s; }
+.formbar .btn.notready { opacity: .45; }
 
+details.billing > .fields { padding: 0 16px 8px; }
+details.billing > .fields > .field { margin: 0 -16px; }
+details.billing > .fields > .foot { padding: 0; }
 .billtot { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 8px 0 10px;
   font-size: .8125rem; color: var(--ink-2); border-bottom: 1px solid var(--sep); margin-bottom: 4px; }
 .billtot b { color: var(--ink); font-variant-numeric: tabular-nums; }
