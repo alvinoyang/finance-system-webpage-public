@@ -155,6 +155,7 @@ const ICONS = {
   gear: [["path", { d: "M18.96 10.15 L21.46 10.38 L21.46 13.62 L18.96 13.85 L18.23 15.61 L19.84 17.54 L17.54 19.84 L15.61 18.23 L13.85 18.96 L13.62 21.46 L10.38 21.46 L10.15 18.96 L8.39 18.23 L6.46 19.84 L4.16 17.54 L5.77 15.61 L5.04 13.85 L2.54 13.62 L2.54 10.38 L5.04 10.15 L5.77 8.39 L4.16 6.46 L6.46 4.16 L8.39 5.77 L10.15 5.04 L10.38 2.54 L13.62 2.54 L13.85 5.04 L15.61 5.77 L17.54 4.16 L19.84 6.46 L18.23 8.39Z" }], ["circle", { cx: 12, cy: 12, r: 3 }]],
   chevR: [["path", { d: "M9 5l7 7-7 7", "stroke-width": 2.2 }]],
   chevL: [["path", { d: "M15 5l-7 7 7 7", "stroke-width": 2.4 }]],
+  chevD: [["path", { d: "M7 10l5 5 5-5", "stroke-width": 2.4 }]],
   check: [["path", { d: "M5 12.5l4.5 4.5L19 7.5", "stroke-width": 2.8 }]],
   lock: [["rect", { x: 5, y: 10.5, width: 14, height: 10, rx: 2.5 }], ["path", { d: "M8 10.5V8a4 4 0 0 1 8 0v2.5" }]],
   work: [["rect", { x: 3.5, y: 7.5, width: 17, height: 12, rx: 3 }], ["path", { d: "M9 7.5V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1.5M3.5 13h17" }]],
@@ -531,7 +532,7 @@ function head(title, sub, withStatus) {
 
 function render(animate) {
   if (ASIDE) { SWIPE = null; const pg = pageFor(); ASIDE.out = { page: pg, swipe: SWIPE }; return; }
-  closePop();
+  closePop(); closePullDown();
   if (!MEM || (!document.getElementById("lock").hidden && !OPENING && !LOCK.mode.startsWith("change"))) return;
   renderChrome();
   const main = clear(document.getElementById("main"));
@@ -651,7 +652,7 @@ function gStart(ev) {
   if (GS && GS.mode) gEnd({ type: "touchcancel" });     // a second finger: put back what the first had moved
   if (SIDE_ANIM) SIDE_ANIM.end();                        // a swipe still settling finishes at once
   GS = null;
-  if (ev.touches.length !== 1 || !MEM || lockShowing() || document.querySelector(".scrim")) return;
+  if (ev.touches.length !== 1 || !MEM || lockShowing() || document.querySelector(".scrim, .pullscrim")) return;
   const t = ev.touches[0], tg = ev.target, a = document.activeElement;
   if (tg.closest && tg.closest("input, textarea, select, .tabbar, .formbar")) return;
   if (VIEW && VIEW.type === "form") return;
@@ -2239,7 +2240,7 @@ function renderShifts() {
   const all = allShifts();
   if (!all.length) { p.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "None yet. Shifts you send from Add appear here." }))); return p; }
   const needs = all.filter(x => missingOf(x).some(m => m !== "hours"));
-  const which = VIEW.filter === "needs" && needs.length ? "needs" : "all";
+  let which = VIEW.filter === "needs" && needs.length ? "needs" : "all";
   const holder = h("div", { class: "page" });
   const draw = v => {
     VIEW.filter = v;
@@ -2275,9 +2276,10 @@ function renderShifts() {
     if (!rows.length) holder.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "Every shift has its pay and patients." })));
   };
   if (needs.length) {
-    const seg = segControl([["all", `All · ${all.length}`], ["needs", `Needs details · ${needs.length}`]], which, draw, "Which shifts", "range wide");
-    p.append(seg);
-    swipeAlong(seg, holder, BACK, null);
+    const pulls = () => h("div", { class: "pulls" }, pullDown(which === "needs" ? "Needs details" : "All shifts", [[["all", "All shifts", all.length], ["needs", "Needs details", needs.length]]], which,
+      k => { which = k; VIEW.filter = k; p.querySelector(".pulls").replaceWith(pulls()); draw(k); }, "Which shifts", { active: which === "needs" }));
+    p.append(pulls());
+    swipeAlong(h("div"), holder, BACK, null);
   }
   p.append(holder);
   draw(which);
@@ -2455,6 +2457,48 @@ function segControl(choices, value, onPick, label, cls) {
     segs.append(b);
   }
   return segs;
+}
+function pullDown(label, groups, value, onPick, name, opts) {
+  opts = opts || {};
+  const btn = h("button", { class: "pull" + (opts.active ? " on" : ""), type: "button", "aria-haspopup": "menu", "aria-expanded": "false", "aria-label": `${name}: ${label}` },
+    h("span", { text: label }), icon("chevD"));
+  btn.addEventListener("click", ev => {
+    ev.stopPropagation();
+    closePullDown();
+    const scrim = h("div", { class: "pullscrim" });
+    const menu = h("div", { class: "pullmenu", role: "menu", "aria-label": name });
+    groups.forEach((g, gi) => {
+      if (gi) menu.append(h("div", { class: "pullgap", role: "separator" }));
+      for (const [v, words, aside] of g) {
+        const on = Array.isArray(value) ? value.includes(v) : v === value;
+        const it = h("button", { class: "pullitem", type: "button", role: "menuitemradio", "aria-checked": String(on) },
+          h("span", { class: "tick" }, on ? icon("check") : null), h("span", { class: "w", text: words }), aside != null ? h("span", { class: "a num", text: String(aside) }) : null);
+        it.addEventListener("click", e => { e.stopPropagation(); closePullDown(); onPick(v); });
+        menu.append(it);
+      }
+    });
+    scrim.addEventListener("click", e => { e.stopPropagation(); closePullDown(); });
+    document.body.append(scrim, menu);
+    const r = btn.getBoundingClientRect(), mw = menu.offsetWidth, mh = menu.offsetHeight;
+    const left = Math.min(window.innerWidth - mw - 12, Math.max(12, r.left));
+    let top = r.bottom + 8;
+    if (top + mh > window.innerHeight - 12) top = Math.max(12, r.top - mh - 8);
+    menu.style.left = left + "px"; menu.style.top = top + "px";
+    menu.style.transformOrigin = `${Math.max(0, r.left + r.width / 2 - left)}px ${top < r.top ? "100%" : "0"}`;
+    btn.setAttribute("aria-expanded", "true");
+    closePullDown.btn = btn;
+    const first = menu.querySelector('[aria-checked="true"]') || menu.querySelector(".pullitem");
+    if (first && ev.detail === 0) first.focus({ preventScroll: true });
+    closePullDown.keys = e => { if (e.key === "Escape") { closePullDown(); btn.focus(); } };
+    document.addEventListener("keydown", closePullDown.keys);
+  });
+  return btn;
+}
+function closePullDown() {
+  for (const x of document.querySelectorAll(".pullscrim, .pullmenu")) x.remove();
+  if (closePullDown.btn) closePullDown.btn.setAttribute("aria-expanded", "false");
+  if (closePullDown.keys) document.removeEventListener("keydown", closePullDown.keys);
+  closePullDown.btn = null; closePullDown.keys = null;
 }
 function chipRow(choices, value, onPick, label) {
   const row = h("div", { class: "chips", role: "radiogroup", "aria-label": label });
@@ -3595,15 +3639,15 @@ function renderWork(embedded) {
   const places = [["all", "Everywhere"]].concat((W.places || []).map(x => [x.value, x.label.replace(" consulting", "")]));
   V.year = V.year || (years.includes(W.default_year) ? W.default_year : years[0]); V.place = V.place || "all";
   const holder = h("div", { class: "page" });
-  const metricSeg = segControl([["hours", "Hours"], ["rate", "Pay per hour"]], metric, v => { V.metric = v; render(); }, "Show", "partseg");
-  p.append(metricSeg);
-  swipeAlong(metricSeg, holder, embedded ? null : BACK, null);
   const wc = withCommute();
-  if (metric === "rate") p.append(segControl([["with", "With the commute"], ["without", "Without"]], wc ? "with" : "without",
-    v => { save("pph_commute", v === "with"); render(); }, "Pay per hour, with the commute or without", "range wide"));
-  p.append(h("div", { class: "filters" }, chipRow(yearC, V.year, v => { V.year = v; draw(); }, "Which year"),
-    chipRow(places, V.place, v => { V.place = v; draw(); }, "Which place")));
-  p.append(holder);
+  const pulls = () => h("div", { class: "pulls" },
+    pullDown(metric === "hours" ? "Hours" : "Pay per hour",
+      [[["hours", "Hours"], ["rate", "Pay per hour"]]].concat(metric === "rate" ? [[["with", "With the commute"], ["without", "Without the commute"]]] : []),
+      [metric, wc ? "with" : "without"], v => { if (v === "with" || v === "without") save("pph_commute", v === "with"); else V.metric = v; render(); }, "Show"),
+    pullDown((yearC.find(x => x[0] === V.year) || [0, V.year])[1], [yearC], V.year, v => { V.year = v; p.querySelector(".pulls").replaceWith(pulls()); draw(); }, "Which year"),
+    pullDown((places.find(x => x[0] === V.place) || [0, V.place])[1], [places], V.place, v => { V.place = v; p.querySelector(".pulls").replaceWith(pulls()); draw(); }, "Which place", { active: V.place !== "all" }));
+  p.append(pulls(), holder);
+  if (!embedded) swipeAlong(h("div"), holder, BACK, null);
   const nameOf = pl => pl === "all" ? "everywhere" : (places.find(x => x[0] === pl) || [pl, pl])[1];
   const cell = (y, pl, site) => C[[y, pl, site || ""].join("|")];
   const rate = c => money(wc ? c.pay_per_hour_incl_travel : c.pay_per_hour), other = c => money(wc ? c.pay_per_hour : c.pay_per_hour_incl_travel);
@@ -4164,6 +4208,7 @@ let LOCK = { mode: "unlock", pin: "", first: "", msg: "", bad: false, shook: fal
 let OPENING = false;
 
 function lockScreen(mode, extra) {
+  closePullDown();            // a menu sits outside the page, so the lock's veil would not cover it
   LOCK = Object.assign({ mode, pin: "", first: "", msg: "", bad: false, shook: false, busy: false, migrating: LOCK.migrating }, extra || {});
   const el = document.getElementById("lock");
   const overApp = mode === "change-old" || mode === "change-new" || mode === "change-confirm";
@@ -4640,10 +4685,11 @@ function workShifts() {
     }
     if (!which[k].length) holder.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "None." })));
   };
-  const seg = segControl([["all", `All · ${units.length}`], ["needs", `Needs you · ${needs.length}`], ["waiting", `Waiting · ${waiting.length}`]], v, k => { save("workshifts", k); draw(k); }, "Which shifts", "range wide");
-  out.append(seg, holder);
+  const WORDS = { all: "All shifts", needs: "Needs you", waiting: "Waiting" };
+  const pulls = () => h("div", { class: "pulls" }, pullDown(WORDS[v], [[["all", "All shifts", units.length], ["needs", "Needs you", needs.length], ["waiting", "Waiting", waiting.length]]], v,
+    k => { v = k; save("workshifts", k); out.querySelector(".pulls").replaceWith(pulls()); draw(k); }, "Which shifts", { active: v !== "all" }));
+  out.append(pulls(), holder);
   draw(v);
-  swipeAlong(seg, holder, null, null);
   out.append(h("p", { class: "foot", text: `Green is paid, orange is on its way, red needs you, and a hollow dot is pay not priced yet: MGH prices a shift in its monthly billing summary. Tap a shift for each part of its pay. Shifts from ${prettyDates(wp.since)}; earlier ones were settled by hand.` }));
   return out;
 }
