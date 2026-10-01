@@ -382,7 +382,7 @@ details.fold[open] > summary .when-closed, details.fold:not([open]) > summary .w
 .meter .mseg.s1.planned { opacity: 1; background: repeating-linear-gradient(115deg, var(--c1) 0 5px, transparent 5px 10px), var(--fill); }
 .sw2.s1.planned { background: repeating-linear-gradient(115deg, var(--c1) 0 3px, transparent 3px 6px), var(--fill); }
 
-.segs + .segs, .segs + .filters, .filters + .filters { margin-top: calc(var(--gap-group) - var(--gap-page)); }
+.segs + .segs, .segs + .filters, .filters + .filters, .segs + .pulls { margin-top: calc(var(--gap-group) - var(--gap-page)); }
 .segs { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; padding: 2px; min-height: 38px; border-radius: 10px; background: var(--fill); margin-top: 4px; }
 .segs button { position: relative; padding: 7px 6px; border-radius: 8px; font-size: .85rem; font-weight: 600; color: var(--ink-2); }
 .segs button[aria-checked="true"] { background: var(--seg-on); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
@@ -399,6 +399,32 @@ details.fold[open] > summary .when-closed, details.fold:not([open]) > summary .w
 .chip-b { flex: none; padding: 8px 15px; border-radius: 99px; background: var(--fill); color: var(--ink); font-weight: 600; font-size: .9rem; white-space: nowrap; scroll-snap-align: start; min-height: 36px; }
 .chip-b[aria-checked="true"] { background: var(--accent); color: var(--accent-ink); }
 @media (hover: hover) { .chip-b:not([aria-checked="true"]):hover { background: var(--sep); } }
+.pulls { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 2px; margin: -2px; }
+.pulls::-webkit-scrollbar { display: none; }
+.pull { position: relative; flex: none; display: inline-flex; align-items: center; gap: 4px; min-height: 34px; padding: 6px 8px 6px 12px; border-radius: 99px;
+  background: var(--fill); color: var(--ink); font-size: .9rem; font-weight: 600; white-space: nowrap; }
+.pull svg { width: 15px; height: 15px; color: var(--ink-3); transition: transform .2s; }
+.pull.on { background: var(--accent-soft); color: var(--accent); }
+.pull.on svg { color: var(--accent); }
+.pull[aria-expanded="true"] svg { transform: rotate(180deg); }
+.pull::after { content: ""; position: absolute; inset: -5px -2px; }
+@media (hover: hover) { .pull:hover { background: var(--sep); } .pull.on:hover { background: var(--accent-soft); } }
+.pullscrim { position: fixed; inset: 0; z-index: 60; }
+.pullmenu { position: fixed; z-index: 61; min-width: 230px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); overflow-y: auto; padding: 0;
+  border-radius: 14px; background: var(--glass-strong); -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%);
+  box-shadow: 0 0 0 .5px var(--sep), 0 12px 40px rgba(0, 0, 0, .22); animation: pullIn .18s cubic-bezier(.2, .8, .2, 1) both; }
+@keyframes pullIn { from { opacity: 0; transform: scale(.92); } to { opacity: 1; transform: none; } }
+.pullitem { position: relative; display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; min-height: 44px;
+  padding: 10px 16px 10px 12px; text-align: left; font-size: 1rem; color: var(--ink); }
+.pullitem + .pullitem::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: var(--sep); transform: scaleY(.6); }
+.pullitem .tick svg { width: 15px; height: 15px; margin-left: -2px; color: var(--ink); display: block; }
+.pullitem .a { color: var(--ink-2); font-size: .92rem; }
+.pullitem:active { background: var(--fill); }
+.pullitem:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 0; }
+@media (hover: hover) { .pullitem:hover { background: var(--fill); } }
+.pullgap { height: 8px; background: var(--fill); }
+body.veiled .pullmenu, body.veiled .pullscrim { visibility: hidden; }
+@media (prefers-reduced-motion: reduce) { .pullmenu { animation: none; } .pull svg { transition: none; } }
 .fadein { animation: fadeIn .22s ease both; }
 
 .chart { position: relative; width: 100%; }
