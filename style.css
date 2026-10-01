@@ -723,17 +723,51 @@ details.billing > .fields > .foot { padding: 0; }
 .owedlead .fv.red { color: var(--red); }
 .owedlead .fv.orange { color: var(--orange); }
 @media (max-width: 380px) { .owedlead { grid-template-columns: 1fr 1fr; } }
-.pdots { display: inline-flex; gap: 4px; align-items: center; margin-left: 6px; vertical-align: middle; }
-.pdot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); opacity: .55; }
-.pdot.paid { background: var(--green); opacity: 1; }
-.pdot.waiting { background: var(--orange); opacity: .8; }
-.pdot.problem { background: var(--red); opacity: 1; }
-.pdot.none { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink-3); opacity: .5; }
-.partrow { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 10px 0; border-top: 1px solid var(--sep); align-items: center; }
-.partrow:first-child { border-top: 0; }
-.partrow .pn { font-weight: 600; }
-.partrow .pm { grid-column: 1 / -1; color: var(--ink-3); font-size: .82rem; }
-.partrow .pv { text-align: right; font-variant-numeric: tabular-nums; }
+.shmonth-h { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 0 4px; }
+.shmonth-h h2 { margin: 0; }
+.shmonth-t { font-size: .8125rem; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.shbar { display: flex; gap: 2px; height: 5px; border-radius: 99px; overflow: hidden; background: var(--fill); margin: 0 4px; }
+.shbar.big { height: 8px; margin: 6px 0 2px; }
+.shbar i { display: block; height: 100%; }
+.shbar .g { background: var(--green); } .shbar .r { background: var(--red); } .shbar .o { background: var(--orange); }
+.shbar .t { background: repeating-linear-gradient(135deg, var(--orange) 0 4px, transparent 4px 7px); opacity: .5; }
+.shcap { font-size: .78rem; color: var(--ink-2); margin: -4px 4px 0; }
+.row.shrow { grid-template-columns: auto minmax(0, 1fr) auto auto; padding-top: 11px; padding-bottom: 11px; }
+.shrow .title { font-weight: 600; }
+.shdid { display: flex; align-items: center; gap: 5px; }
+.shnote svg { width: 13px; height: 13px; display: block; opacity: .75; }
+.shtrail { display: grid; justify-items: end; gap: 1px; }
+.shstate { display: inline-flex; align-items: center; gap: 5px; font-size: .74rem; font-weight: 650; white-space: nowrap; }
+.shstate::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.shstate.paid { color: var(--green); } .shstate.wait { color: var(--orange); } .shstate.prob { color: var(--red); } .shstate.tbc { color: var(--ink-3); }
+.shstate.tbc::before { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
+.shhero .shnone { color: var(--ink-2); font-size: 1.7rem; }
+.shsofar { font-size: .46em; font-weight: 600; color: var(--ink-2); letter-spacing: 0; }
+.shlegend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .8125rem; color: var(--ink-2); }
+.shlegend span { display: inline-flex; align-items: center; gap: 6px; }
+.shlegend b { color: var(--ink); font-weight: 600; }
+.shlegend i { width: 8px; height: 8px; border-radius: 50%; }
+.shlegend i.g { background: var(--green); } .shlegend i.r { background: var(--red); } .shlegend i.o { background: var(--orange); }
+.shstats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-radius: var(--radius); overflow: hidden; }
+.shstat { position: relative; padding: 12px 6px 13px; text-align: center; display: grid; gap: 1px; }
+.shstat + .shstat::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 1px; background: var(--sep); transform: scaleX(.6); }
+.shstat .k { font-size: .74rem; font-weight: 600; color: var(--ink-2); }
+.shstat .v { font-size: 1.35rem; font-weight: 700; letter-spacing: -.02em; display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.shstat .v.none { color: var(--ink-3); font-weight: 500; }
+.shstat .v .bdot { margin: -7px -8px -7px -4px; }
+.shstat .s { font-size: .72rem; color: var(--ink-3); }
+.shpart { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 12px 16px; align-items: center; }
+.shpart + .shpart::before { content: ""; position: absolute; top: 0; right: 0; left: 16px; height: 1px; background: var(--sep); transform: scaleY(.6); }
+.shpart .pn { font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.shpart .pc { font-weight: 400; font-size: .85rem; color: var(--ink-2); }
+.shpart .pv { font-weight: 600; text-align: right; }
+.shpart .pm { grid-column: 1 / -1; font-size: .8125rem; color: var(--ink-2); }
+.shpart .pm .btn { margin-top: 6px; }
+.shdot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.shdot.paid { background: var(--green); } .shdot.wait { background: var(--orange); } .shdot.prob { background: var(--red); }
+.shdot.tbc { box-shadow: inset 0 0 0 1.5px var(--ink-3); }
+.shnotecard { display: flex; gap: 10px; align-items: flex-start; }
+.shnotecard svg { width: 18px; height: 18px; flex: none; margin-top: 3px; color: var(--ink-3); }
 
 .scrim { position: fixed; inset: 0; z-index: 40; background: var(--scrim); display: grid; align-items: end; justify-items: center; }
 .sheet {
