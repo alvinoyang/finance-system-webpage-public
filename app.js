@@ -2036,7 +2036,7 @@ function numField(key, value, onInput, label) {
   }
   const isMoney = PAY_KEYS.includes(key) && key !== "shadow_pct";
   const inp = h("input", { id, name: key, type: "text", inputmode: "decimal", autocomplete: "off", maxlength: 12,
-                           placeholder: key === "hours" ? "0" : key === "amount" ? "Sum of parts" : isMoney ? "0.00" : "0" });
+                           placeholder: key === "hours" ? "0" : key === "amount" ? "Sum of parts" : key === "patients" ? "Incl. after midnight" : isMoney ? "0.00" : "0" });
   inp.value = value || "";
   if (inline) fitWidth(inp);
   const unit = key === "shadow_pct" ? "%" : key === "hours" || key === "travel_hours" ? "h" : "";
