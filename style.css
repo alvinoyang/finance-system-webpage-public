@@ -790,15 +790,16 @@ details.billing > .fields > .foot { padding: 0; }
 .shbar .t { background: repeating-linear-gradient(135deg, var(--orange) 0 4px, transparent 4px 7px); opacity: .5; }
 .shcap { font-size: .78rem; color: var(--ink-2); margin: -4px 4px 0; }
 .row.shrow { grid-template-columns: auto minmax(0, 1fr) auto auto; padding-top: 11px; padding-bottom: 11px; }
-.shrow .title { font-weight: 600; }
-.shdid { display: flex; align-items: center; gap: 5px; }
+.shrow .title { font-weight: 600; overflow-wrap: normal; }
+.shdid { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.shdidt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.sdot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: currentColor; box-sizing: border-box; }
+.sdot.paid { color: var(--green); } .sdot.wait, .sdot.ask { color: var(--orange); } .sdot.prob { color: var(--red); }
+.sdot.tbc, .sdot.none { color: var(--ink-3); } .sdot.local { color: var(--accent); }
+.sdot.tbc, .sdot.hollow { background: transparent; border: 1.6px solid currentColor; }
+.shtrail { display: inline-flex; align-items: center; gap: 8px; }
+.shrow .meta.toadd { color: var(--orange); font-weight: 500; }   /* what a shift sent from here still needs (Your shifts) */
 .shnote svg { width: 13px; height: 13px; display: block; opacity: .75; }
-.shtrail { display: grid; justify-items: end; gap: 1px; }
-.shstate { display: inline-flex; align-items: center; gap: 5px; font-size: .74rem; font-weight: 650; white-space: nowrap; }
-.shstate::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.shstate.paid { color: var(--green); } .shstate.wait, .shstate.ask { color: var(--orange); } .shstate.prob { color: var(--red); } .shstate.tbc { color: var(--ink-3); }
-.shstate.tbc::before { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
-.shstate.none { color: var(--ink-3); }   /* not owed or written off: settled, and in no total */
 .shhero .shnone { color: var(--ink-2); font-size: 1.7rem; }
 .shsofar { font-size: .46em; font-weight: 600; color: var(--ink-2); letter-spacing: 0; }
 .shlegend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .8125rem; color: var(--ink-2); }
