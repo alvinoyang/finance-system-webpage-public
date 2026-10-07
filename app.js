@@ -4753,7 +4753,6 @@ function unitTone(u) {
 function unitDid(u) {
   const d = u.done || {}, b = [];
   if (/stipend/.test(u.type)) return dayName(u.date, { month: "long" });
-  if (money(d.hours)) b.push(`${Math.round(money(d.hours) * 10) / 10} h`);
   if (money(d.patients)) b.push(plural(Number(d.patients), "patient"));
   return b.join(" · ") || (/call/.test(u.type) ? "On call" : "");
 }
