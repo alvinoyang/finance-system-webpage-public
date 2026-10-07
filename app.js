@@ -2933,11 +2933,10 @@ function summaryCorp() {
   if (cmc) g.append(cmc);
   else { const cm = ov("corp_market");
          if (cm) g.append(figCard(cm, { hero: true, series: S.corp_market, onOpen: () => openTrendOf("corp_market"), meta: [deltaOf(S.corp_market, "corp_market")] })); }
-  const made = corpPartsCard();
-  if (made) out.append(balance(g), made);
+  out.append(balance(g));
   const invest = corpInvestSection(S);
-  if (made && invest) out.append(invest);
-  const g2 = made ? h("div", { class: "figs" }) : g;
+  if (invest) out.append(invest);
+  const g2 = h("div", { class: "figs" });
   const inc = ov("income");
   const exp = ((SNAP && SNAP.income) || {}).expected;
   if (inc) g2.append(figCard(inc, { label: inc.label.replace("Income into the corporation", "Income").replace(/ so far$/, ""), series: S.income, onOpen: () => openView({ type: "income" }),
@@ -2947,8 +2946,7 @@ function summaryCorp() {
   const tx = ov("tax_left");
   if (tx) g2.append(figCard(tx, { label: "Tax instalments left this year", meta: [h("span", { class: "asof", text: tx.note || "As planned" })] }));
   out.append(balance(g2));
-  if (made) { const mv = bankingDaySection(); if (mv) out.append(mv); }
-  else if (invest) out.append(invest);
+  { const mv = bankingDaySection(); if (mv) out.append(mv); }
   return out;
 }
 function workRateCards() {
@@ -2996,40 +2994,6 @@ function corpInvestSection(S) {
     return sec;
   }
   return null;
-}
-
-function corpPriceSince(day) {
-  const cm = ((SNAP && SNAP.series) || {}).corp_market;
-  if (!cm || !cm.about_now || cm.about_now.from !== day || cm.points.length < 2) return null;
-  return Math.round((cm.points[cm.points.length - 1][1] - cm.points[cm.points.length - 2][1]) * 100) / 100;
-}
-function corpSinceWords(day) {
-  return corpPriceSince(day) === null ? "" : " The price since is an estimate, from VEQT's latest close. What the corporation sent to Questrade or paid out since counts from its next statements.";
-}
-function corpPartsCard() {
-  const C0 = ((SNAP && SNAP.networth) || {}).corp_parts;
-  if (!C0 || !(C0.parts || []).length) return null;
-  const pm = corpPriceSince(C0.date);
-  const C = pm === null ? C0 : { ...C0, label: "estimate", total: String(money(C0.total) + pm),
-    parts: C0.parts.concat([{ id: "price_since", label: `VEQT's price since ${monthDay(C0.date)}`, value: String(pm) }]) };
-  const total = money(C.total), held = C.parts.filter(pt => money(pt.value) > 0);
-  const share = v => { const p = v / total * 100; return (Math.abs(p) < 1 ? p.toFixed(1) : String(Math.round(p))) + "%"; };
-  const swatch = pt => { const i = held.indexOf(pt); return i >= 0 ? "sw2 s" + (i % 3) : "sw2 owed"; };
-  const rows = h("div", { class: "list flat" }, C.parts.map(pt => {
-    const v = money(pt.value);
-    return h("div", { class: "row plain legendrow2" },
-      h("span", { class: "main" }, h("span", { class: "title" }, h("span", { class: swatch(pt) }), pt.label),
-        h("span", { class: "meta", text: pt.id === "price_since" ? (v < 0 ? "A fall, taken off; an estimate" : share(v) + "; an estimate") : v < 0 ? "Owed, and taken off" : share(v) })),
-      h("span", { class: "amt" + (v < 0 ? " owed" : ""), text: (v < 0 && pt.id !== "price_since" ? "−" : pt.id === "price_since" ? (v < 0 ? "−" : "+") : "") + fmtWhole$(Math.round(Math.abs(v))) }));
-  }));
-  const why = [`At ${prettyDates(C.date)}, the corporation's latest month-end with a bank and a Questrade statement.`,
-               "Questrade at market, with its cash, from its statement; the chequing account from its statement; money that left chequing for Questrade and had not yet arrived; less what the corporation owed on its Visa, from the statement that covers that day.",
-               "Together they make the corporation's figure above. Before the tax paid to take money out of the corporation."]
-    .concat(pm === null ? [] : [`With VEQT's price since, from its latest public close: its units at ${prettyDates(C0.date)} times the change. An estimate.`]);
-  return h("section", { class: "section" }, h("h2", {}, "Breakdown", basisDot(C.label, why)),
-    h("div", { class: "card glass splitcard corpparts" },
-      meter(held.map((pt, i) => ({ value: money(pt.value), cls: "s" + (i % 3), label: pt.label }))), rows,
-      h("p", { class: "foot", text: `At ${prettyDates(C.date)}, its latest month-end.` + corpSinceWords(C.date) })));
 }
 
 const MOVE_STATE = {
