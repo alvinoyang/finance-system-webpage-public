@@ -658,6 +658,7 @@ function pageFor() {
 }
 
 let STACK = [], OWN_BACKS = 0;
+let ROOT_SCROLL = 0;
 function historyBack(n) {
   if (!n || ASIDE) return;
   OWN_BACKS += 1;
@@ -670,7 +671,7 @@ function go(tab) {
   saveDraftNow();                               // a tab tapped while a form is open keeps what was typed (r5-page-01)
   const depth = STACK.length + (VIEW ? 1 : 0);
   if (!depth && tab !== TAB && !ENTER) ENTER = TABS.indexOf(tab) > TABS.indexOf(TAB) ? "r" : "l";
-  STACK = []; VIEW = null;
+  STACK = []; VIEW = null; ROOT_SCROLL = 0;
   historyBack(depth);
   if (tab !== TAB) SHIFTS_FILTER = "all";
   TAB = tab; save("tab", tab);
@@ -678,7 +679,7 @@ function go(tab) {
 }
 function openView(v) {
   if (v.type === "form" && v.corrects && !v.original && !v.restored) v.original = v.prefill;
-  if (VIEW) { VIEW.scroll = window.scrollY; STACK.push(VIEW); }
+  if (VIEW) { VIEW.scroll = window.scrollY; STACK.push(VIEW); } else ROOT_SCROLL = window.scrollY;
   VIEW = v;
   if (!ASIDE) try { history.pushState({ view: v.type, depth: STACK.length + 1 }, ""); } catch (e) { /* ignore */ }
   ENTER = ENTER || "push";                      // in from the right, as an iPhone's pages are (2026-10-01)
@@ -692,7 +693,17 @@ function closeView(fromPop) {
   if (back) TAB = back;
   if (!fromPop) historyBack(1);
   ENTER = ENTER || "pop";
-  render(true); window.scrollTo(0, VIEW && VIEW.scroll ? VIEW.scroll : 0); focusTitle();
+  render(true); restoreScroll(VIEW ? (VIEW.scroll || 0) : ROOT_SCROLL); focusTitle();
+}
+function restoreScroll(y) {
+  if (ASIDE) return;                            // a neighbour drawn for the swipe scrolls nothing on the screen
+  const m = document.getElementById("main"), root = document.documentElement;
+  if (y > 0 && m) {
+    m.style.minHeight = (y + window.innerHeight) + "px";
+    root.style.overflowAnchor = "none";
+  }
+  window.scrollTo(0, y);
+  if (y > 0 && m) requestAnimationFrame(() => requestAnimationFrame(() => { m.style.minHeight = ""; root.style.overflowAnchor = ""; }));
 }
 function focusTitle() {
   if (ASIDE) return;
@@ -858,7 +869,7 @@ function neighbour(dir) {
     }
     tg.run();
     const got = ASIDE.out;
-    return got ? { whole: true, page: stillen(got.page), scroll: (VIEW && VIEW.scroll) || 0, top: !VIEW } : null;
+    return got ? { whole: true, page: stillen(got.page), scroll: VIEW ? (VIEW.scroll || 0) : (tg.back ? ROOT_SCROLL : 0), top: !VIEW } : null;
   });
 }
 function neighboursStale() {
