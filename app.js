@@ -2945,7 +2945,7 @@ function summaryCorp() {
   const inc = ov("income");
   const exp = ((SNAP && SNAP.income) || {}).expected;
   if (inc) g2.append(figCard(inc, { label: inc.label.replace("Income into the corporation", "Income").replace(/ so far$/, ""), series: S.income, onOpen: () => openView({ type: "income" }),
-    meta: [h("span", { class: "asof" }, exp ? h("span", { class: "expect" }, h("span", { class: "bd estimate", "aria-hidden": "true" }), `About ${compact(money(exp.total), "$")} expected by Dec 31`) : (incomeVsLastYear() || "Every year, by month"))] }));
+    meta: [h("span", { class: "asof" }, exp ? h("span", { class: "expect" }, h("span", { class: "bd estimate", "aria-hidden": "true" }), `About ${compact(money(exp.total), "$")} expected by Jan 31`) : (incomeVsLastYear() || "Every year, by month"))] }));
   const rm = ov("remit");
   if (rm) g2.append(figCard(rm, { label: String(rm.label || "").replace(/^Sent to CRA for payroll/, "Payroll to CRA").replace(/ so far$/, ""), series: S.remit, onOpen: () => openTrendOf("remit"), meta: [h("span", { class: "asof", text: "Due by the 15th of the next month" })] }));
   const tx = ov("tax_left");
@@ -3675,10 +3675,10 @@ function renderVehicle() {
 function renderIncome() {
   const I = (SNAP && SNAP.income) || {}, Y = I.years || {};
   const p = h("div", { class: "page narrow" });
-  p.append(head("Income", "What came into the corporation, by the month it arrived."));
+  p.append(head("Income", "Every deposit into the corporation, in the year of the work it pays for."));
   const ys = Object.keys(Y).sort();
   if (!ys.length) { p.append(h("p", { class: "muted", text: "Not arrived yet." })); return p; }
-  const now = String(new Date().getFullYear());
+  const now = I.work_year || String(new Date().getFullYear());   // the year of the work (since 2026-10-07): in January, the year before
   const withMonths = ys.filter(y => Y[y].months.length).reverse();
   const choices = withMonths.slice(0, 3).map(y => [y, Y[y].so_far ? `${y} so far` : y]).concat([["all", "All years"]]);
   const sel = VIEW.year && choices.some(c => c[0] === VIEW.year) ? VIEW.year : choices[0][0];
@@ -3693,7 +3693,7 @@ function renderIncome() {
         h("div", { class: "ftop" }, h("span", { class: "l", text: `Since ${ys[0]}` }), basisDot(basis, [ys.map(y => `${y}: ${BASIS_NAME[Y[y].basis].toLowerCase()}, ${Y[y].note}.`).join(" "), plainSource(I.source) + "."])),
         h("div", { class: "v rounded", text: fmtWhole$(Math.round(total)) }),
         h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${ys.length} years with a year tab; 2022 has none of its own, and its last days, from December 23, are counted in 2023.` +
-          (Y[now] && Y[now].so_far && Y[now].through ? ` ${now} counts ${keyLabel(`${now}-01`, true).replace(/ \d{4}$/, "")} to ${keyLabel(Y[now].through, true).replace(/ \d{4}$/, "")} only.` : "") }))));
+          " Each year is its work, as your accountant counts it: February to the next January." + (Y[now] && Y[now].so_far && Y[now].through ? ` ${now} counts February to ${keyLabel(Y[now].through, true)} so far.` : "") }))));
       const ser = { label: "Income", unit: "$", form: "bars", points: ys.map(y => [y, money(Y[y].total)]) };
       holder.append(h("div", { class: "card glass chartcard" }, chart([ser], { form: "bars", unit: "$", height: 220, axis: true, hover: true })));
       holder.append(h("div", { class: "list glass" }, ys.slice().reverse().map(y => {
@@ -3707,11 +3707,11 @@ function renderIncome() {
     const yr = Y[v];
     const ser = { label: "Income", unit: "$", form: "bars", points: yr.months };
     const top = h("div", { class: "trend-top" },
-      h("div", { class: "ftop" }, h("span", { class: "l", text: yr.so_far ? `January to ${keyLabel(yr.through, true).replace(/ \d{4}$/, "")}` : `January to December ${v}` }), basisDot(yr.basis, [`${yr.note.replace(/^./, c => c.toUpperCase())}.`, plainSource(I.source) + "."])),
+      h("div", { class: "ftop" }, h("span", { class: "l", text: yr.so_far ? `February to ${keyLabel(yr.through, true)}` : `February ${v} to January ${Number(v) + 1}` }), basisDot(yr.basis, [`${yr.note.replace(/^./, c => c.toUpperCase())}.`, plainSource(I.source) + "."])),
       h("div", { class: "v rounded", text: fmtWhole$(Math.round(money(yr.total))) }));
     if (yr.so_far && I.same_months_last_year) {
       const before = money(I.same_months_last_year), diff = money(I.same_months_this_year || yr.total) - before;
-      top.append(h("div", { class: "fmeta rise" }, `${compact(Math.abs(diff), "$", true)} ${diff >= 0 ? "more" : "less"} than January to ${keyLabel(I.same_months_through, true).replace(/ \d{4}$/, "")} ${Number(v) - 1} (${compact(before, "$", true)}).`));
+      top.append(h("div", { class: "fmeta rise" }, `${compact(Math.abs(diff), "$", true)} ${diff >= 0 ? "more" : "less"} than the same months a year before (${compact(before, "$", true)}).`));
     }
     holder.append(top);
     const exp = v === now && I.expected && I.expected.year === v ? I.expected : null;
@@ -3750,7 +3750,7 @@ function expectedCard(exp) {
                `Your usual month is the middle one of the ${plural(12, "month")} from ${keyLabel(exp.usual_from, true)} to ${keyLabel(exp.usual_to, true)}: a lump, such as a December's retro pay, or a payment that lands a month early or late, does not move it.`,
                bonus ? `The bonus is taken as one month of MGH pay at ${exp.year}'s average so far (${plural(exp.bonus_months, "month")}), as you expect. December's other lumps, such as retro pay, are not counted until they are known.` : "",
                (exp.assumptions || []).length ? `Written down as ${exp.assumptions.length > 1 ? "assumptions" : "assumption"} ${exp.assumptions.join(" and ")} in the Finance System (profile/assumptions.csv), each with the date it is checked again.` : ""];
-  const rows = [[last ? `Arrived, January to ${mon(last[0])}` : "Arrived", arrived, "s0"],
+  const rows = [[last ? `Arrived, February to ${mon(last[0])}` : "Arrived", arrived, "s0"],
                 [n ? `${plural(n, "month")} to come at your usual ${fmtWhole$(Math.round(usual))}` : "", usual * n, "later"],
                 [bonus ? "MGH's active staff bonus, in December" : "", bonus, "later"]].filter(r => r[0]);
   return h("section", { class: "card glass expectcard" },
@@ -4826,27 +4826,31 @@ function workOwed() {
 
 function workEarnings() {
   const wp = workPay(), out = h("div", { class: "page" });
-  const bp = (wp.by_payer || []).filter(x => money(x.expected) > 0 || money(x.paid) > 0).sort((p, q) => money(q.paid) - money(p.paid));
-  const paid = bp.reduce((a, x) => a + (money(x.paid) || 0), 0), waiting = money((wp.totals || {}).waiting) || 0;
-  if (bp.length) {
+  const I = (SNAP && SNAP.income) || {}, wy = I.work_year, yr = wy && (I.years || {})[wy], bp = I.by_payer || [];
+  const waiting = money((wp.totals || {}).waiting) || 0;
+  const track = {};                                  // the shift tracking's overdue and questions, by payer's name
+  for (const x of wp.by_payer || []) track[x.label] = x;
+  if (yr && bp.length) {
     const hero = h("div", { class: "fig hero glass" },
-      h("div", { class: "ftop" }, h("span", { class: "l", text: `Paid for your work since ${prettyDates(wp.since)}` }),
-        basisDot((wp.items || []).filter(i => money(i.paid) > 0).every(i => i.used_label === "verified") ? "verified" : "recorded", ["Each payment is a deposit on the bank's statement, a line of the Ministry's remittance advice, or one you logged here, matched to the shift it pays for.",
-                              `Counted by the shift it pays for. Summary › Corporation's Income counts by the month money reached the corporation, so the two differ.`])),
-      h("span", { class: "v rounded", text: fmtWhole$(Math.round(paid)) }),
-      waiting ? h("span", { class: "fmeta" }, h("span", { class: "asof" }, `and ${fmtWhole$(Math.round(waiting))} on its way · `,
+      h("div", { class: "ftop" }, h("span", { class: "l", text: yr.so_far ? `Paid for ${wy}'s work so far` : `Paid for ${wy}'s work` }),
+        basisDot(yr.basis, ["Every deposit into the corporation's chequing account, from your year tabs, checked line by line against the bank's statements.",
+          `The year is counted as your accountant counts it: February ${wy} to January ${Number(wy) + 1}, since January's deposits pay for December's work. Her 2025 statements count January 2026's deposits, to the cent, as money owed to 2025.`,
+          "Summary › Corporation's Income is this same figure."])),
+      h("span", { class: "v rounded", text: fmtWhole$(Math.round(money(yr.total))) }),
+      waiting ? h("span", { class: "fmeta" }, h("span", { class: "asof" }, `and ${fmtWhole$(Math.round(waiting))} on its way for shifts · `,
         h("button", { class: "link", type: "button", onclick: () => { save("workpart", "owed"); ENTER = ""; render(true); window.scrollTo(0, 0); } }, "see Owed"))) : null);
     const ul = h("div", { class: "list glass" });
     for (const x of bp) {
-      const rest = [];
-      if (money(x.overdue) > 0) rest.push(`${fmtWhole$(Math.round(money(x.overdue)))} overdue`);
-      if (Number(x.problems)) rest.push(`${x.problems} to explain`);
-      ul.append(h("div", { class: "row amtrow" }, h("span", { class: "main" }, h("span", { class: "title", text: x.label }),
-        rest.length ? h("span", { class: "meta" + (money(x.overdue) > 0 ? " overdue" : ""), text: rest.join(" · ") }) : null),
-        h("span", { class: "amt", text: fmtWhole$(Math.round(money(x.paid))) })));
+      const t = track[x.payer] || {}, rest = [plural(x.lines.length, "deposit")];
+      if (money(t.overdue) > 0) rest.push(`${fmtWhole$(Math.round(money(t.overdue)))} overdue`);
+      if (Number(t.problems)) rest.push(`${t.problems} to explain`);
+      if (x.payer === "Not named in the tab") rest.splice(0, 1, "a line your tab marks “?”");
+      ul.append(h("div", { class: "row amtrow" }, h("span", { class: "main" }, h("span", { class: "title", text: x.payer }),
+        h("span", { class: "meta" + (money(t.overdue) > 0 ? " overdue" : ""), text: rest.join(" · ") })),
+        h("span", { class: "amt", text: fmtWhole$(Math.round(money(x.amount))) })));
     }
     out.append(hero, h("section", { class: "section" }, h("h2", { text: "By who paid" }), ul,
-      h("p", { class: "foot", text: `Matched to the bank's deposits to ${prettyDates(wp.reach)}. Work before ${prettyDates(wp.settled_to)} was settled by hand.` })));
+      h("p", { class: "foot", text: `Every deposit from February ${wy}${yr.so_far ? ` to ${keyLabel(yr.through, true)}` : ` to January ${Number(wy) + 1}`}, by the first payer its line in your tab names.` })));
   }
   const cards = workRateCards();
   if (cards.length) {
@@ -4854,7 +4858,7 @@ function workEarnings() {
     for (const c of cards) g.append(c);
     out.append(h("section", { class: "section" }, h("h2", { text: "Hours and pay per hour" }), balance(g)));
   }
-  if (!bp.length && !cards.length) out.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "These figures have not arrived yet." })));
+  if (!(yr && bp.length) && !cards.length) out.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "These figures have not arrived yet." })));
   return out;
 }
 
