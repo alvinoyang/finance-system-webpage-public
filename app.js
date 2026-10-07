@@ -2388,7 +2388,7 @@ function missingOf(x) {
   const pl = placeInfo(placeOfShift(x.fields)), asks = (pl && pl.asks) || [];
   const out = [];
   if (!PAID_KEYS.some(k => String(x.fields[k] || "").trim() !== "") && !/practice plan/i.test(x.fields.description || "")) out.push("pay");
-  if (asks.includes("patients") && !x.fields.patients) out.push("patients");
+  if (asks.includes("patients") && !((pl && pl.optional) || []).includes("patients") && !x.fields.patients) out.push("patients");
   if (!x.fields.hours) out.push("hours");
   return out;
 }
