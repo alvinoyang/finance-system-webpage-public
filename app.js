@@ -4700,6 +4700,7 @@ function unitPlace(u) {
 function unitWhat(u) {
   const place = PLACE_NAMES_PAGE[u.payer] || u.payer;
   const esc = t => String(t || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (u.payer === "endoscopy" || u.payer === "bochner") return "";
   return String(u.description || "").replace(new RegExp("^" + esc(u.site) + "\\s+", "i"), "").replace(new RegExp("^" + esc(place) + "\\s+", "i"), "")
     .replace(u.site ? new RegExp(",?\\s*" + esc(u.site) + "$", "i") : /$^/, "").replace(new RegExp("^" + esc(u.site) + "$", "i"), "").trim();
 }
@@ -4775,13 +4776,13 @@ function workedWords(us) {
 }
 function unitHead(u) {
   if (/stipend/.test(u.type)) return `${PLACE_NAMES_PAGE[u.payer] || u.payer} stipend`;
-  if (u.payer === "bochner") return "Bochner · sedation";
+  if (u.payer === "bochner") return "Bochner";
   return unitPlace(u);
 }
 function unitShort(u) {
   if (/stipend/.test(u.type)) return `${PLACE_NAMES_PAGE[u.payer] || u.payer} · stipend`;
   if (u.payer === "endoscopy" && u.site) return `Endoscopy · ${u.site}`;
-  if (u.payer === "bochner") return "Bochner · sedation";
+  if (u.payer === "bochner") return "Bochner";
   return unitTitle(u);
 }
 function payBar(m, cls) {
