@@ -459,10 +459,16 @@ function sittingName() { return `The ${ordinal(sittingDay())}`; }
 function formsList() { return (SCHEMA && SCHEMA.forms) || []; }
 const RECEIPT = /^(\d{4}-\d{2}-\d{2}) - (.+) - (-?\$[\d,]+(?:\.\d\d)?)(:| has no receipt)/;
 function receiptOf(q) {
-  if (/^meal-/.test(String(q.id || ""))) return null;
+  const meal = /^meal-/.test(String(q.id || ""));
   const m = RECEIPT.exec(q.text || "");
   if (!m) return null;
-  return { date: m[1], what: m[2], amount: m[3], problem: m[4] === ":" ? "No card or bank charge found for it" : "No receipt filed" };
+  return { date: m[1], what: merchantWords(m[2], meal), amount: m[3].replace(/^-/, ""),
+           problem: meal ? "Who was there, and why was it work?" : m[4] === ":" ? "No card or bank charge found for it" : "No receipt filed" };
+}
+function merchantWords(desc, meal) {
+  const left = String(desc || "").replace(/\[[A-Z][A-Z ]*\]/g, "").replace(/\s{2,}/g, " ").replace(/^[\s,-]+|[\s,-]+$/g, "");
+  if (left && !/^[A-Z]{2}$/.test(left)) return left;
+  return (meal ? "A meal" : "A charge") + (left ? ` in ${left}` : "");
 }
 function openQuestions() {
   const mine = answeredHere();
@@ -2416,20 +2422,20 @@ function renderShifts() {
       const miss = missingOf(x), f = x.fields;
       const have = [f.hours ? `${f.hours} h` : "", f.patients && Number.isFinite(Number(f.patients)) ? plural(Number(f.patients), "patient") : "",
                     PAID_KEYS.some(k => f[k]) ? fmtWhole$(Math.round(f.amount ? money(f.amount) : PAID_KEYS.slice(1).reduce((a1, k) => a1 + (money(f[k] || 0) || 0), 0))) : ""].filter(Boolean).join(" · ");
-      const chips = [];
-      if (x.state === "unsent") chips.push(h("span", { class: "chip orange", text: "Not sent" }));
-      else if (x.state === "sent") chips.push(h("span", { class: "chip blue", text: "Waiting for MacBook" }));
-      else if (x.state === "held") chips.push(h("span", { class: "chip red", text: "Held" }));
-      if (x.changeHeld) chips.push(h("span", { class: "chip red", text: "A change is held: see Today" }));
-      if (miss.includes("pay")) chips.push(h("span", { class: "chip orange", text: "Pay to add" }));
-      if (miss.includes("patients")) chips.push(h("span", { class: "chip", text: "Patients to add" }));
+      const held = x.state === "held" || x.changeHeld;
+      const word = held ? (x.changeHeld ? "A change is held: see Today" : "Held: see Today") : x.state === "unsent" ? "Not sent yet" : x.state === "sent" ? "Sent, waiting for the MacBook" : "";
+      const tone = held ? "prob" : x.state === "unsent" ? "local hollow" : x.state === "sent" ? "local" : "";
+      const toAdd = [miss.includes("pay") ? "pay" : "", miss.includes("patients") ? "patients" : ""].filter(Boolean);
+      const u = { payer: placeOfShift(f), site: f.site || "", description: f.description || "" };
+      const sub = [unitWhat(u), have].filter(Boolean).join(" · ");
       const dt = dateOf(f.date);
-      ul.append(h("button", { class: "row", type: "button", onclick: () => openView({ type: "form", kind: "shift", corrects: x.id, prefill: load("drafts", {})[draftKeyOf("shift", x.id)] || f, original: f, restored: !!load("drafts", {})[draftKeyOf("shift", x.id)], details: true,
+      ul.append(h("button", { class: "row shrow", type: "button", onclick: () => openView({ type: "form", kind: "shift", corrects: x.id, prefill: load("drafts", {})[draftKeyOf("shift", x.id)] || f, original: f, restored: !!load("drafts", {})[draftKeyOf("shift", x.id)], details: true,
                                                                                          label: `${shiftTitle(f)}, ${shortDate(f.date)}` }) },
         h("span", { class: "day", "aria-hidden": "true" }, h("span", { class: "wd", text: dt ? dt.toLocaleDateString("en-CA", { weekday: "short" }) : "" }),
           h("span", { class: "dn", text: dt ? String(dt.getDate()) : "" }), h("span", { class: "mo", text: dt ? dt.toLocaleDateString("en-CA", { month: "short" }) : "" })),
-        h("span", { class: "main" }, h("span", { class: "title", text: shiftTitle(f) }), have ? h("span", { class: "meta", text: have }) : null,
-          chips.length ? h("span", { class: "chiprow" }, chips) : null),
+        h("span", { class: "main" }, h("span", { class: "title clamp", text: unitPlace(u) }), sub ? h("span", { class: "meta shdid" }, h("span", { class: "shdidt", text: sub })) : null,
+          toAdd.length ? h("span", { class: "meta toadd", text: `Add ${toAdd.join(" and ")}` }) : null),
+        tone ? h("span", { class: "sdot " + tone, role: "img", "aria-label": word, title: word }) : h("span"),
         icon("chevR")));
     }
     if (!rows.length) holder.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "Every shift has its pay and patients." })));
@@ -2442,7 +2448,7 @@ function renderShifts() {
   }
   p.append(holder);
   draw(which);
-  p.append(h("p", { class: "foot", text: "Shifts typed in the Work tab are changed there. A change here replaces the shift in your books; the record keeps both, marked." }));
+  p.append(h("p", { class: "foot", text: "Blue is a shift the MacBook has not filed yet, hollow until it is sent; red is one held, which Today explains. Shifts typed in the Work tab are changed there. A change here replaces the shift in your books; the record keeps both, marked." }));
   return p;
 }
 
@@ -3921,7 +3927,7 @@ function renderWork(embedded) {
                                                  sub: cell(y, x.value) ? unitWord(x.value, Number(cell(y, x.value).units)
                                                         - (x.value === "mgh" && kind("mgh-practice-plan") ? Number(kind("mgh-practice-plan").units) : 0)
                                                         - (x.value === "edlp" && kind("edlp-stipend") ? Number(kind("edlp-stipend").units) : 0))
-                                                      + (x.value === "mgh" && kind("mgh-practice-plan") ? ", and the practice plan" : "") : "" })).filter(r => r.value > 0).sort((a1, b1) => b1.value - a1.value);
+                                                      + (x.value === "mgh" && kind("mgh-practice-plan") ? " + practice plan" : "") : "" })).filter(r => r.value > 0).sort((a1, b1) => b1.value - a1.value);
         if (rows.length > 1) holder.append(h("section", { class: "section" }, h("h2", { text: "By place" }),
           h("div", { class: "card glass" }, hbars(rows, v => `${Math.round(v).toLocaleString("en-CA")} h`, k => pickPlace(k)))));
       }
@@ -4684,12 +4690,18 @@ function workPay() { return (SNAP && SNAP.work_pay) || {}; }
 function workPart() { const v = load("workpart", "shifts"); return v === "pay" ? "earnings" : ["shifts", "earnings", "owed"].includes(v) ? v : "shifts"; }
 let SHIFTS_FILTER = "all";
 function unitTitle(u) {
+  return `${unitPlace(u)} · ${unitWhat(u)}`.replace(/ · $/, "");
+}
+function unitPlace(u) {
   const place = PLACE_NAMES_PAGE[u.payer] || u.payer;
   const site = u.site && !["MGH", "Bochner Eye Institute", "ABP"].includes(u.site) ? ` ${u.site}` : "";
+  return `${place}${site}`;
+}
+function unitWhat(u) {
+  const place = PLACE_NAMES_PAGE[u.payer] || u.payer;
   const esc = t => String(t || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const desc = String(u.description || "").replace(new RegExp("^" + esc(u.site) + "\\s+", "i"), "").replace(new RegExp("^" + esc(place) + "\\s+", "i"), "")
-    .replace(u.site ? new RegExp(",?\\s*" + esc(u.site) + "$", "i") : /$^/, "");
-  return `${place}${site} · ${desc}`.replace(/ · $/, "");
+  return String(u.description || "").replace(new RegExp("^" + esc(u.site) + "\\s+", "i"), "").replace(new RegExp("^" + esc(place) + "\\s+", "i"), "")
+    .replace(u.site ? new RegExp(",?\\s*" + esc(u.site) + "$", "i") : /$^/, "").replace(new RegExp("^" + esc(u.site) + "$", "i"), "").trim();
 }
 const PLACE_NAMES_PAGE = { mgh: "MGH", edlp: "EDLP", bochner: "Bochner", endoscopy: "Endoscopy", abp: "ABP" };
 function issueOf(key) { return (workPay().issues || []).find(i => i.key === key) || null; }
@@ -4761,6 +4773,11 @@ function workedWords(us) {
   const shifts = us.length - lists - calls;
   return [shifts ? plural(shifts, "shift") : "", lists ? plural(lists, "list") : "", calls ? plural(calls, "call") : ""].filter(Boolean).join(" · ") || plural(0, "shift");
 }
+function unitHead(u) {
+  if (/stipend/.test(u.type)) return `${PLACE_NAMES_PAGE[u.payer] || u.payer} stipend`;
+  if (u.payer === "bochner") return "Bochner · sedation";
+  return unitPlace(u);
+}
 function unitShort(u) {
   if (/stipend/.test(u.type)) return `${PLACE_NAMES_PAGE[u.payer] || u.payer} · stipend`;
   if (u.payer === "endoscopy" && u.site) return `Endoscopy · ${u.site}`;
@@ -4815,7 +4832,7 @@ function workOwed() {
     h("div", {}, h("span", { class: "k", text: "To explain" }), h("span", { class: "fv num " + (ask.length ? "orange" : ""), text: String(ask.length) }),
       h("span", { class: "small muted", text: ask.length === 1 ? "question" : "questions" })),
     h("div", {}, h("span", { class: "k", text: "Waiting" }), h("span", { class: "fv num", text: fmtWhole$(Math.round(money(t.waiting) || 0)) }),
-      h("span", { class: "small muted", text: `${plural(waiting.length, "part")}${t.unknown && Number(t.unknown) ? `, ${t.unknown} with no figure yet` : ""}` }))));
+      h("span", { class: "small muted", text: t.unknown && Number(t.unknown) ? `${t.unknown} not priced yet` : plural(waiting.length, "payment") }))));
   const issueRow = i => {
     const dt = dateOf(i.date);
     const [head, why] = issueWords(i, wp);
@@ -4848,7 +4865,7 @@ function workOwed() {
       const unfiled = its.every(i => i.status === "waiting (bank statement not filed)");
       ul.append(h("button", { class: "row amtrow", type: "button", onclick: () => { save("workpart", "shifts"); SHIFTS_FILTER = "waiting"; ENTER = ""; render(true); window.scrollTo(0, 0); } },
         h("span", { class: "main" }, h("span", { class: "title", text: PLACE_NAMES_PAGE[payer] || payer.toUpperCase() }),
-          h("span", { class: "meta", text: `${plural(shifts, "shift")}, ${plural(its.length, "part")}` + (next ? ` · next by ${shortDate(next)}` : "")
+          h("span", { class: "meta", text: plural(shifts, "shift") + (next ? ` · next by ${dayName(next, { month: "short", day: "numeric" })}` : "")
             + (unfiled ? " · bank statement not filed yet" : "") })),
         h("span", { class: "amt", text: known ? fmtWhole$(Math.round(known)) : "" }), icon("chevR")));
     }
@@ -4900,6 +4917,7 @@ function workShifts() {
     if (x.state === "filed" || known.has(x.id)) continue;
     const f = x.fields || {};
     units.push({ id: x.id, entry_id: x.id, payer: placeOfShift(f), site: f.site || "", date: f.date || "", description: f.description || "", parts: [],
+                 done: { patients: f.patients || "", note: f.note || "" },
                  status: x.state === "unsent" ? "not sent" : "waiting for the MacBook", local: x.state });
   }
   units.sort((a, b) => String(b.date).localeCompare(String(a.date)));
@@ -4933,18 +4951,18 @@ function workShifts() {
         h("p", { class: "shcap", text: said.join(" · ") }), ul));
       for (const u of us) {
         const dt = dateOf(u.date), st = u.local ? "" : unitState(u), um = unitMoney(u);
-        const right = u.local
-          ? h("span", { class: "shtrail" }, h("span", { class: "chip " + (u.local === "unsent" ? "orange" : "blue"), text: u.local === "unsent" ? "Not sent" : "Waiting for MacBook" }))
-          : h("span", { class: "shtrail" }, st !== "tbc" && um.known ? h("span", { class: "amt", text: fmtWhole$(Math.round(um.known)) }) : null,
-              h("span", { class: "shstate " + unitTone(u), text: unitWord(u) }));
-        const did = unitDid(u);
+        const word = u.local ? (u.local === "unsent" ? "Not sent yet" : "Sent, waiting for the MacBook") : unitWord(u);
+        const tone = u.local ? (u.local === "unsent" ? "local hollow" : "local") : unitTone(u);
+        const right = h("span", { class: "shtrail" }, !u.local && st !== "tbc" && um.known ? h("span", { class: "amt", text: fmtWhole$(Math.round(um.known)) }) : null,
+          h("span", { class: "sdot " + tone, role: "img", "aria-label": word, title: word }));
+        const what = /stipend|bochner/.test(u.type + u.payer) ? "" : unitWhat(u), done = unitDid(u);
+        const did = [what, done === "On call" && /call/i.test(what) ? "" : done].filter(Boolean).join(" · ");
         ul.append(h("button", { class: "row shrow", type: "button", onclick: () => u.local ? openView({ type: "form", kind: "shift", corrects: u.id, prefill: (allShifts().find(x => x.id === u.id) || {}).fields || {}, details: true, label: unitTitle(u) })
                                                                                          : openView({ type: "workunit", id: u.id, title: unitTitle(u) }) },
           h("span", { class: "day", "aria-hidden": "true" }, h("span", { class: "wd", text: dt ? dt.toLocaleDateString("en-CA", { weekday: "short" }) : "" }),
             h("span", { class: "dn", text: dt ? String(dt.getDate()) : "" })),
-          h("span", { class: "main" }, h("span", { class: "title", text: unitShort(u) }),
-            u.local ? h("span", { class: "meta", text: "Sent from this page" })
-              : did || (u.done || {}).note ? h("span", { class: "meta shdid" }, did, (u.done || {}).note ? h("span", { class: "shnote", "aria-label": "has a note" }, icon("bubble")) : null) : null),
+          h("span", { class: "main" }, h("span", { class: "title clamp", text: unitHead(u) }),
+            did || (u.done || {}).note ? h("span", { class: "meta shdid" }, h("span", { class: "shdidt", text: did }), (u.done || {}).note ? h("span", { class: "shnote", "aria-label": "has a note" }, icon("bubble")) : null) : null),
           right, icon("chevR")));
       }
     }
@@ -4955,7 +4973,7 @@ function workShifts() {
     k => { v = k; SHIFTS_FILTER = k; out.querySelector(".pulls").replaceWith(pulls()); draw(k); }, "Which shifts", { active: v !== "all" }));
   out.append(pulls(), holder);
   draw(v);
-  out.append(h("p", { class: "foot", text: `Green is paid, orange is on its way or more than was billed (a thing to explain), red is money missing, and a hollow dot is pay not priced yet: MGH prices a shift in its monthly billing summary. Tap a shift for each part of its pay. Shifts from ${prettyDates(wp.since)}; earlier ones were settled by hand.` }));
+  out.append(h("p", { class: "foot", text: `Green is paid, orange is on its way or more than was billed (a thing to explain), red is money missing, and a hollow dot is pay not priced yet: MGH prices a shift in its monthly billing summary. Blue is a shift sent from this page that the MacBook has not filed yet, hollow until it is sent. Tap a shift for each part of its pay. Shifts from ${prettyDates(wp.since)}; earlier ones were settled by hand.` }));
   return out;
 }
 
