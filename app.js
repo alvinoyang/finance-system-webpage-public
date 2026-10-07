@@ -2934,8 +2934,6 @@ function summaryCorp() {
   else { const cm = ov("corp_market");
          if (cm) g.append(figCard(cm, { hero: true, series: S.corp_market, onOpen: () => openTrendOf("corp_market"), meta: [deltaOf(S.corp_market, "corp_market")] })); }
   out.append(balance(g));
-  const invest = corpInvestSection(S);
-  if (invest) out.append(invest);
   const g2 = h("div", { class: "figs" });
   const inc = ov("income");
   const exp = ((SNAP && SNAP.income) || {}).expected;
@@ -2968,32 +2966,6 @@ function workRateCards() {
                lagNote(pph) ? " · " + lagNote(pph) : "")] }));
   }
   return out;
-}
-function corpInvestSection(S) {
-  const cards = [["invest", "Their value, and what they cost", ["invest_market", "invest_cost"]]].filter(c => c[2].every(k => S[k]));
-  if (cards.length) {
-    const sec = h("section", { class: "section" }, h("h2", { text: "Investments" }));
-    const grid = h("div", { class: "trend-cards" });
-    for (const [id, title, keys] of cards) {
-      let sub = null, basis = S[keys[0]].basis, why = [plainSource(S[keys[0]].source) + "."];
-      if (id === "invest") {
-        const mv = settled(S.invest_market).points, cv = settled(S.invest_cost).points, lm = mv[mv.length - 1], lc = cv[cv.length - 1];
-        if (lm && lc && lm[0] === lc[0]) {
-          const gv = lm[1] - lc[1];
-          sub = h("span", { class: "tc-sub" }, `Worth ${compact(Math.abs(gv), "$", true)} ${gv >= 0 ? "more" : "less"} than they cost, at ${keyLabel(lm[0], true)}`);
-          why.push("The gap between the two lines is worked out from them, so it is derived.");
-        }
-      }
-      const b = h("div", { class: "card glass trendcard tappable" },
-        h("span", { class: "tc-h" }, h("span", { class: "t", text: title }), basisDot(basis, why),
-          h("span", { class: "chev-go", "aria-hidden": "true" }, icon("chevR"))), sub || h("span", { class: "tc-sub" }),
-        chart(keys.map(k => S[k]), { form: "line", unit: "$", height: 150, legend: keys.length > 1, axis: true, hover: false, range: 36 }));
-      grid.append(tapArea(b, `Investments: ${title}. Open`, () => openView({ type: "trend", keys, title: "Investments" })));
-    }
-    sec.append(grid);
-    return sec;
-  }
-  return null;
 }
 
 const MOVE_STATE = {
