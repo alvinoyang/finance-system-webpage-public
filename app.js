@@ -680,7 +680,7 @@ function openView(v) {
   if (v.type === "form" && v.corrects && !v.original && !v.restored) v.original = v.prefill;
   if (VIEW) { VIEW.scroll = window.scrollY; STACK.push(VIEW); }
   VIEW = v;
-  if (!ASIDE) try { history.pushState({ view: v.type }, ""); } catch (e) { /* ignore */ }
+  if (!ASIDE) try { history.pushState({ view: v.type, depth: STACK.length + 1 }, ""); } catch (e) { /* ignore */ }
   ENTER = ENTER || "push";                      // in from the right, as an iPhone's pages are (2026-10-01)
   render(true); window.scrollTo(0, 0); focusTitle();
 }
@@ -737,7 +737,6 @@ function swipeAlong(group, el, before, after) {
   const move = (d, beyond) => () => { const b = step(d); return b ? { run: () => { NO_CLICK_UNTIL = 0; b.click(); } } : beyond ? beyond() : null; };
   SWIPE = { el, prev: move(-1, before), next: move(1, after) };
 }
-function standalone() { return (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true; }
 function ptrEls() { return { main: document.getElementById("main"), ptr: document.getElementById("ptr") }; }
 
 function gStart(ev) {
@@ -751,10 +750,9 @@ function gStart(ev) {
   if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;          // the keyboard is up
   const edge = t.clientX < 22 ? "l" : t.clientX > window.innerWidth - 22 ? "r" : "";
   GS = { x: t.clientX, y: t.clientY, t: Date.now(), mode: null, dx: 0, dy: 0, side: null, trail: [[ev.timeStamp || performance.now(), t.clientX]], top: window.scrollY <= 0, edge,
-         noSide: !!(tg.closest && tg.closest(".chips, .chart.scrub, .bar, .pad")) || (edge && !standalone()) };
+         noSide: !!(tg.closest && tg.closest(".chips, .chart.scrub, .bar, .pad")) || !!edge };
 }
 function sideTarget(dx) {
-  if (GS && GS.edge === "l" && dx > 0 && standalone() && VIEW) return BACK();
   if (!SWIPE) return null;
   return dx > 0 ? (SWIPE.prev && SWIPE.prev()) : (SWIPE.next && SWIPE.next());
 }
@@ -842,10 +840,10 @@ function stillen(root) {
   for (const el of [root, ...root.querySelectorAll(".fadein, .enter, .enter-l, .enter-r, .draw, .grow, .fade")]) el.classList.remove(...cls);
   return root;
 }
-function neighbour(dir, edgeBack) {
-  if (!MEM || (VIEW && VIEW.type === "form") || (VIEW && VIEW.type === "settings" && !edgeBack)) return null;
+function neighbour(dir) {
+  if (!MEM || (VIEW && VIEW.type === "form") || (VIEW && VIEW.type === "settings")) return null;
   return drawAside(() => {
-    let tg = edgeBack ? BACK() : SWIPE && SWIPE[dir] && SWIPE[dir]();
+    let tg = SWIPE && SWIPE[dir] && SWIPE[dir]();
     if (!tg) return null;
     if (!tg.whole) {
       render();
@@ -874,14 +872,13 @@ function prepNeighbours() {
   if (NB.ver !== NB_VER) NB = { ver: NB_VER };
   const dir = !("prev" in NB) ? "prev" : !("next" in NB) ? "next" : null;
   if (!dir) return;
-  NB[dir] = neighbour(dir, false);
+  NB[dir] = neighbour(dir);
   NB_TIMER = setTimeout(prepNeighbours, 60);
 }
-function neighbourFor(dir, edgeBack) {
-  if (edgeBack) return neighbour("prev", true);
+function neighbourFor(dir) {
   if (NB.ver === NB_VER && dir in NB) return NB[dir];
   if (NB.ver !== NB_VER) NB = { ver: NB_VER };
-  return (NB[dir] = neighbour(dir, false));
+  return (NB[dir] = neighbour(dir));
 }
 
 function sideLayer(nb, el) {
@@ -917,8 +914,7 @@ function sideTo(dx) {
   if (dir !== S.dir) {
     if (S.layer) S.layer.remove();
     if (S.el) place(S.el, 0);
-    const edgeBack = GS.edge === "l" && dx > 0 && standalone() && !!VIEW;
-    const nb = neighbourFor(dir, edgeBack);
+    const nb = neighbourFor(dir);
     S.dir = dir; S.nb = nb;
     S.el = sideEl(!nb || nb.whole);
     S.el.classList.remove("settle");
@@ -954,7 +950,7 @@ function sideRelease(g, cancel) {
     S.el.style.transition = "none"; S.el.style.willChange = ""; place(S.el, 0);
     requestAnimationFrame(() => { S.el.style.transition = ""; });
     if (going) {
-      const tg = S.dir === "prev" ? (g.edge === "l" && standalone() && VIEW ? BACK() : sideTargetOf("prev")) : sideTargetOf("next");
+      const tg = sideTargetOf(S.dir);
       if (tg) {
         if (tg.whole) { ENTER = "none"; tg.run(); stillen(document.getElementById("main")); }
         else { tg.run(); if (SWIPE && SWIPE.el) stillen(SWIPE.el); }
@@ -5073,9 +5069,17 @@ async function boot() {
   }, true);
   if (window.ResizeObserver) new ResizeObserver(measureBar).observe(document.getElementById("bar"));
   window.addEventListener("resize", measureBar);
-  window.addEventListener("popstate", () => {
+  try { history.replaceState({ depth: 0 }, ""); } catch (e) { /* ignore */ }
+  try { history.scrollRestoration = "manual"; } catch (e) { /* ignore */ }
+  window.addEventListener("popstate", ev => {
     if (OWN_BACKS) { OWN_BACKS -= 1; return; }     // a step back the page took itself has already been drawn
-    if (VIEW) { if (!standalone()) ENTER = ENTER || "none"; closeView(true); }
+    const want = (ev.state && Number(ev.state.depth)) || 0, have = STACK.length + (VIEW ? 1 : 0);
+    if (want > have) { historyBack(want - have); return; }
+    if (have > want) {
+      for (const b of document.querySelectorAll(".scrim .sheet")) if (b.close) b.close();
+      closePullDown(); closePop();
+    }
+    for (let n = have - want; n > 0 && VIEW; n -= 1) { ENTER = "none"; closeView(true); }
   });
   for (const ev of ["pointerdown", "keydown", "scroll", "touchstart"]) window.addEventListener(ev, touch, { passive: true });
   setInterval(checkIdle, 20000);
