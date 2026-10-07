@@ -159,8 +159,14 @@ body.in-form main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 .head-gear svg { width: 23px; height: 23px; }
 @media (max-width: 599px) {
   .bar #gear { display: none; }
-  body.toplevel #bar { opacity: 0; pointer-events: none; transition: opacity .2s, background .2s, box-shadow .2s; }
-  body.toplevel #bar.scrolled { opacity: 1; pointer-events: auto; }
+  body.toplevel #bar, body.toplevel #bar.scrolled { opacity: 0; pointer-events: none; }
+  body.toplevel::after {
+    content: ""; position: fixed; top: 0; left: 0; right: 0; z-index: 19; pointer-events: none;
+    height: calc(env(safe-area-inset-top) + 34px);
+    background: linear-gradient(to bottom, var(--ground) 0, color-mix(in srgb, var(--ground) 60%, transparent) 45%, transparent 100%);
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+    -webkit-mask-image: linear-gradient(to bottom, #000 40%, transparent); mask-image: linear-gradient(to bottom, #000 40%, transparent);
+  }
   body.toplevel main { padding-top: calc(max(10px, env(safe-area-inset-top)) + 8px); }
   body.toplevel .ptr { top: max(0px, env(safe-area-inset-top)); }
 }
