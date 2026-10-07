@@ -4922,9 +4922,8 @@ function workShifts() {
                  status: x.state === "unsent" ? "not sent" : "waiting for the MacBook", local: x.state });
   }
   units.sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  const needs = units.filter(u => u.local || unitState(u) === "prob");
   const waiting = units.filter(u => !u.local && unitState(u) === "wait");
-  const which = { needs: needs, waiting: waiting, all: units };
+  const which = { waiting: waiting, all: units };
   let v = SHIFTS_FILTER; if (!which[v] || !which[v].length) v = "all";
   const holder = h("div", { class: "page" });
   const draw = k => {
@@ -4969,8 +4968,8 @@ function workShifts() {
     }
     if (!which[k].length) holder.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "None." })));
   };
-  const WORDS = { all: "All shifts", needs: "Needs you", waiting: "Waiting" };
-  const pulls = () => h("div", { class: "pulls" }, pullDown(WORDS[v], [[["all", "All shifts", units.length], ["needs", "Needs you", needs.length], ["waiting", "Waiting", waiting.length]]], v,
+  const WORDS = { all: "All shifts", waiting: "Waiting" };
+  const pulls = () => h("div", { class: "pulls" }, pullDown(WORDS[v], [[["all", "All shifts", units.length], ["waiting", "Waiting", waiting.length]]], v,
     k => { v = k; SHIFTS_FILTER = k; out.querySelector(".pulls").replaceWith(pulls()); draw(k); }, "Which shifts", { active: v !== "all" }));
   out.append(pulls(), holder);
   draw(v);
