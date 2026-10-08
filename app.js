@@ -2921,11 +2921,37 @@ function summaryTotal() {
                      : `Each at its latest value: ${Object.entries(((SNAP.networth || {}).now || {}).personal_dates || {}).map(([a, d]) => `${({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[a]} ${monthDay(d)}`).join(", ")}, from each account's own Questrade statement (or a reading you sent from this page).`,
              n.since ? `Plus ${fmtWhole$(Math.round(n.since))} you put in between then and ${prettyDates(n.date)}, from your Registered Contributions tab and this page. How their investments moved since is not known until the next statements, so this is an estimate.` : ""], "personal"))),
       h("p", { class: "foot", text: "Choose either line to see it in detail." })));
+  { const y = ytdCard(); if (y) out.append(y); }
   const g2 = h("div", { class: "figs" });
   const sv = savingCard(); if (sv) g2.append(sv);
   if (!tmc) { const rt = returnsCard(); if (rt) g2.append(rt); }
   if (g2.children.length) out.append(balance(g2));
   return out;
+}
+
+const YTD_NAMES = { "work income": "Work income", "invested": "Invested", "personal spending": "Your spending", "corporate expenses": "Corporate expenses" };
+function ytdCard() {
+  const y = SNAP && SNAP.ytd;
+  if (!y || !(y.rows || []).length) return null;
+  const lines = y.rows.filter(r => !r.part);
+  const parts = m => y.rows.filter(r => r.measure === m && r.part);
+  const list = h("div", { class: "list flat" });
+  for (const r of lines) {
+    if (r.this_year === "") continue;                        // nothing to show for this year: no line, never "$0"
+    const ch = r.change === "" ? null : money(r.change), pct = r.change_pct !== "" ? Number(r.change_pct) : null;
+    const word = ch === null ? "" : Math.round(ch) === 0 ? "no change"
+      : `${ch > 0 ? "▲" : "▼"}\u00a0${pct !== null ? Math.abs(pct).toFixed(1) + "%" : fmtWhole$(Math.round(Math.abs(ch)))}`;
+    const why = [ch === null || Math.round(ch) === 0 ? "" : `${ch > 0 ? "Up" : "Down"} ${fmtWhole$(Math.round(Math.abs(ch)))} on the same months of last year.`,
+                 r.note ? r.note.replace(/^./, c => c.toUpperCase()) + "." : "", `From ${r.source}.`]
+      .concat(parts(r.measure).map(p => `${p.part.replace(/^./, c => c.toUpperCase())}: ${fmtWhole$(Math.round(money(p.this_year)))} against ${fmtWhole$(Math.round(money(p.last_year)))}.`)).filter(Boolean);
+    list.append(h("div", { class: "row ytdrow" },
+      h("span", { class: "main" }, h("span", { class: "title", text: YTD_NAMES[r.measure] || r.measure }),
+        h("span", { class: "meta", text: (r.last_year === "" ? "" : `${Number(y.year) - 1}: ${fmtWhole$(Math.round(money(r.last_year)))}`) + (word ? ` · ${word}` : "") })),
+      h("span", { class: "amt", text: fmtWhole$(Math.round(money(r.this_year))) }), basisDot(r.basis, why)));
+  }
+  return h("section", { class: "section" }, h("h2", { text: "This year against last" }),
+    h("div", { class: "card glass" }, list,
+      h("p", { class: "foot", text: `${y.months}, ${y.year} against the same months of ${Number(y.year) - 1}: whole months only, to the last one every statement and YNAB covers.` })));
 }
 
 function pctText(v) { return Math.round(Number(v) * 100) + "%"; }
