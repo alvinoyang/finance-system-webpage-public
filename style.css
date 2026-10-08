@@ -217,7 +217,7 @@ body.in-form main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 .fig .l { font-size: .8125rem; font-weight: 600; color: var(--ink-2); text-wrap: balance; }
 .fig .v { font-size: clamp(1.05rem, 5vw, 1.5rem); font-weight: 700; letter-spacing: -.028em; line-height: 1.12; white-space: nowrap; }
 .fig .v .c { font-size: .66em; font-weight: 600; opacity: .7; }
-.fig .v .about { font-size: .42em; font-weight: 600; color: var(--ink-2); letter-spacing: 0; margin-right: 4px; vertical-align: .34em; }
+.fig .v .about { font-size: .42em; font-weight: 600; color: var(--ink-2); letter-spacing: 0; margin-right: 1px; vertical-align: .34em; }
 .fig.hero .v { font-size: 2.3rem; letter-spacing: -.04em; font-variant-numeric: normal; }
 .fig .more { font-size: .8125rem; color: var(--ink-2); display: grid; gap: 2px; }
 .fig .spark { display: block; }
@@ -656,7 +656,8 @@ details.billing > .fields > .foot { padding: 0; }
 .visit .when-line { display: flex; justify-content: flex-start; align-items: baseline; gap: 12px; }
 .visit .when-line .when { font-size: 1.08rem; font-weight: 650; letter-spacing: -.015em; line-height: 1.2; }
 .visit .when-line .in { font-size: .88rem; color: var(--ink-2); white-space: nowrap; margin-left: auto; }
-.visit .when-line .chev-go { display: inline-grid; color: var(--ink-3); align-self: center; }
+.visit .when-line .in + .chev-go { margin-left: 0; }
+.visit .when-line .chev-go { display: inline-grid; color: var(--ink-3); align-self: center; margin-left: auto; }
 .visit .when-line .in.late { color: var(--orange); font-weight: 500; }
 .visit .total { display: grid; gap: 1px; flex-basis: auto; text-align: left; }
 .visit .total .v { font-size: 1.9rem; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; display: inline-flex; align-items: center; gap: 8px; }
@@ -665,7 +666,8 @@ details.billing > .fields > .foot { padding: 0; }
 .visit .items { display: grid; gap: 0; margin-top: 2px; }
 .visit .item { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 10px 0; position: relative; align-items: baseline; }
 .visit .item + .item::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: var(--sep); transform: scaleY(.6); }
-.visit .item .what { display: block; min-width: 0; overflow-wrap: anywhere; }   /* wraps, never cut off: at 320 px "CRA payroll remittance" was "CRA payroll remitta…" (2026-09-21) */
+.visit .item .what { display: block; min-width: 0; overflow-wrap: anywhere; }
+.visit .item .what .how { display: block; margin-top: 2px; font-size: .8rem; color: var(--ink-2); line-height: 1.3; }   /* wraps, never cut off: at 320 px "CRA payroll remittance" was "CRA payroll remitta…" (2026-09-21) */
 .visit .item .what .chip { display: table; margin-top: 4px; }
 .visit .item .amt { font-weight: 600; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 6px; }
 .visit .item .onscreen { color: var(--ink-2); font-weight: 500; font-size: .92rem; }
