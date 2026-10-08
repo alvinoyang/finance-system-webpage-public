@@ -133,7 +133,7 @@ function h(tag, attrs, ...kids) {
   for (const [a, v] of Object.entries(attrs || {})) {
     if (v === null || v === undefined || v === false) continue;
     if (a === "class") e.className = v;
-    else if (a === "text") e.textContent = v;
+    else if (a === "text") e.textContent = tilde(v);
     else if (a === "style") for (const d of String(v).split(";")) { const i = d.indexOf(":"); if (i > 0) e.style.setProperty(d.slice(0, i).trim(), d.slice(i + 1).trim()); }
     else if (a.startsWith("on")) e.addEventListener(a.slice(2), v);
     else if (v === true) e.setAttribute(a, "");
@@ -141,10 +141,11 @@ function h(tag, attrs, ...kids) {
   }
   for (const k of kids.flat(Infinity)) {
     if (k === null || k === undefined || k === false) continue;
-    e.append(k instanceof Node ? k : document.createTextNode(String(k)));
+    e.append(k instanceof Node ? k : document.createTextNode(tilde(String(k))));
   }
   return e;
 }
+function tilde(v) { return typeof v === "string" ? v.replace(/\b[Aa]bout (?=[−-]?\$?\d|\$)/g, "~") : v; }
 function clear(e) { while (e.firstChild) e.removeChild(e.firstChild); return e; }
 
 const ICONS = {
@@ -1097,7 +1098,7 @@ function visitCard() {
   const step = sittingStep(pd);
   c.append(h("div", { class: "when-line" },
     h("span", { class: "when", text: dayName(iso, { weekday: "short", day: "numeric", month: "long" }) }),
-    h("span", { class: "in" + (pd.late && !pd.logged ? " late" : ""), text: rel(iso) }),
+    pd.late && !pd.logged ? h("span", { class: "in late", text: rel(iso) }) : null,
     h("span", { class: "chev-go", "aria-hidden": "true" }, icon("chevR"))));
   if (!pd.late && passed) c.append(h("p", { class: "foot warnline", text: "This visit's date has passed and the MacBook has not updated since: the next one is worked out when it does." }));
   if (pd.warning) c.append(h("p", { class: "foot warnline", text: pd.warning }));
@@ -1105,7 +1106,7 @@ function visitCard() {
   if (known.length) {
     const what = months.length === 1 ? `to pay for ${months[0]}` : "to pay";
     c.append(h("div", { class: "total" },
-      h("span", { class: "v num" }, (anyEst ? "about " : "") + (anyEst ? fmtWhole$(Math.round(total)) : fmt$(total)), anyEst ? ring() : null),
+      h("span", { class: "v num" }, (anyEst ? "~" : "") + (anyEst ? fmtWhole$(Math.round(total)) : fmt$(total)), anyEst ? ring() : null),
       h("span", { class: "l", text: (pd.logged ? what.replace(/^to pay/, "paid") : what) + (pd.ready ? "" : ", from last month's figures") })));
   }
   c.append(visitItemsEl(pd));
@@ -1118,14 +1119,16 @@ function visitCard() {
 function visitMonths(pd) {
   return [...new Set(pd.items.map(i => (/ for (January|February|March|April|May|June|July|August|September|October|November|December)$/.exec(i.what) || [])[1]).filter(Boolean))];
 }
-function visitItemsEl(pd) {
+function visitItemsEl(pd, how) {
   const est = i => (i.basis || "").startsWith("estimate");
   const ring = () => h("span", { class: "bd estimate", "aria-hidden": "true" });
   const months = visitMonths(pd);
   const items = h("div", { class: "items" });
   for (const it of pd.items) {
     const name = months.length === 1 ? visitName(it.what) : it.what.replace(/^Pay yourself: /, "Pay yourself ");
-    items.append(h("div", { class: "item", title: it.what + (it.basis ? " · " + it.basis : "") }, h("span", { class: "what", text: name }),
+    const sub = how && how(it);
+    items.append(h("div", { class: "item", title: it.what + (it.basis ? " · " + it.basis : "") },
+      sub ? h("span", { class: "what" }, h("span", { text: name }), h("span", { class: "how", text: sub })) : h("span", { class: "what", text: name }),
       it.amount ? h("span", { class: "amt num" }, est(it) ? ring() : null, h("span", { text: est(it) ? fmtWhole$(Math.round(money(it.amount))) : fmt$(it.amount) }),
                     est(it) ? h("span", { class: "sr", text: " (an estimate)" }) : null)
                 : h("span", { class: "onscreen", text: "full balance" })));
@@ -1138,7 +1141,7 @@ function renderSitting() {
   if (!pd) { p.append(head("Monthly banking", "Your one day a month.")); p.append(h("p", { class: "muted", text: "Nothing planned yet." })); return p; }
   const iso = visitDate(pd), mon = pd.month || dayName(iso, { month: "long" });
   const now = sittingStep(pd);
-  p.append(head("Monthly banking", `${dayName(iso, { weekday: "long", day: "numeric", month: "long" })}, ${rel(iso)}: ${sittingName().toLowerCase()}, or the last business day before it. Your one day a month, in this order; then nothing until the next.`));
+  p.append(head("Monthly banking", dayName(iso, { weekday: "long", day: "numeric", month: "long" })));
   const asleep = SNAP && hoursSince(SNAP.checked_at) > STALE_HOURS;
   if (asleep) p.append(h("div", { class: "alert orange" }, h("span", { class: "ico orange" }, icon("moon")),
     h("div", { class: "t", text: "Open the MacBook first" }), h("div", { class: "d", text: "Steps 1 to 3 need it awake: it files what you download, runs CRA's calculator, and sends this page the amounts." })));
@@ -1161,11 +1164,22 @@ function renderSitting() {
   const docs = h("div", {});
   const sites = [...new Set((pd.documents || []).map(d => d.site))];
   const mark = d => d.state === "filed" ? h("span", { class: "ico green" }, icon("check")) : d.state === "inbox" ? h("span", { class: "ico orange" }, icon("tray")) : d.state === "none" ? h("span", { class: "ico gray" }, icon("moon")) : h("span", { class: "ico gray" }, icon("receipt"));
+  const monthOf = d => /^\d{4}-\d\d$/.test(d.period || "") ? dayName(d.period + "-01", { month: "long" }) + "'s" : "";
+  const sitDay = Number(iso.slice(8, 10));
   for (const site of sites) {
     const ul = h("div", { class: "list glass" });
     for (const d of (pd.documents || []).filter(x => x.site === site)) {
-      ul.append(h("div", { class: "row", title: d.what }, mark(d), h("span", { class: "main" }, h("span", { class: "title", text: d.get || d.what }),
-        h("span", { class: "meta", text: (d.detail ? d.detail.replace(/^./, c => c.toUpperCase()) + " · " : "") + d.by })),
+      const words = d.get || d.what, cut = words.indexOf(": ");
+      const name = cut > 0 ? words.slice(0, cut) : words, kind = cut > 0 ? words.slice(cut + 2) : "";
+      const also = /^still to download, and (.+) too$/.exec(d.detail || "");
+      const behind = /^(.+?) is in; (.+?) (?:is|are) still to download$/.exec(d.detail || "");
+      const said = d.state === "filed" ? "" : d.state === "none" ? (d.detail || "").replace(/^none yet: /, "")
+        : d.state !== "todo" ? (d.detail || "")
+        : also ? `${also[1]} also to get` : behind ? `${behind[2]} to get (${behind[1]} is in)` : /^still to download$/.test(d.detail || "") ? "" : (d.detail || "");
+      const notYet = d.state === "todo" && d.by_day && d.by_day > sitDay ? `on the website from the ${ordinal(d.by_day)}` : "";
+      const meta = (behind ? [said, kind] : [d.state === "none" ? "" : monthOf(d), kind, said]).concat(notYet).filter(Boolean).join(" · ");
+      ul.append(h("div", { class: "row", title: d.what }, mark(d), h("span", { class: "main" }, h("span", { class: "title", text: name }),
+        meta ? h("span", { class: "meta", text: meta.replace(/^./, c => c.toUpperCase()) }) : null),
         h("span", { class: "chip " + (d.state === "filed" ? "green" : d.state === "inbox" ? "orange" : ""), text: d.state === "filed" ? "in" : d.state === "inbox" ? "arrived" : d.state === "none" ? "none yet" : "to get" })));
     }
     docs.append(h("div", { class: "section-h" }, h("span", { text: site })), ul);
@@ -1173,26 +1187,32 @@ function renderSitting() {
   for (const w of (pd.inbox || [])) docs.append(h("p", { class: "foot warnline", text: `In the Inbox, waiting for a session: ${w.what || w.name} (${w.why}).` }));
   const todo = (pd.documents || []).filter(d => d.state === "todo").length;
   p.append(step(1, "Download the documents", stateOf(1),
-    `Log in to each website below in turn and save each file to iCloud Drive › Finance System Inbox (on the phone) or Finance System › Documents › Inbox (on the MacBook). The MacBook files and reads each one within 15 minutes of being open; a green tick here means it is in. ${todo ? `${todo} still to get.` : "All in."} If a tick has not come after 15 minutes with the MacBook open, the file is named below this list with the reason, or Today says the MacBook is asleep.`, docs));
+    `${todo ? `${todo} to get.` : "All in."} Save each to the Finance System Inbox (Files › iCloud Drive on the phone; Finance System › Documents › Inbox on the MacBook); a tick means the MacBook has it (~15 minutes while it is open). If a tick has not come, the reason shows under the list.`, docs));
   const calc = pd.calculation || {};
   const s2 = h("div", { class: "card glass" },
-    h("p", { text: "On the MacBook: open the Finance System folder, then its tools folder, and double-click Monthly Banking. A black window opens and a browser window follows; watch it type this month's figures into CRA's calculator (about a minute)." }),
-    h("p", { text: `It ends with "Done: the PDF is in the Inbox", then "Read" and ${mon}'s two amounts; this page shows them within a minute (pull down to refresh). If the window says "Stopped" or "did not finish", read it: it says what to do, and the figures it printed are right either way.` }));
-  p.append(step(2, "CRA's payroll calculator", stateOf(2), pd.ready ? `${mon}'s calculation has been read: the two amounts under step 3 are its own.`
-    : calc.state === "inbox" ? `Not read yet: ${calc.detail}. The two amounts under step 3 are last month's until it is read.`
-    : `Not done yet: the two amounts under step 3 are last month's until this runs.`, s2));
-  const pay = h("div", { class: "visit glass" }, visitItemsEl(pd));
+    h("p", { text: "On the MacBook: Finance System › tools › double-click Monthly Banking. It types this month's figures into CRA's calculator (~1 minute)." }),
+    h("p", { text: `Done when it says "Done: the PDF is in the Inbox"; ${mon}'s amounts then show under step 3 (pull down to refresh). If it says "Stopped" or "did not finish", read it: it says what to do, and the amounts it printed are right either way.` }));
+  p.append(step(2, "CRA's payroll calculator", stateOf(2), pd.ready ? `${mon}'s calculation has been read: the amounts under step 3 are its own.`
+    : calc.state === "inbox" ? `Not read yet: ${calc.detail}. Step 3's amounts are last month's until it is read.`
+    : `Not done yet: step 3's amounts are last month's until it runs.`, s2));
   const own = `your personal chequing account${pd.net_pay_to ? ` (ending ${pd.net_pay_to})` : ""}`;
-  const how = `in this order: the net pay as a transfer to ${own}, then the remittance to CRA as a Government Tax Payment of the type Federal payroll deductions (the payroll account).`;
-  const plan = pd.savings_plan && pd.savings_plan.amount ? ` Then, from your own chequing, ${fmt$(pd.savings_plan.amount)} to the savings you share with Gloria; the form fills it in, so clear it there if you did not send it.` : "";
+  const how = { netpay: `Transfer to ${own}`, cra: "Government Tax Payment: Federal payroll deductions" };
+  const pay = h("div", { class: "visit glass" }, visitItemsEl(pd, it => how[(it.id || "").split("-")[0]]));
+  if (pd.savings_plan && pd.savings_plan.amount) pay.querySelector(".items").append((h("div", { class: "item" },
+    h("span", { class: "what" }, h("span", { text: "To savings with Gloria" }),
+      h("span", { class: "how", text: "From your own chequing; clear it on the form if not sent" })),
+    h("span", { class: "amt num" }, h("span", { text: fmt$(pd.savings_plan.amount) })))));
   p.append(step(3, "Pay yourself, then CRA", stateOf(3), pd.ready
-    ? `From corporate chequing, ${how}${plan} The two cards are step 4's, not this step's.`
-    : `Not yet: do step 2 first. The two lines below are last month's figures, and this month's may differ. Pay only what ${mon}'s own calculation says. Then, out of corporate chequing, ${how}${plan}`, pay));
-  const visa = (pd.cards || []).find(c => c.id === "visa"), amex = (pd.cards || []).find(c => c.id === "amex");
-  const cardWords = (visa ? `The corporate Visa: ${visa.note}. ` : "") + (amex ? `The Amex: ${amex.note}. ` : "");
-  p.append(step(4, "Log the day, send the sweep", stateOf(4), `${cardWords}Then, on the form: once the two payments are sent (nothing to tick), type what each card still owes (that money is kept back in chequing) and the chequing balance you see, and the amount to send to Questrade appears: the sweep, what is left once the payments, the cards, the bills due before the next banking day and a cushion are kept back. Send that amount from corporate chequing as a bill payment to Questrade, the corporation's cash account, then type it in the last box.`,
+    ? `From corporate chequing, in this order. The cards are step 4's.`
+    : `Not yet: do step 2 first. These are last month's figures; pay only what ${mon}'s own calculation says, from corporate chequing, in this order.`, pay));
+  const cardRows = h("div", { class: "items" });
+  for (const c of (pd.cards || [])) cardRows.append(h("div", { class: "item", title: c.note || "" },
+    h("span", { class: "what", text: c.name }),
+    h("span", { class: "onscreen", text: c.pays_itself ? "Pays itself" : "Pay it yourself first" })));
+  const s4 = h("div", {}, (pd.cards || []).length ? h("div", { class: "visit glass" }, cardRows) : null,
     pd.logged ? h("p", { class: "foot", text: `Logged ${dayName(pd.logged.date, { day: "numeric", month: "long" })}` + (money(pd.logged.sweep) ? `: ${fmt$(pd.logged.sweep)} sent to Questrade.` : ".") })
-              : h("button", { class: "btn primary wide", type: "button", onclick: () => startForm("bankvisit", null, "today") }, "Log monthly banking")));
+              : h("button", { class: "btn primary wide", type: "button", onclick: () => startForm("bankvisit", null, "today") }, "Log monthly banking"));
+  p.append(step(4, "Log the day, send the sweep", stateOf(4), `On the form, type what each card still owes and the chequing balance: it works out the sweep. Send that from corporate chequing to Questrade, the corporation's cash account, as a bill payment, then type it in the last box.`, s4));
   if ((pd.year_end || []).length) {
     const ye = h("div", { class: "list glass" });
     for (const r of pd.year_end) ye.append(h("div", { class: "row" },
@@ -1630,7 +1650,7 @@ function buildForm(f) {
         const isEst = (it.basis || "").startsWith("estimate");
         const b = h("button", { class: "tick", type: "button", role: "checkbox", "aria-checked": "true", "aria-disabled": "true", disabled: true, "data-id": it.id,
                                 title: it.leaves && it.leaves.at_once ? "Taken as paid: it leaves chequing at once" : "Taken as paid: it leaves chequing later, so it is kept back from the sweep" },
-          h("span", { class: "title" }, it.what, isEst ? h("span", { class: "chip orange tick-chip", text: "estimate" }) : null), h("span", { class: "amt num muted", text: it.amount ? (isEst ? "about " + fmtWhole$(Math.round(money(it.amount))) : fmt$(it.amount)) : "full balance" }), h("span", { class: "box" }, icon("check")));
+          h("span", { class: "title" }, it.what, isEst ? h("span", { class: "chip orange tick-chip", text: "estimate" }) : null), h("span", { class: "amt num muted", text: it.amount ? (isEst ? "~" + fmtWhole$(Math.round(money(it.amount))) : fmt$(it.amount)) : "full balance" }), h("span", { class: "box" }, icon("check")));
         inp.append(b);
       }
       inputs[fld.key] = inp; wraps[fld.key] = inp;
@@ -2502,7 +2522,7 @@ function updateSweep(form) {
   for (const [w, a, e, round] of lines) {
     left -= a;
     box.append(h("div", { class: "line muted" }, h("span", {}, w, e ? h("span", { class: "chip orange tick-chip", text: "estimate" }) : null),
-      h("span", { class: "amt", text: (e ? "about −" + fmtWhole$(Math.round(a)) : "−" + (round && anyEstLine ? fmtWhole$(Math.round(a)) : fmt$(a)).replace("−", "")) })));
+      h("span", { class: "amt", text: (e ? "~−" + fmtWhole$(Math.round(a)) : "−" + (round && anyEstLine ? fmtWhole$(Math.round(a)) : fmt$(a)).replace("−", "")) })));
   }
   if (cardsOpen.length) box.append(h("div", { class: "line muted" }, h("span", { text: cardNames.replace(/^./, c => c.toUpperCase()) + ", not typed yet" }), h("span", { class: "amt", text: "not counted" })));
   const v = left > 0 ? Math.round(left * 100) / 100 : 0;
@@ -2511,7 +2531,7 @@ function updateSweep(form) {
   const shown = approx ? Math.max(0, Math.floor(v)) : v;
   box.append(h("div", { class: "res" + (wait ? " wait" : "") }, h("span", { text: "Amount to send" }),
     wait ? h("span", { class: "v num rounded", text: "once the card balances are typed" })
-         : h("span", { class: "est-wrap" }, h("span", { class: "v num rounded" + (approx ? " approx" : ""), text: (approx ? "about " + fmtWhole$(shown) : fmt$(v)) }))));
+         : h("span", { class: "est-wrap" }, h("span", { class: "v num rounded" + (approx ? " approx" : ""), text: (approx ? "~" + fmtWhole$(shown) : fmt$(v)) }))));
   if (approx) {
     const unpaidEst = pd.items.filter(it => !gone(it) && money(it.amount) && isEst(it));
     box.append(h("p", { class: "small muted", text: "Some amounts kept back are estimates, so this is approximate and rounded down." +
@@ -2599,7 +2619,7 @@ function figCard(o, opts) {
   card.append(h("div", { class: "ftop" }, h("span", { class: "l", text: opts.label || o.label }),
     basisDot(opts.basis || o.basis, opts.why || whyLines(o)),
     tap ? h("span", { class: "chev-go", "aria-hidden": "true" }, icon("chevR")) : null));
-  if (!opts.noValue) card.append(h("span", { class: "v rounded" + (opts.hero ? "" : " num") }, opts.about ? h("span", { class: "about", text: "about " }) : null, opts.value || wholeValue(o.value)));
+  if (!opts.noValue) card.append(h("span", { class: "v rounded" + (opts.hero ? "" : " num") }, opts.about ? h("span", { class: "about", text: "~" }) : null, opts.value || wholeValue(o.value)));
   const ser = opts.series;
   if (opts.body && ser && ser.points.length >= 4) {
     card.append(h("span", { class: "spark" }, chart([sparkOf(ser, o)], { form: ser.form, unit: ser.unit, spark: true, height: 64 })));
@@ -2609,7 +2629,7 @@ function figCard(o, opts) {
     : ser && ser.points.length >= 4 ? h("span", { class: "spark" }, chart([sparkOf(ser, o)], { form: ser.form, unit: ser.unit, spark: true, height: opts.hero ? 56 : 34 }))
     : h("span", { class: "spark none" }));
   card.append(h("span", { class: "fmeta" }, opts.meta || null));
-  if (tap) tapArea(card, `${opts.label || o.label}, ${opts.about ? "about " : ""}${opts.value || wholeValue(o.value)}. Open`, () => opts.onOpen());
+  if (tap) tapArea(card, `${opts.label || o.label}, ${opts.about ? "~" : ""}${opts.value || wholeValue(o.value)}. Open`, () => opts.onOpen());
   return card;
 }
 function balance(grid) {
@@ -2712,7 +2732,7 @@ function hbars(rows, fmtV, onPick) {
   for (const r of rows) {
     const inner = [h("span", { class: "hb-lab" }, h("span", { class: "hb-l", text: r.label }), r.sub ? h("span", { class: "hb-s", text: r.sub }) : null),
                    h("span", { class: "hb-t" }, h("span", { class: "hb-f" + (anyOn && !r.on ? " dim" : ""), style: `width:${Math.max(1.5, r.value / max * 100)}%` })),
-                   h("span", { class: "hb-v num", text: (r.est ? "about " : "") + fmtV(r.value) }), onPick && r.key ? icon("chevR") : null];
+                   h("span", { class: "hb-v num", text: (r.est ? "~" : "") + fmtV(r.value) }), onPick && r.key ? icon("chevR") : null];
     box.append(onPick && r.key ? h("button", { class: "hb tap", type: "button", onclick: () => onPick(r.key) }, inner) : h("div", { class: "hb" }, inner));
   }
   return box;
@@ -2946,7 +2966,7 @@ function summaryCorp() {
   const inc = ov("income");
   const exp = ((SNAP && SNAP.income) || {}).expected;
   if (inc) g2.append(figCard(inc, { label: inc.label.replace("Income into the corporation", "Income").replace(/ so far$/, ""), series: S.income, onOpen: () => openView({ type: "income" }),
-    meta: [h("span", { class: "asof" }, exp ? h("span", { class: "expect" }, h("span", { class: "bd estimate", "aria-hidden": "true" }), `About ${compact(money(exp.total), "$")} expected by Jan 31`) : (incomeVsLastYear() || "Every year, by month"))] }));
+    meta: [h("span", { class: "asof" }, exp ? h("span", { class: "expect" }, h("span", { class: "bd estimate", "aria-hidden": "true" }), `~${compact(money(exp.total), "$")} expected by Jan 31`) : (incomeVsLastYear() || "Every year, by month"))] }));
   const rm = ov("remit");
   if (rm) g2.append(figCard(rm, { label: String(rm.label || "").replace(/^Sent to CRA for payroll/, "Payroll to CRA").replace(/ so far$/, ""), series: S.remit, onOpen: () => openTrendOf("remit"), meta: [h("span", { class: "asof", text: "Due by the 15th of the next month" })] }));
   const tx = ov("tax_left");
@@ -3122,7 +3142,7 @@ function readingFlagCard(f) {
   const name = ({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[f.account] || f.account;
   const what = ({ "qt-tfsa": "tfsa-value", "qt-rrsp": "rrsp-value", "qt-fhsa": "fhsa-value" })[f.account];
   const exp = String(f.expected || "").split(" to ").map(x => fmtWhole$(Math.round(money(x))));
-  const text = `${fmtWhole$(Math.round(money(f.value)))} is far from what your statements say, about ${exp.join(" to ")}. Mistyped? Correct it. `
+  const text = `${fmtWhole$(Math.round(money(f.value)))} is far from what your statements say, ~${exp.join(" to ")}. Mistyped? Correct it. `
     + "If it is right (a market fall, or money moved that was not logged), tap It is right. Until then the figures above leave it out.";
   return h("section", { class: "card glass readflag" },
     h("div", { class: "ftop" }, h("h3", { text: `Your ${name} reading of ${monthDay(f.date)} looks mistyped` }),
@@ -3757,7 +3777,7 @@ function expectedCard(exp) {
                  (exp.counted_from_calendar || []).reduce((s2, x) => s2 + money(x.amount), 0), "later"]].filter(r => r[0]);
   return h("section", { class: "card glass expectcard" },
     h("div", { class: "ftop" }, h("span", { class: "l", text: `Expected for ${exp.year}` }), basisDot("estimate", why)),
-    h("div", { class: "v rounded", text: "about " + fmtWhole$(Math.round(total / 100) * 100) }),
+    h("div", { class: "v rounded", text: "~" + fmtWhole$(Math.round(total / 100) * 100) }),
     meter([{ value: arrived, cls: "s0", label: "Arrived" }, { value: toCome, cls: "s0 faint", label: "To come" }]),
     h("div", { class: "list flat" }, rows.map(([t, v, c]) => h("div", { class: "row plain legendrow2" },
       h("span", { class: "main" }, h("span", { class: "title" }, h("span", { class: "sw2 s0" + (c === "later" ? " faint" : "") }), t)), h("span", { class: "amt", text: fmtWhole$(Math.round(v)) })))),
@@ -3880,7 +3900,7 @@ function renderWork(embedded) {
       holder.append(h("div", { class: "trend-top" },
         h("div", { class: "ftop" }, h("span", { class: "l", text: label }), basisDot(rateBasis(c), why().concat(
           [rateBasis(c) === "estimate" ? "An estimate: more of it rests on the usual length of a shift, or on a commute not measured, than on hours typed or measured." : ""]))),
-        rate(c) ? h("div", { class: "v rounded" }, estRow(c) ? h("span", { class: "about", text: "about " }) : null, `${fmtWhole$(Math.round(rate(c)))}/h`)
+        rate(c) ? h("div", { class: "v rounded" }, estRow(c) ? h("span", { class: "about", text: "~" }) : null, `${fmtWhole$(Math.round(rate(c)))}/h`)
                 : h("div", { class: "v rounded muted", text: "No pay in yet" }),
         h("div", { class: "fmeta" }, h("span", { class: "asof", text: (other(c) ? `${fmtWhole$(Math.round(other(c)))}/h ${wc ? "without" : "with"} the commute · ` : "") + `${fmtWhole$(Math.round(money(c.pay)))} over ${Math.round(paidHours(c)).toLocaleString("en-CA")} h` + (wc && tr ? ` and ${Math.round(tr).toLocaleString("en-CA")} h of commute` : "") })),
         null));
@@ -4010,7 +4030,7 @@ function renderTrend() {
     const up = house.est && nw.household ? Math.round((house.total - money(nw.household)) / 1000) * 1000 : null;
     const top = h("div", { class: "trend-top" },
       h("div", { class: "ftop" }, h("span", { class: "l", text: "At " + prettyDates(house.date) }), basisDot(house.basis, householdWhy(house))),
-      h("div", { class: "v rounded", text: (house.est ? "about " : "") + fmtWhole$(Math.round(house.total)) }));
+      h("div", { class: "v rounded", text: (house.est ? "~" : "") + fmtWhole$(Math.round(house.total)) }));
     if (up !== null) top.append(h("div", { class: "fmeta rise" }, h("span", { class: "delta", text: `${upDown(up)} since ${prettyDates(nw.date)}, when it was ${fmtWhole$(Math.round(money(nw.household)))}.` })));
     top.append(h("div", { class: "fmeta" }, h("span", { class: "asof", text: "Before the tax paid to take money out of the corporation." })));
     p.append(top);
@@ -4020,7 +4040,7 @@ function renderTrend() {
       const est = main.est_from && String(pt[0]) >= main.est_from;
       return h("div", { class: "row plain" }, h("span", { class: "main" }, h("span", { class: "title", text: prettyDates(pt[0]) }),
         h("span", { class: "meta", text: est ? "Latest, an estimate" : "Year end" })),
-        h("span", { class: "est-wrap" }, h("span", { class: "amt", text: (est ? "about " : "") + fmtWhole$(Math.round(pt[1])) }), basisDot(est ? "estimate" : ((main.point_basis || {})[pt[0]] || main.basis || "recorded"), est ? householdWhy(house)
+        h("span", { class: "est-wrap" }, h("span", { class: "amt", text: (est ? "~" : "") + fmtWhole$(Math.round(pt[1])) }), basisDot(est ? "estimate" : ((main.point_basis || {})[pt[0]] || main.basis || "recorded"), est ? householdWhy(house)
           : ((main.point_basis || {})[pt[0]] || main.basis) === "derived" ? ["The corporation at market plus the TFSA, RRSP and FHSA at their December statements."]
           : ["The corporation at market plus the TFSA, RRSP and FHSA as typed in the workbook's Net Worth tab, before their statements were filed."])));
     }))));
@@ -4044,7 +4064,7 @@ function renderTrend() {
     h("div", { class: "ftop" }, h("span", { class: "l", text: estNow ? "About now, " + asOf : "At " + asOf }),
       basisDot(estNow ? "estimate" : fig ? fig.basis : main.basis, estNow ? [`About now: ${anT.note}.`, `The statements stop at ${prettyDates(anT.from)}; the next statement replaces this estimate.`]
                                                          : fig ? whyLines(fig) : [plainSource(main.source) + "."])),
-    h("div", { class: "v rounded" }, estNow ? h("span", { class: "about", text: "about " }) : null, lead));
+    h("div", { class: "v rounded" }, estNow ? h("span", { class: "about", text: "~" }) : null, lead));
   if (fig && fig.note) big.append(h("div", { class: "fmeta" }, h("span", { class: "asof", text: fig.note + "." })));
   if (leadNote) big.append(leadNote);
   const rise = deltaOf(main, keys[0]);
@@ -4260,7 +4280,7 @@ function chart(sers, o) {
           const pt = s2.points.find(q => q[0] === keys[i]);
           if (!pt) return null;             // a history with no point on this date says nothing
           const est = estAt(s2, pt[0]);
-          return h("div", { class: "tr" }, S2.length > 1 ? h("span", { class: "sw s" + j }) : null, h("span", { text: (S2.length > 1 ? s2.label + ": " : "") + (est && !s2.est_word ? "about " : "") + compact(pt[1], s2.unit, true) + (est && s2.est_word ? ", " + s2.est_word : "") }));
+          return h("div", { class: "tr" }, S2.length > 1 ? h("span", { class: "sw s" + j }) : null, h("span", { text: (S2.length > 1 ? s2.label + ": " : "") + (est && !s2.est_word ? "~" : "") + compact(pt[1], s2.unit, true) + (est && s2.est_word ? ", " + s2.est_word : "") }));
         }).filter(Boolean));
         tip.hidden = false;
         const tx = xs[i] / W * box.clientWidth, tw = tip.offsetWidth, cw = box.clientWidth;
@@ -4954,7 +4974,7 @@ function renderWorkUnit() {
   } else if (!m.known) {
     hero.append(h("div", { class: "v shnone", text: m.lump ? "Paid" : "Not priced yet" }), payBar(m.lump && !m.tbc ? { paid: 1, wait: 0, short: 0, over: 0, tbc: 0 } : m, "shbar big"),
       h("p", { class: "fmeta", text: m.lump ? (isMgh ? "Paid in the month's deposit; this shift's own figure comes with MGH's billing summary." : "Paid in a deposit that covers more than this shift; its own figure is to come.")
-                                   : isMgh ? "MGH prices a shift in its monthly billing summary, and pays it about seven weeks later." : "Its amount is not known yet; it is filled in when the payment or its statement shows it." }));
+                                   : isMgh ? "MGH prices a shift in its monthly billing summary, and pays it ~7 weeks later." : "Its amount is not known yet; it is filled in when the payment or its statement shows it." }));
   } else {
     const leg = h("div", { class: "shlegend" });
     const item = (c, v, w) => leg.append(h("span", {}, h("i", { class: c }), h("b", { class: "num", text: fmt$(v) }), " " + w));
