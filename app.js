@@ -2923,17 +2923,20 @@ function summaryTotal() {
       h("p", { class: "foot", text: "Choose either line to see it in detail." })));
   { const y = ytdCard(); if (y) out.append(y); }
   const g2 = h("div", { class: "figs" });
-  const sv = savingCard(); if (sv) g2.append(sv);
   if (!tmc) { const rt = returnsCard(); if (rt) g2.append(rt); }
   if (g2.children.length) out.append(balance(g2));
   return out;
 }
 
-const YTD_NAMES = { "work income": "Work income", "invested": "Invested", "personal spending": "Your spending", "corporate expenses": "Corporate expenses" };
+const YTD_NAMES = { "work income": "Income", "corporate expenses": "Corporate expenses", "personal spending": "Personal spending", "invested": "Invested" };
+const YTD_ORDER = Object.keys(YTD_NAMES);
 function ytdCard() {
   const y = SNAP && SNAP.ytd;
   if (!y || !(y.rows || []).length) return null;
-  const lines = y.rows.filter(r => !r.part);
+  const at = m => YTD_ORDER.includes(m) ? YTD_ORDER.indexOf(m) : YTD_ORDER.length;
+  const lines = y.rows.filter(r => !r.part).sort((a, b) => at(a.measure) - at(b.measure));
+  const B = (SNAP && SNAP.saving) || {};
+  let tappable = false;                                     // the foot names Invested only when its line is there to choose
   const parts = m => y.rows.filter(r => r.measure === m && r.part);
   const list = h("div", { class: "list flat" });
   for (const r of lines) {
@@ -2941,36 +2944,30 @@ function ytdCard() {
     const ch = r.change === "" ? null : money(r.change), pct = r.change_pct !== "" ? Number(r.change_pct) : null;
     const word = ch === null ? "" : Math.round(ch) === 0 ? "no change"
       : `${ch > 0 ? "▲" : "▼"}\u00a0${pct !== null ? Math.abs(pct).toFixed(1) + "%" : fmtWhole$(Math.round(Math.abs(ch)))}`;
+    const sh = v => v === "" || v === undefined ? "" : ` (${v}%)`;      // the model's whole percent, rounded once there
+    const inv = r.measure === "invested";
     const why = [ch === null || Math.round(ch) === 0 ? "" : `${ch > 0 ? "Up" : "Down"} ${fmtWhole$(Math.round(Math.abs(ch)))} on the same months of last year.`,
+                 inv && r.share_this_year ? `${r.share_this_year}% of this year's income so far${r.share_last_year ? `, against ${r.share_last_year}% in the same months of last year` : ""}.`
+                   : inv && r.share_last_year ? `${r.share_last_year}% of income in the same months of last year.` : "",
+                 inv ? "This counts the joint savings and stops at the last whole month. What you invest reads the Income and Investment tab, which leaves the joint savings out and counts every contribution you have typed this year, so its share for this year can differ." : "",
                  r.note ? r.note.replace(/^./, c => c.toUpperCase()) + "." : "", `From ${r.source}.`]
-      .concat(parts(r.measure).map(p => `${p.part.replace(/^./, c => c.toUpperCase())}: ${fmtWhole$(Math.round(money(p.this_year)))} against ${fmtWhole$(Math.round(money(p.last_year)))}.`)).filter(Boolean);
-    list.append(h("div", { class: "row ytdrow" },
-      h("span", { class: "main" }, h("span", { class: "title", text: YTD_NAMES[r.measure] || r.measure }),
+      .concat(parts(r.measure).map(p => `${p.part.replace(/^./, c => c.toUpperCase())}: ${fmtWhole$(Math.round(money(p.this_year)))} against ${fmtWhole$(Math.round(money(p.last_year)))}.`))
+      .concat(inv && B.life && B.life.pct !== undefined ? [`Since ${B.since}, on the Income and Investment tab: ${pctText(B.life.pct)} of everything earned was invested.`] : []).filter(Boolean);
+    const name = YTD_NAMES[r.measure] || r.measure, share = inv ? sh(r.share_this_year) : "", amt = fmtWhole$(Math.round(money(r.this_year))) + share;
+    const row = h("div", { class: "row ytdrow" },
+      h("span", { class: "main" }, h("span", { class: "title", text: name }),
         h("span", { class: "meta", text: (r.last_year === "" ? "" : `${Number(y.year) - 1}: ${fmtWhole$(Math.round(money(r.last_year)))}`) + (word ? ` · ${word}` : "") })),
-      h("span", { class: "amt", text: fmtWhole$(Math.round(money(r.this_year))) }), basisDot(r.basis, why)));
+      h("span", { class: "amt" }, fmtWhole$(Math.round(money(r.this_year))), share ? h("span", { class: "share", text: share }) : ""), basisDot(r.basis, why));
+    const opens = inv && (B.years || []).length;
+    if (opens) tappable = true;
+    list.append(opens ? tapArea(row, `${name}, ${amt}. Show what you invest`, () => openView({ type: "saving" })) : row);
   }
   return h("section", { class: "section" }, h("h2", { text: "This year against last" }),
     h("div", { class: "card glass" }, list,
-      h("p", { class: "foot", text: `${y.months}, ${y.year} against the same months of ${Number(y.year) - 1}: whole months only, to the last one every statement and YNAB covers.` })));
+      h("p", { class: "foot", text: `${y.months}, ${y.year} against the same months of ${Number(y.year) - 1}: whole months only, to the last one every statement and YNAB covers.${tappable ? " Choose Invested to see what you invest, year by year." : ""}` })));
 }
 
 function pctText(v) { return Math.round(Number(v) * 100) + "%"; }
-function savingCard() {
-  const B = (SNAP && SNAP.saving) || {};
-  if (!B.life || B.life.pct === undefined || !(B.years || []).length) return null;
-  const life = B.life, last = B.years[B.years.length - 1];
-  const income = money(life.income), invested = money(life.investment);
-  const why = [`Since ${B.since}.`, `${plainSource(B.source)}.`, B.note];
-  const body = h("div", {},
-    meter([{ value: invested, cls: "s0", label: "Invested" }], income),
-    h("div", { class: "legend3" },
-      h("span", {}, h("span", { class: "sw2 s0" }), "Invested ", h("b", { text: compact(invested, "$") })),
-      h("span", { class: "muted" }, "Earned ", h("b", { text: compact(income, "$") }))));
-  return figCard({ label: "Of what you earned, you invested", basis: B.basis }, {
-    hero: true, label: `Of what you earned, you invested`, value: pctText(life.pct), why, body,
-    onOpen: () => openView({ type: "saving" }),
-    meta: [h("span", { class: "asof", text: `Since ${B.since}. ${last.year}: ${pctText(last.pct)}.` })] });
-}
 function runningYear(y) { return Number(y) >= new Date().getFullYear(); }
 function yearAt(y) { return runningYear(y) ? `${y} so far` : `End of ${y}`; }          // a card's or page's label
 function yearIn(y) { return runningYear(y) ? `in ${y} so far` : `at the end of ${y}`; } // inside a sentence
