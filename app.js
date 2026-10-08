@@ -1239,17 +1239,17 @@ function renderSitting() {
     if (due === iso) return `. Due ${d}, the banking day itself: pay it first thing that day, as a bill payment can take a day to arrive, or set it to pay itself`;
     return `. Due ${d}`;
   }
-  const selfPaying = (pd.cards || []).filter(c => c.pays_itself).map(c => c.name);
+  const selfPaying = (pd.cards || []).filter(c => c.pays_itself).map(c => c.fill === "owing-now" ? `what the ${c.name} owes now (it pays itself on its due day)` : `the ${c.name} (it pays itself next month)`);
   const cardWord = c => ({ amex: "the Amex", visa: "the Visa" })[c.id] || c.name;
   const toPay = (pd.cards || []).filter(c => !c.pays_itself).map(cardWord);
-  p.append(step(3, "Pay yourself, CRA" + (toPay.length ? " and " + toPay.join(" and ") : ""), stateOf(3), pd.ready
+  p.append(step(3, toPay.length ? "Pay yourself, CRA and " + toPay.join(" and ") : "Pay yourself and CRA", stateOf(3), pd.ready
     ? `From corporate chequing, in this order; then the savings, from your own.`
     : `Not yet: do step 2 first. These are last month's figures; pay only what ${mon}'s own calculation says, from corporate chequing, in this order.`, pay));
   const s4 = h("div", {},
     pd.logged ? h("p", { class: "foot", text: `Logged ${dayName(pd.logged.date, { day: "numeric", month: "long" })}` + (money(pd.logged.sweep) ? `: ${fmt$(pd.logged.sweep)} sent to Questrade.` : ".") })
               : h("button", { class: "btn primary wide", type: "button", onclick: () => startForm("bankvisit", null, "today") }, "Work out the amount"));
   p.append(step(4, "Send the rest to Questrade", stateOf(4),
-    `The form works out what is left once what is still to leave is kept back: the remittance, ${selfPaying.length ? `the ${selfPaying.join(" and ")} (it pays itself next month), ` : ""}${toPay.length ? `what ${toPay.join(" and ")} owes now, ` : ""}the bills due by the next banking day and a cushion. Send that from corporate chequing to Questrade, the corporation's cash account, as a bill payment; then type it in the form and record the day.`, s4));
+    `The form works out what is left once what is still to leave is kept back: the remittance, ${selfPaying.length ? selfPaying.join(", ") + ", " : ""}${toPay.length ? `what ${toPay.join(" and ")} owes now, ` : ""}the bills due by the next banking day and a cushion. Send that from corporate chequing to Questrade, the corporation's cash account, as a bill payment; then type it in the form and record the day.`, s4));
   const lastSent = pd.logged && money(pd.logged.sweep) ? pd.logged
     : pd.last_logged && money(pd.last_logged.sweep) && todayISO() <= plusDays(landsBy(pd.last_logged.date), 2) ? pd.last_logged : null;
   const sentOn = lastSent ? lastSent.date : null;
@@ -1543,11 +1543,13 @@ function summaryOf(e) {
 function cardsFoot() {
   const cards = (SNAP && SNAP.payday && SNAP.payday.cards) || [];
   const each = cards.map(c => `${c.name}: ${c.note}.`).join(" ");
-  const filled = cards.filter(c => c.pays_itself && c.statement && c.statement.balance).map(c => c.name);
+  const filled = cards.filter(c => c.pays_itself && c.fill !== "owing-now" && c.statement && c.statement.balance).map(c => c.name);
   const paid = cards.filter(c => !c.pays_itself).map(c => c.name);
-  const rest = cards.length - filled.length - paid.length;
+  const now = cards.filter(c => c.pays_itself && c.fill === "owing-now").map(c => c.name);
+  const rest = cards.length - filled.length - paid.length - now.length;
   return (filled.length ? `${filled.join(" and ")}: filled in from ${filled.length > 1 ? "their" : "its"} latest statement, and kept back in chequing. ` : "")
     + (paid.length ? `${paid.join(" and ")}: ${paid.length > 1 ? "their statements are" : "its statement is"} paid in step 3; type what ${paid.length > 1 ? "each" : "it"} owes now, its charges since, kept back in chequing. ` : "")
+    + (now.length ? `${now.join(" and ")}: ${now.length > 1 ? "they pay themselves" : "it pays itself"} on the due day; type what ${now.length > 1 ? "each" : "its"} app shows owing now, all kept back in chequing. ` : "")
     + (rest ? "Type what each other card's screen says it still owes; that is kept back in chequing. " : "")
     + (each || "The Visa pays itself in the first days of next month, so its balance stays in chequing.");
 }
@@ -1676,8 +1678,9 @@ function buildForm(f) {
   form.append(errors);
 
   const cardOf = key => ((SNAP && SNAP.payday && SNAP.payday.cards) || []).find(c => c.field === key);
-  const fromStatement = key => { const c = cardOf(key); return c && c.pays_itself && c.statement && c.statement.balance ? c.statement : null; };
+  const fromStatement = key => { const c = cardOf(key); return c && c.pays_itself && c.fill !== "owing-now" && c.statement && c.statement.balance ? c.statement : null; };
   const paidInStep3 = key => { const c = cardOf(key); return !!(c && !c.pays_itself); };
+  const owingNow = key => { const c = cardOf(key); return !!(c && c.pays_itself && c.fill === "owing-now"); };
   const plan = (SNAP && SNAP.payday && SNAP.payday.savings_plan) || {};
   const pdS = (SNAP && SNAP.payday) || {};
   const sittingDay = !pdS.logged && (!pdS.visit || todayISO() >= pdS.visit);
@@ -1840,6 +1843,12 @@ function buildForm(f) {
     const st = f.kind === "bankvisit" ? fromStatement(fld.key) : null;
     if (st) wrap.append(h("span", { class: "small muted", text: `From the statement of ${dayName(st.date, { day: "numeric", month: "long" })}. Change it if the card says otherwise.` }));
     else if (f.kind === "bankvisit" && paidInStep3(fld.key)) wrap.append(h("span", { class: "small muted", text: "What the card's app shows owing now, after you paid its statement in step 3: its charges since, which fall due before or at the next banking day." }));
+    else if (f.kind === "bankvisit" && owingNow(fld.key)) {
+      wrap.append(h("span", { class: "small muted", text: "The Total balance its app shows now. It pays itself on its due day, about the banking day, so all of it is kept back." }));
+      const c = cardOf(fld.key), st = c && c.statement;
+      if (st && st.due && st.due >= plusDays(todayISO(), -1) && st.due <= plusDays(todayISO(), 1))
+        wrap.append(h("span", { class: "small warnline", text: `Its ${fmt$(st.balance)} statement is due ${dayName(st.due, { weekday: "short", day: "numeric", month: "long" })}: if the app already shows it paid but your chequing balance still holds it, add ${fmt$(st.balance)} to this box.` }));
+    }
     else if (fld.type === "money" && hintOf(fld) && !wrap.classList.contains("inline")) wrap.append(h("span", { class: "small muted", text: hintOf(fld).replace(/^./, c => c.toUpperCase()) }));
     inputs[fld.key] = inp; wraps[fld.key] = wrap;
     return wrap;
@@ -2558,7 +2567,7 @@ function updateSweep(form) {
   const cardsOpen = [];
   for (const c of (pd.cards || [])) {
     const v = typed(c.field);
-    if (v === null) cardsOpen.push(c.name); else if (v > 0) lines.push([`${c.name} balance, ${c.pays_itself ? "pays itself next month" : "still owing"}`, v, false]);
+    if (v === null) cardsOpen.push(c.name); else if (v > 0) lines.push([`${c.name} balance, ${!c.pays_itself ? "still owing" : c.fill === "owing-now" ? "pays itself on its due day" : "pays itself next month"}`, v, false]);
   }
   for (const r of reserve) {
     const nm = billWords(r.what).replace(/\s+due$/, "").replace(/^./, c => c.toUpperCase()), saysDue = /\bdue\b/i.test(nm);
