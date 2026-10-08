@@ -2949,7 +2949,7 @@ function ytdCard() {
     const why = [ch === null || Math.round(ch) === 0 ? "" : `${ch > 0 ? "Up" : "Down"} ${fmtWhole$(Math.round(Math.abs(ch)))} on the same months of last year.`,
                  inv && r.share_this_year ? `${r.share_this_year}% of this year's income so far${r.share_last_year ? `, against ${r.share_last_year}% in the same months of last year` : ""}.`
                    : inv && r.share_last_year ? `${r.share_last_year}% of income in the same months of last year.` : "",
-                 inv ? "This counts the joint savings and stops at the last whole month. What you invest reads the Income and Investment tab, which leaves the joint savings out and counts every contribution you have typed this year, so its share for this year can differ." : "",
+                 inv ? `This counts the joint savings and stops at the last whole month. What you invest reads the Income and Investment tab, which leaves the joint savings out and counts every contribution you have typed this year, so ${((B.years || []).find(z => z.year === y.year) || {}).pct !== undefined ? `it shows ${pctText(B.years.find(z => z.year === y.year).pct)} for ${y.year}` : "its share for this year can differ"}.` : "",
                  r.note ? r.note.replace(/^./, c => c.toUpperCase()) + "." : "", `From ${r.source}.`]
       .concat(parts(r.measure).map(p => `${p.part.replace(/^./, c => c.toUpperCase())}: ${fmtWhole$(Math.round(money(p.this_year)))} against ${fmtWhole$(Math.round(money(p.last_year)))}.`))
       .concat(inv && B.life && B.life.pct !== undefined ? [`Since ${B.since}: ${pctText(B.life.pct)} of everything the corporation earned was invested. That share is recorded, typed on your Income and Investment tab, not read from the statements.`] : []).filter(Boolean);
@@ -3653,7 +3653,7 @@ function renderSaving() {
   p.append(h("div", { class: "trend-top" },
     h("div", { class: "ftop" }, h("span", { class: "l", text: `Since ${B.since}` }), basisDot(B.basis, [`${plainSource(B.source)}.`, B.note])),
     h("div", { class: "v rounded", text: pctText(life.pct) }),
-    h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${fmtWhole$(Math.round(invested))} invested of ${fmtWhole$(Math.round(income))} earned.` }))));
+    life.income !== undefined && life.investment !== undefined ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${fmtWhole$(Math.round(invested))} invested of ${fmtWhole$(Math.round(income))} earned.` })) : ""));
   const sec = h("section", { class: "card glass" }, h("h3", { text: "Year by year" }),
     hbars(B.years.map(y => ({ key: y.year, label: y.year, value: Number(y.pct) || 0,
                               sub: `${compact(money(y.corp_invested) + money(y.personal_invested), "$")} of ${compact(money(y.corp_income), "$")}` })), pctText));
