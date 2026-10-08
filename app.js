@@ -2931,8 +2931,8 @@ function summaryTotal() {
 const YTD_NAMES = { "work income": "Income", "corporate expenses": "Corporate expenses", "personal spending": "Personal spending", "invested": "Invested" };
 const YTD_ORDER = Object.keys(YTD_NAMES);
 function ytdCard() {
-  const y = SNAP && SNAP.ytd;
-  if (!y || !(y.rows || []).length) return null;
+  const y = (SNAP && SNAP.ytd) || {};
+  if (!(y.rows || []).length) return ytdWaiting();
   const at = m => YTD_ORDER.includes(m) ? YTD_ORDER.indexOf(m) : YTD_ORDER.length;
   const lines = y.rows.filter(r => !r.part).sort((a, b) => at(a.measure) - at(b.measure));
   const B = (SNAP && SNAP.saving) || {};
@@ -2965,6 +2965,18 @@ function ytdCard() {
   return h("section", { class: "section" }, h("h2", { text: "This year against last" }),
     h("div", { class: "card glass" }, list,
       h("p", { class: "foot", text: `${y.months}, ${y.year} against the same months of ${Number(y.year) - 1}: whole months only, to the last one every statement and YNAB covers.${tappable ? " Choose Invested to see what you invest, year by year." : ""}` })));
+}
+
+function ytdWaiting() {
+  const B = (SNAP && SNAP.saving) || {};
+  if (!(B.years || []).length || !B.life || B.life.pct === undefined) return null;
+  const row = h("div", { class: "row ytdrow" },
+    h("span", { class: "main" }, h("span", { class: "title", text: "Invested" }), h("span", { class: "meta", text: `Since ${B.since}` })),
+    h("span", { class: "amt", text: pctText(B.life.pct) }),
+    basisDot(B.basis, [`Since ${B.since}: ${pctText(B.life.pct)} of everything the corporation earned was invested.`, `${plainSource(B.source)}.`, B.note]));
+  return h("section", { class: "section" }, h("h2", { text: "This year against last" }),
+    h("div", { class: "card glass" }, h("div", { class: "list flat" }, tapArea(row, `Invested since ${B.since}, ${pctText(B.life.pct)}. Show what you invest`, () => openView({ type: "saving" }))),
+      h("p", { class: "foot", text: "This year is compared once every statement and YNAB has its first whole month. Choose Invested to see what you invest, year by year." })));
 }
 
 function pctText(v) { return Math.round(Number(v) * 100) + "%"; }
