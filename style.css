@@ -356,6 +356,8 @@ button.row:active { background: var(--fill); }
 .row.kept .title { color: var(--green); }
 .row.legendrow { grid-template-columns: auto minmax(0, 1fr) auto auto; }
 .row.legendrow .bdot { margin: -8px -8px -8px -4px; }
+.row.ytdrow { grid-template-columns: minmax(0, 1fr) auto auto; }
+.row.ytdrow .bdot { margin: -8px -8px -8px -4px; }
 .row.legendrow2 { padding: 8px 0; min-height: 0; }
 .row.legendrow2 .title { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; font-size: .92rem; }
 details.fold { display: grid; gap: 8px; }
