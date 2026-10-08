@@ -657,7 +657,7 @@ details.billing > .fields > .foot { padding: 0; }
 .visit .when-line .when { font-size: 1.08rem; font-weight: 650; letter-spacing: -.015em; line-height: 1.2; }
 .visit .when-line .in { font-size: .88rem; color: var(--ink-2); white-space: nowrap; margin-left: auto; }
 .visit .when-line .chev-go { display: inline-grid; color: var(--ink-3); align-self: center; }
-.visit .btn { position: relative; z-index: 2; }
+.visit .when-line .in.late { color: var(--orange); font-weight: 500; }
 .visit .total { display: grid; gap: 1px; flex-basis: auto; text-align: left; }
 .visit .total .v { font-size: 1.9rem; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; display: inline-flex; align-items: center; gap: 8px; }
 .visit .total .l { font-size: .84rem; color: var(--ink-2); }
@@ -672,6 +672,7 @@ details.billing > .fields > .foot { padding: 0; }
 .visit .bd.estimate { width: 9px; height: 9px; box-shadow: inset 0 0 0 2.2px var(--orange); }
 .visit .total .bd.estimate { width: 11px; height: 11px; box-shadow: inset 0 0 0 2.6px var(--orange); }
 .visit-foot { margin: -2px 0 0; display: flex; align-items: center; gap: 7px; font-size: .8rem; color: var(--ink-2); }
+.visit-foot.late { color: var(--orange); font-weight: 500; }
 .sweep { border-radius: var(--radius); padding: 16px; display: grid; gap: 8px; }
 .sweep h3 { margin: 0; }
 .sweep .line { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; font-size: .92rem; }
