@@ -1077,9 +1077,9 @@ function sittingStep(pd) {
   return 5;
 }
 const STEP_WORDS = {
-  1: "Next: step 1, download this month's documents",
+  1: "Next: step 1, download the month's documents",
   2: "Next: step 2, run CRA's calculator on the MacBook",
-  3: "Next: step 3, pay yourself and CRA, then step 4, the form",
+  3: "Next: step 3, pay yourself and CRA, then log the day",
   5: "Done for this month",
 };
 function visitCard() {
@@ -1097,25 +1097,22 @@ function visitCard() {
   const step = sittingStep(pd);
   c.append(h("div", { class: "when-line" },
     h("span", { class: "when", text: dayName(iso, { weekday: "short", day: "numeric", month: "long" }) }),
-    h("span", { class: "in", text: rel(iso) }),
+    h("span", { class: "in" + (pd.late && !pd.logged ? " late" : ""), text: rel(iso) }),
     h("span", { class: "chev-go", "aria-hidden": "true" }, icon("chevR"))));
-  if (pd.late) c.append(h("p", { class: "foot warnline", text: "Not finished: it stays here until the day is recorded." }));
-  else if (passed) c.append(h("p", { class: "foot warnline", text: "This visit's date has passed and the MacBook has not updated since: the next one is worked out when it does." }));
+  if (!pd.late && passed) c.append(h("p", { class: "foot warnline", text: "This visit's date has passed and the MacBook has not updated since: the next one is worked out when it does." }));
   if (pd.warning) c.append(h("p", { class: "foot warnline", text: pd.warning }));
   for (const m of (pd.missed || [])) c.append(h("p", { class: "foot warnline", text: `${m}'s banking day has no payroll calculation on record: was it done? If the PDF exists, put it in the Inbox.` }));
   if (known.length) {
     const what = months.length === 1 ? `to pay for ${months[0]}` : "to pay";
     c.append(h("div", { class: "total" },
       h("span", { class: "v num" }, (anyEst ? "about " : "") + (anyEst ? fmtWhole$(Math.round(total)) : fmt$(total)), anyEst ? ring() : null),
-      h("span", { class: "l", text: (pd.logged ? what.replace(/^to pay/, "paid") : what) + (pd.ready ? "" : " (last month's figures until step 2 is done)") })));
+      h("span", { class: "l", text: (pd.logged ? what.replace(/^to pay/, "paid") : what) + (pd.ready ? "" : ", from last month's figures") })));
   }
   c.append(visitItemsEl(pd));
   const nextWords = pd.logged ? `Logged ${dayName(pd.logged.date, { day: "numeric", month: "long" })}` + (money(pd.logged.sweep) ? `: ${fmt$(pd.logged.sweep)} sent to Questrade.` : ".")
-    + (pd.next_visit ? ` Nothing more until ${dayName(pd.next_visit, { weekday: "long", day: "numeric", month: "long" })}.` : "") : STEP_WORDS[step] + ".";
-  if (pd.ready) c.append(h("p", { class: "visit-foot" }, h("span", { text: `${months[0] || "This month"}'s own figures. ${nextWords}` })));
-  else c.append(h("p", { class: "visit-foot" }, ring(), h("span", { text: `Last month's figures: step 2 replaces them with this month's own. ${nextWords}` })));
+    + (!pd.ready ? ` ${STEP_WORDS[2]}.` : pd.next_visit ? ` Next: ${dayName(pd.next_visit, { weekday: "short", day: "numeric", month: "long" })}.` : "") : STEP_WORDS[step] + ".";
+  c.append(h("p", { class: "visit-foot" + (pd.late && !pd.logged ? " late" : "") }, h("span", { text: nextWords })));
   if ((pd.year_end || []).length) c.append(h("p", { class: "foot", text: `December: look once more before the 31st (${pd.year_end.length} thing${pd.year_end.length === 1 ? "" : "s"}, on the steps page).` }));
-  c.append(h("button", { class: "btn primary wide", type: "button", onclick: () => openView({ type: "sitting" }) }, "Open the day's steps"));
   return tapArea(c, `Monthly banking, ${sittingName().toLowerCase()}: every step of the day`, () => openView({ type: "sitting" }));
 }
 function visitMonths(pd) {
@@ -2768,6 +2765,9 @@ function householdNow() {
   if (nw.now) return { date: nw.now.date, total: money(nw.now.household), corp: money(nw.now.corporation), pers: money(nw.now.personal),
                        since: money(nw.now.personal_since), from: nw.now.personal_from, basis: nw.now.basis || "estimate", corpBasis: nw.now.corporation_label, note: nw.now.note, est: nw.now.basis !== "verified",
                        aboutNow: !!nw.now.about_now, corpFrom: nw.now.corporation_from || nw.now.date, corpNote: nw.now.corporation_note, persNote: nw.now.personal_note };
+  const me = nw.month_end;
+  if (me) return { date: me.date, total: money(me.household), corp: money(me.corporation), pers: money(me.personal), since: 0, from: me.date,
+                   basis: "derived", corpBasis: me.corporation_label, persBasis: "verified", est: false };
   if (nw.household) return { date: nw.date, total: money(nw.household), corp: money(nw.corporation), pers: money(nw.personal), since: 0, from: nw.date,
                              basis: "recorded", corpBasis: nw.corporation_label, est: false };
   return null;
@@ -2779,14 +2779,15 @@ function householdWhy(n) {
           `The corporation: ${n.corpNote}.`, `Your accounts: ${n.persNote}.`, `An estimate: ${n.note}.`];
   return [`At ${prettyDates(n.date)}${n.est ? ", the corporation's latest month-end with a bank and Questrade statement" : ""}.`,
           "It counts the corporation, at market, and your TFSA, RRSP and FHSA. Before the tax paid to take money out of the corporation.",
-          n.est ? `An estimate: ${n.note}.` : "", nw.household && n.est ? `At ${prettyDates(nw.date)}, the last year end with every account's value, it was ${fmtWhole$(Math.round(money(nw.household)))}.` : "",
-          nw.now && nw.now.source ? "Worked out in the net worth workings: the corporation at its month-end, and your accounts at the latest value their Questrade statements give, plus what went in or came out since, from your Registered Contributions tab and this page." : ""];
+          n.est ? `An estimate: ${n.note}.` : "", nw.household && n.est ? `At ${prettyDates(nw.date)}, the last year end with every account's value, it was ${fmtWhole$(Math.round(money(nw.household)))}.` : ""];
 }
 function summaryTotal() {
   const out = h("div", { class: "page" }), S = (SNAP && SNAP.series) || {}, nw = SNAP.networth || {};
   const n = householdNow();
   if (!n) return out;
-  const up = nw.household ? Math.round((n.total - money(nw.household)) / 1000) * 1000 : null;
+  const worthLast = ((S.net_worth || {}).points || []).slice(-1)[0];
+  const headIsN = !worthLast || worthLast[0] === n.date || Math.abs(worthLast[1] - n.total) < 0.5;
+  const up = nw.household && headIsN && n.date !== nw.date ? Math.round((n.total - money(nw.household)) / 1000) * 1000 : null;
   const g = h("div", { class: "figs" });
   const tmc = moneyCard({
     worth: "net_worth", put: "put_in_total", label: "Net worth and investments", nets: true,
@@ -2821,8 +2822,8 @@ function summaryTotal() {
         row("s0", "Corporation", `${pct(n.corp)} · ${n.aboutNow ? "about now" : "at market, " + monthDay(n.date)}`, n.corp, n.corpBasis,
             (n.aboutNow ? [`About now: ${n.corpNote}.`] : [`At ${prettyDates(n.date)}.`]).concat(["Its investments and chequing, plus money on its way from chequing to Questrade, less what it owes on its Visa.", "Before the tax paid to take money out of the corporation, and before a payroll remittance still to be paid."]), "corporation"),
         row("s1", "TFSA, RRSP, FHSA", persSub, n.pers, n.aboutNow || n.since ? "estimate" : Object.entries(((SNAP.networth || {}).now || {}).personal_dates || {}).some(([a, d]) =>
-              ((regOf(a) || {}).values || []).some(v => v[0] === d && basisOf(v[2]) !== "verified")) ? "recorded" : nw.personal_label,
-            n.aboutNow ? [`About now: ${n.persNote}.`] : [oneDate ? `Their values at ${prettyDates(n.from)}, from each account's own Questrade statement (or a reading you sent from this page).`
+              ((regOf(a) || {}).values || []).some(v => v[0] === d && basisOf(v[2]) !== "verified")) ? "recorded" : (n.persBasis || nw.personal_label),
+            n.aboutNow ? [`About now: ${n.persNote}.`] : [oneDate ? `Their values at ${prettyDates(n.from)}, from each account's own Questrade statement${n.persBasis ? "" : " (or a reading you sent from this page)"}.`
                      : `Each at its latest value: ${Object.entries(((SNAP.networth || {}).now || {}).personal_dates || {}).map(([a, d]) => `${({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[a]} ${monthDay(d)}`).join(", ")}, from each account's own Questrade statement (or a reading you sent from this page).`,
              n.since ? `Plus ${fmtWhole$(Math.round(n.since))} you put in between then and ${prettyDates(n.date)}, from your Registered Contributions tab and this page. How their investments moved since is not known until the next statements, so this is an estimate.` : ""], "personal"))),
       h("p", { class: "foot", text: "Choose either line to see it in detail." })));
@@ -2926,10 +2927,10 @@ function returnsCard(side) {
 }
 
 function incomeVsLastYear() {
-  const I = (SNAP && SNAP.income) || {}, cur = (I.years || {})[String(new Date().getFullYear())];
+  const I = (SNAP && SNAP.income) || {}, wy = I.work_year || String(new Date().getFullYear()), cur = (I.years || {})[wy];
   if (!cur || !I.same_months_last_year) return "";
   const d = money(I.same_months_this_year || cur.total) - money(I.same_months_last_year);
-  return `${d >= 0 ? "Up" : "Down"} ${compact(Math.abs(d), "$", true)} on the same months of ${new Date().getFullYear() - 1}`;
+  return `${d >= 0 ? "Up" : "Down"} ${compact(Math.abs(d), "$", true)} on the same months of ${Number(wy) - 1}`;
 }
 function summaryCorp() {
   const out = h("div", { class: "page" }), S = (SNAP && SNAP.series) || {};
@@ -3013,7 +3014,6 @@ function movesSection(accts, title, nowName, rowName) {
   const M = (SNAP && SNAP.moves) || {};
   const mine = (M.moves || []).filter(m => accts.includes(m.to) || accts.includes(m.from));
   if (!mine.length) return null;
-  const nowRow = accts.map(a => (M.now || {})[a]).find(Boolean);
   const shown = mine.slice().reverse().sort((x, y) => (MOVE_ORDER[x.status] ?? 4) - (MOVE_ORDER[y.status] ?? 4)).slice(0, 8);
   const rows = shown.map(m => moveRow(m, `${fmtWhole$(Math.round(money(m.amount)))} ${accts.includes(m.to) ? "into" : "out of"} ${rowName}`, true));
   const weakest = shown.every(m => m.label === "verified") ? "verified" : "recorded";
@@ -3024,7 +3024,6 @@ function movesSection(accts, title, nowName, rowName) {
     h("div", { class: "list flat" }, rows));
   const an = accts.length === 1 && (((SNAP && SNAP.about_now) || {}).accounts || {})[accts[0]];
   if (an) sec.append(nowLine({ statement_value: an.base, statement_date: an.base_date, on_its_way: 0, now: an.now, now_label: "estimate", note: an.note }, nowName, true));
-  else if (nowRow && Number(nowRow.moves_since) > 0) sec.append(nowLine(nowRow, nowName));
   return sec;
 }
 
@@ -3137,7 +3136,7 @@ function readingFlagCard(f) {
 
 const ACCOUNTS = [["qt-tfsa", "TFSA"], ["qt-rrsp", "RRSP"], ["qt-fhsa", "FHSA"]];
 function regOf(a) { return (SNAP && SNAP.registered && SNAP.registered.accounts && SNAP.registered.accounts[a]) || null; }
-function leftBasis(acct) { return basisOf(acct.room_basis) === "estimate" ? "estimate" : "recorded"; }
+function leftBasis(acct) { return acct.left_basis || (basisOf(acct.room_basis) === "estimate" ? "estimate" : "recorded"); }
 function roomWhy(acct) {
   return ["The year's room, less what has gone in this year." + (leftBasis(acct) === "estimate" ? " An estimate, because the year's limit is not yet confirmed on CRA's site." : ""),
           `The room is ${BASIS_NAME[basisOf(acct.room_basis)] ? BASIS_NAME[basisOf(acct.room_basis)].toLowerCase() : acct.room_basis}: ${acct.room_note || ""}`,
@@ -3207,15 +3206,15 @@ function summaryPersonal() {
   if (vals.length) {
     const at = vals[0][2][0], total = vals.reduce((s2, x) => s2 + x[2][1], 0);
     const same = vals.every(x => x[2][0] === at);
-    const y = new Date().getFullYear();
-    const withRoom = vals.filter(([a]) => regOf(a) && regOf(a).room_this_year !== undefined);
+    const y = SNAP.registered.year || new Date().getFullYear();   // the summary's year, not the phone's clock (P10, P2)
+    const withRoom = vals.filter(([a]) => regOf(a) && regOf(a).room_this_year !== undefined && regOf(a).left !== undefined);
     const roomBasis = withRoom.some(([a]) => leftBasis(regOf(a)) === "estimate") ? "estimate" : "recorded";
     const head2 = h("div", { class: "regcols" }, h("span", { text: "Value" }),
       h("span", {}, String(y), withRoom.length ? basisDot(roomBasis, [`What has gone into each account in ${y}, against its room for the year.`,
         ...withRoom.map(([a, n]) => `${n}: ${roomWhy(regOf(a))[1]}`), roomWhy(regOf(withRoom[0][0]))[2]]) : null), h("span", {}));
     const rows = h("div", { class: "list flat regrows" }, head2, vals.map(([a, n, v], i) => {
-      const acct = regOf(a) || {}, hasRoom = acct.room_this_year !== undefined;
-      const room = money(acct.room_this_year), put = money(acct.this_year), left = Math.max(0, room - put);
+      const acct = regOf(a) || {}, hasRoom = acct.room_this_year !== undefined && acct.left !== undefined;
+      const room = money(acct.room_this_year), put = money(acct.this_year), left = money(acct.left) || 0;
       return h("button", { class: "row regrow", type: "button", onclick: ev => { ev.stopPropagation(); openView({ type: "account", account: a }); } },
         h("span", { class: "main" }, h("span", { class: "regname" }, h("span", { class: "sw2 s" + i }), n),
           h("span", { class: "regval rounded", text: fmtWhole$(Math.round(v[1])) })),
@@ -3457,15 +3456,16 @@ function renderCard() {
 }
 
 function renderAccount() {
-  const a = VIEW.account, acct = regOf(a), y = new Date().getFullYear();
+  const a = VIEW.account, acct = regOf(a);
   const p = h("div", { class: "page narrow" });
   if (!acct) { p.append(head("Not available", "This account's figures have not arrived yet.")); return p; }
+  const y = SNAP.registered.year || new Date().getFullYear();
   p.append(head(acct.name));
   const src = SNAP.registered.source;
   const room = money(acct.room_this_year), put = money(acct.this_year);
   const tfsa = a === "qt-tfsa";
-  if (acct.room_this_year !== undefined) {
-    const left = Math.max(0, room - put);
+  if (acct.room_this_year !== undefined && acct.left !== undefined) {
+    const left = money(acct.left) || 0;            // models/registered-room's figure (P2)
     p.append(h("div", { class: "trend-top" },
       h("div", { class: "ftop" }, h("span", { class: "l", text: `Room left for ${y}` }), basisDot(leftBasis(acct), roomWhy(acct))),
       h("div", { class: "v rounded", text: fmtWhole$(Math.round(left)) }),
@@ -3485,9 +3485,9 @@ function renderAccount() {
     const ser = { label: "Put in", unit: "$", form: "bars", basis: "recorded", source: src, points: years.map(r => [r[0], r[1]]) };
     const sec = h("section", { class: "card glass" }, h("div", { class: "ftop" }, h("h3", { text: "Every year" }), basisDot("recorded", [`${plainSource(src)}.`, "Each year's total of the rows you typed."])));
     sec.append(chart([ser], { form: "bars", unit: "$", height: 170, axis: true, hover: true }));
-    const lifeRoom = tfsa ? money(acct.lifetime_limits) : acct.lifetime_limit ? money(acct.lifetime_limit) : null;
+    const lifeRoom = acct.lifetime_room ? money(acct.lifetime_room) : null;
     const opening = (acct.opening || []).reduce((s2, o) => s2 + money(o.amount), 0);
-    const net = money(acct.put_in) + opening - (tfsa ? money(acct.taken_out) : 0);
+    const net = money(acct.lifetime_used);
     const facts = [["Last year", fmtWhole$(Math.round(money(acct.last_year)))], ["This year", fmtWhole$(Math.round(put || 0))]];
     if (!lifeRoom) facts.push(["Every year", fmtWhole$(Math.round(money(acct.put_in)))]);
     sec.append(h("div", { class: "facts" }, facts.map(([k, v]) => h("div", {}, h("span", { class: "k", text: k }), h("span", { class: "fv num", text: v })))));
@@ -3746,13 +3746,15 @@ function expectedCard(exp) {
   const toCome = total - arrived, n = exp.to_come;
   const mon = k => keyLabel(k, true).replace(/ \d{4}$/, "");
   const last = exp.months.filter(m => m[2] === "arrived").pop();
-  const why = ["What has arrived, from your year tab, plus each month still to come at your usual month" + (bonus ? ", plus MGH's active staff bonus in December" : "") + ".",
-               `Your usual month is the middle one of the ${plural(12, "month")} from ${keyLabel(exp.usual_from, true)} to ${keyLabel(exp.usual_to, true)}: a lump, such as a December's retro pay, or a payment that lands a month early or late, does not move it.`,
+  const why = ["What has arrived, from your year tab, plus each month still to come at your usual month" + (bonus ? ", plus MGH's active staff bonus in December" : "") + ((exp.counted_from_calendar || []).length ? ", plus what your calendar says is coming" : "") + ".",
+               `Your usual month is the middle of the ${plural(exp.usual_count || 12, "month")} from ${keyLabel(exp.usual_from, true)} to ${keyLabel(exp.usual_to, true)}: a lump, such as a December's retro pay, or a payment that lands a month early or late, does not move it.`,
                bonus ? `The bonus is taken as one month of MGH pay at ${exp.year}'s average so far (${plural(exp.bonus_months, "month")}), as you expect. December's other lumps, such as retro pay, are not counted until they are known.` : "",
                (exp.assumptions || []).length ? `Written down as ${exp.assumptions.length > 1 ? "assumptions" : "assumption"} ${exp.assumptions.join(" and ")} in the Finance System (profile/assumptions.csv), each with the date it is checked again.` : ""];
   const rows = [[last ? `Arrived, February to ${mon(last[0])}` : "Arrived", arrived, "s0"],
                 [n ? `${plural(n, "month")} to come at your usual ${fmtWhole$(Math.round(usual))}` : "", usual * n, "later"],
-                [bonus ? "MGH's active staff bonus, in December" : "", bonus, "later"]].filter(r => r[0]);
+                [bonus ? "MGH's active staff bonus, in December" : "", bonus, "later"],
+                [(exp.counted_from_calendar || []).length ? "From your calendar" : "",
+                 (exp.counted_from_calendar || []).reduce((s2, x) => s2 + money(x.amount), 0), "later"]].filter(r => r[0]);
   return h("section", { class: "card glass expectcard" },
     h("div", { class: "ftop" }, h("span", { class: "l", text: `Expected for ${exp.year}` }), basisDot("estimate", why)),
     h("div", { class: "v rounded", text: "about " + fmtWhole$(Math.round(total / 100) * 100) }),
@@ -4018,7 +4020,9 @@ function renderTrend() {
       const est = main.est_from && String(pt[0]) >= main.est_from;
       return h("div", { class: "row plain" }, h("span", { class: "main" }, h("span", { class: "title", text: prettyDates(pt[0]) }),
         h("span", { class: "meta", text: est ? "Latest, an estimate" : "Year end" })),
-        h("span", { class: "est-wrap" }, h("span", { class: "amt", text: (est ? "about " : "") + fmtWhole$(Math.round(pt[1])) }), basisDot(est ? "estimate" : "derived", est ? householdWhy(house) : ["The corporation at market plus the TFSA, RRSP and FHSA at their December statements."])));
+        h("span", { class: "est-wrap" }, h("span", { class: "amt", text: (est ? "about " : "") + fmtWhole$(Math.round(pt[1])) }), basisDot(est ? "estimate" : ((main.point_basis || {})[pt[0]] || main.basis || "recorded"), est ? householdWhy(house)
+          : ((main.point_basis || {})[pt[0]] || main.basis) === "derived" ? ["The corporation at market plus the TFSA, RRSP and FHSA at their December statements."]
+          : ["The corporation at market plus the TFSA, RRSP and FHSA as typed in the workbook's Net Worth tab, before their statements were filed."])));
     }))));
     p.append(h("p", { class: "foot", text: "The household has a point at each year end, from the TFSA, RRSP and FHSA's December statements, and at the latest estimate. " +
       "Dec 31, 2023 is missing because the corporation's 2023 bank statements can no longer be obtained. The corporation alone has a point every month." }));
@@ -5061,9 +5065,10 @@ function workpayAnswer(i) {
 }
 
 function chqAnswer(q, from) {
-  const send = label => submit("answer", { question: q.id, answer: label, resolution: "label" }, "", `Labelled: ${label}`);
+  const res = q.chq.resolution || "label";
+  const send = label => submit("answer", { question: q.id, answer: label, resolution: res }, "", res === "payer" ? `Paid by: ${label}` : `Labelled: ${label}`);
   const acts = (q.chq.choices || []).slice(0, 8).map((c, i) => ({ label: c, kind: i === 0 ? "tinted" : "", run: () => send(c) }));
-  acts.push({ label: "Something else: type it", run: () => startForm("answer", { question: q.id, resolution: "label" }, from) });
+  acts.push({ label: "Something else: type it", run: () => startForm("answer", { question: q.id, resolution: res }, from) });
   sheet(prettyDates(q.text), "", acts, "Not now");
 }
 
