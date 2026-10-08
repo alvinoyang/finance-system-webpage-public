@@ -2952,13 +2952,13 @@ function ytdCard() {
                  inv ? "This counts the joint savings and stops at the last whole month. What you invest reads the Income and Investment tab, which leaves the joint savings out and counts every contribution you have typed this year, so its share for this year can differ." : "",
                  r.note ? r.note.replace(/^./, c => c.toUpperCase()) + "." : "", `From ${r.source}.`]
       .concat(parts(r.measure).map(p => `${p.part.replace(/^./, c => c.toUpperCase())}: ${fmtWhole$(Math.round(money(p.this_year)))} against ${fmtWhole$(Math.round(money(p.last_year)))}.`))
-      .concat(inv && B.life && B.life.pct !== undefined ? [`Since ${B.since}, on the Income and Investment tab: ${pctText(B.life.pct)} of everything earned was invested.`] : []).filter(Boolean);
+      .concat(inv && B.life && B.life.pct !== undefined ? [`Since ${B.since}: ${pctText(B.life.pct)} of everything the corporation earned was invested. That share is recorded, typed on your Income and Investment tab, not read from the statements.`] : []).filter(Boolean);
     const name = YTD_NAMES[r.measure] || r.measure, share = inv ? sh(r.share_this_year) : "", amt = fmtWhole$(Math.round(money(r.this_year))) + share;
     const row = h("div", { class: "row ytdrow" },
       h("span", { class: "main" }, h("span", { class: "title", text: name }),
         h("span", { class: "meta", text: (r.last_year === "" ? "" : `${Number(y.year) - 1}: ${fmtWhole$(Math.round(money(r.last_year)))}`) + (word ? ` · ${word}` : "") })),
       h("span", { class: "amt" }, fmtWhole$(Math.round(money(r.this_year))), share ? h("span", { class: "share", text: share }) : ""), basisDot(r.basis, why));
-    const opens = inv && (B.years || []).length;
+    const opens = inv && (B.years || []).length && B.life && B.life.pct !== undefined;
     if (opens) tappable = true;
     list.append(opens ? tapArea(row, `${name}, ${amt}. Show what you invest`, () => openView({ type: "saving" })) : row);
   }
