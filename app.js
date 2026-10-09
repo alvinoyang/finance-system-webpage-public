@@ -2962,6 +2962,7 @@ function ytdCard() {
     if (opens) tappable = true;
     list.append(opens ? tapArea(row, `${name}, ${amt}. Show what you invest`, () => openView({ type: "saving" })) : row);
   }
+  if (!list.children.length) return ytdWaiting();          // rows, but none with a figure for this year (the fifth review)
   return h("section", { class: "section" }, h("h2", { text: "This year against last" }),
     h("div", { class: "card glass" }, list,
       h("p", { class: "foot", text: `${y.months}, ${y.year} against the same months of ${Number(y.year) - 1}: whole months only, to the last one every statement and YNAB covers.${tappable ? " Choose Invested to see what you invest, year by year." : ""}` })));
