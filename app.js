@@ -2931,7 +2931,7 @@ function summaryTotal() {
 
 const YTD_NAMES = { "work income": "Income", "corporate expenses": "Corporate expenses", "personal spending": "Personal spending", "invested": "Invested" };
 const YTD_ORDER = Object.keys(YTD_NAMES);
-function ytdWhen(y) { return `${/\d{4}/.test(y.months) ? y.months : `${y.months} ${y.year}`} · against ${Number(y.year) - 1}`; }
+function ytdWhen(y) { return /\d{4}/.test(y.months) ? `${y.months} · against the same months a year before` : `${y.months} ${y.year} · against ${Number(y.year) - 1}`; }
 const YTD_WHAT = { "work income": "Deposits, in the year of the work they pay for.",
                    "corporate expenses": "What the corporation spent.",
                    "personal spending": "Your everyday cost of living, from YNAB.",
@@ -3020,7 +3020,7 @@ function renderYtd() {
   p.append(head(`${name} so far`, YTD_WHAT[m] || ""));     // "so far", so it is not taken for the fuller page of the same name
   if (!r || r.this_year === "") { p.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "Not available yet." }))); return p; }
   const top = h("div", { class: "trend-top" },
-    h("div", { class: "ftop" }, h("span", { class: "l", text: ytdWhen(y) }), basisDot(r.basis, ytdWhy(r))),
+    h("div", { class: "ftop" }, h("span", { class: "l", text: ytdWhen(y) }), basisDot(r.basis, [r.note && m !== "invested" ? r.note.replace(/^./, c => c.toUpperCase()) + "." : "", `${plainSource(r.source)}.`].filter(Boolean))),
     h("div", { class: "v rounded", text: fmtWhole$(Math.round(money(r.this_year))) }));
   const rise = ytdRise(r.this_year, r.last_year);
   if (rise) top.append(h("div", { class: "fmeta rise", text: rise }));
@@ -3034,7 +3034,8 @@ function renderYtd() {
       h("div", { class: "trio" }, h("span", { text: "Month" }), h("span", { class: "tv", text: y.year }), h("span", { class: "tv", text: String(prev) }),
         mr.map(x => [h("span", { class: "ty ytdmonth", text: x.this_month.slice(0, 4) === String(y.year) ? keyLabel(x.this_month, true).replace(/ \d{4}$/, "") : keyLabel(x.this_month, true) }), h("span", { class: "tv", text: v(x.this_year) }), h("span", { class: "tv faint", text: v(x.last_year) })]),
         h("span", { class: "ty", text: "Total" }), h("span", { class: "tv ytdtotal", text: v(r.this_year) }), h("span", { class: "tv faint ytdtotal", text: v(r.last_year) })));
-    sec.append(h("p", { class: "small muted", text: (m === "work income" ? "Each month is the money that arrived in it, as Income shows it. January's deposits belong to the year before, as your accountant counts them. " : "")
+    sec.append(h("p", { class: "small muted", text: (m === "work income" ? "Each month is the money that arrived in it, as Income shows it. January's deposits belong to the year before, as your accountant counts them. "
+      : "It starts in February, as Income does: January counts with the year before, so every line covers the same months. ")
       + "Each figure is rounded to the dollar, so the months can add to a dollar off the total." }));
     p.append(sec);
   }
