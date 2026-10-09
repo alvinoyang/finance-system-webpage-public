@@ -359,6 +359,7 @@ button.row:active { background: var(--fill); }
 .row.ytdrow { grid-template-columns: minmax(0, 1fr) auto auto; }
 .row.ytdrow .bdot { margin: -8px -8px -8px -4px; }
 .row.ytdrow .amt { text-align: right; }
+.ytdcap { margin: 0 0 4px; font-size: .84rem; color: var(--ink-2); }
 .row.ytdrow .amt .share { display: block; font-size: .84rem; font-weight: 500; color: var(--ink-2); }
 .row.legendrow2 { padding: 8px 0; min-height: 0; }
 .row.legendrow2 .title { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; font-size: .92rem; }
