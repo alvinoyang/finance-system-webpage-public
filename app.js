@@ -3147,7 +3147,7 @@ function incomeVsLastYear() {
   if (!cur || !I.same_months_last_year) return "";
   const d = money(I.same_months_this_year || cur.total) - money(I.same_months_last_year);
   const now = new Date(), here = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
-  const n = (I.same_months_this_year && cur.months.filter(x => x[0] < here).length) || cur.months.length, sm = sameMonths(n === 1);
+  const ms = cur.months || [], n = (I.same_months_this_year && ms.filter(x => x[0] < here).length) || ms.length, sm = sameMonths(n === 1);
   if (Math.round(d) === 0) return `The same as ${sm} of ${Number(wy) - 1}`;
   return `${d >= 0 ? "Up" : "Down"} ${compact(Math.abs(d), "$", true)} on ${sm} of ${Number(wy) - 1}`;
 }
