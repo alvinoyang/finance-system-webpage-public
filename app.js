@@ -723,7 +723,7 @@ function viewTitle(v) {
   return ({ form: kindOf(v.kind).name, settings: "Settings", questions: "Questions", shifts: "Your shifts", income: "Income",
             work: v.metric === "rate" ? "Pay per hour" : "Hours", workunit: v.title || "A shift", account: ({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[v.account] || "Account",
             card: v.title || "Card", trend: v.title || "History", sitting: "Monthly banking",
-            saving: "What you invest", ytd: `${YTD_NAMES[v.measure] || "This year"} so far`, returns: "What it is worth", spending: "What you spend", vehicle: (SNAP && SNAP.vehicle && SNAP.vehicle.name) || "Your car" })[v.type] || "Back";
+            saving: "What you invest", ytd: ytdTitle(v.measure), returns: "What it is worth", spending: "What you spend", vehicle: (SNAP && SNAP.vehicle && SNAP.vehicle.name) || "Your car" })[v.type] || "Back";
 }
 function onScroll() { document.getElementById("bar").classList.toggle("scrolled", window.scrollY > (document.body.classList.contains("toplevel") ? 48 : 28)); }
 function measureBar() {
@@ -2931,14 +2931,18 @@ function summaryTotal() {
 
 const YTD_NAMES = { "work income": "Income", "corporate expenses": "Corporate expenses", "personal spending": "Personal spending", "invested": "Invested" };
 const YTD_ORDER = Object.keys(YTD_NAMES);
+function ytdTitle(m) {
+  const y = (SNAP && SNAP.ytd) || {}, name = YTD_NAMES[m] || m;
+  return /\d{4}/.test(y.months || "") && String(y.months).startsWith("February") && String(y.months).includes("January") ? `${name}, ${y.year}` : `${name} so far`;
+}
 function ytdWhen(y) { return /\d{4}/.test(y.months) ? `${y.months} · against the same months a year before` : `${y.months} ${y.year} · against ${Number(y.year) - 1}`; }
 const YTD_WHAT = { "work income": "Deposits, in the year of the work they pay for.",
                    "corporate expenses": "What the corporation spent.",
                    "personal spending": "Your everyday cost of living, from YNAB.",
                    "invested": "The corporation's, your TFSA, RRSP, FHSA and the joint savings." };
-function ytdRise(thisY, lastY) {
+function ytdRise(thisY, lastY, change) {
   if (thisY === "" || lastY === "" || thisY === undefined || lastY === undefined) return "";
-  const before = money(lastY), diff = money(thisY) - before;
+  const before = money(lastY), diff = change !== undefined && change !== "" ? money(change) : money(thisY) - before;
   if (Math.round(diff) === 0) return `The same as the same months a year before (${compact(before, "$", true)}).`;
   return `${compact(Math.abs(diff), "$", true)} ${diff >= 0 ? "more" : "less"} than the same months a year before (${compact(before, "$", true)}).`;
 }
@@ -2996,10 +3000,10 @@ function ytdWaiting() {
 function ytdMore(m, y) {
   const lastMonth = (((y.months_rows || []).filter(x => x.measure === m && !x.part).pop()) || {}).this_month || "";
   if (m === "work income" && SNAP && SNAP.income && (SNAP.income.years || {})[y.year]) {
-    const through = SNAP.income.years[y.year].through;
+    const through = SNAP.income.years[y.year].through, running = SNAP.income.years[y.year].so_far;
     return ["Income", through && lastMonth && through !== lastMonth
       ? `Every year, month by month. It counts to ${keyLabel(through, true)}; this page, to ${keyLabel(lastMonth, true)}.`
-      : "Every year, month by month, and what this one is expected to reach.", "income"];
+      : `Every year, month by month${running ? ", and what this one is expected to reach" : ""}.`, "income", y.year];
   }
   if (m === "personal spending" && ((SNAP && SNAP.spending) || {}).months) {
     const now = new Date(), here = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;   // this month on the phone's clock, not UTC's
@@ -3019,15 +3023,18 @@ function renderYtd() {
   const y = (SNAP && SNAP.ytd) || {}, m = VIEW.measure, name = YTD_NAMES[m] || m, prev = Number(y.year) - 1;
   const r = (y.rows || []).find(x => x.measure === m && !x.part);
   const p = h("div", { class: "page narrow" });
-  p.append(head(`${name} so far`, YTD_WHAT[m] || ""));     // "so far", so it is not taken for the fuller page of the same name
+  p.append(head(ytdTitle(m), YTD_WHAT[m] || ""));          // "so far" or its year, so it is not taken for the fuller page of the same name
   if (!r || r.this_year === "") { p.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "Not available yet." }))); return p; }
   const top = h("div", { class: "trend-top" },
     h("div", { class: "ftop" }, h("span", { class: "l", text: ytdWhen(y) }), basisDot(r.basis, [r.note && m !== "invested" ? r.note.replace(/^./, c => c.toUpperCase()) + "." : "", `${plainSource(r.source)}.`].filter(Boolean))),
     h("div", { class: "v rounded", text: fmtWhole$(Math.round(money(r.this_year))) }));
-  const rise = ytdRise(r.this_year, r.last_year);
+  const rise = ytdRise(r.this_year, r.last_year, r.change);
   if (rise) top.append(h("div", { class: "fmeta rise", text: rise }));
-  if (m === "invested" && r.share_this_year !== "" && r.share_this_year !== undefined)
-    top.append(h("div", { class: "fmeta", text: `${r.share_this_year}% of income${r.share_last_year !== "" && r.share_last_year !== undefined ? `, against ${r.share_last_year}% the same months a year before` : ""}.` }));
+  const has = v => v !== "" && v !== undefined;
+  if (m === "invested" && has(r.share_this_year))
+    top.append(h("div", { class: "fmeta", text: `${r.share_this_year}% of income${has(r.share_last_year) ? `, against ${r.share_last_year}% the same months a year before` : ""}.` }));
+  else if (m === "invested" && has(r.share_last_year))   // as the dot says it (the eighth review)
+    top.append(h("div", { class: "fmeta", text: `${r.share_last_year}% of income the same months a year before.` }));
   p.append(top);
   const mr = (y.months_rows || []).filter(x => x.measure === m && !x.part);
   const v = x => x === "" || x === undefined ? "—" : fmtWhole$(Math.round(money(x)));
@@ -3052,7 +3059,7 @@ function renderYtd() {
   const more = ytdMore(m, y);
   if (more) {
     const row = h("div", { class: "row plain" }, h("span", { class: "main" }, h("span", { class: "title link", text: more[0] }), h("span", { class: "meta", text: more[1] })), icon("chevR"));
-    p.append(h("div", { class: "list glass ytdmore" }, tapArea(row, `${more[0]}. ${more[1]}`, () => openView({ type: more[2] }))));
+    p.append(h("div", { class: "list glass ytdmore" }, tapArea(row, `${more[0]}. ${more[1]}`, () => openView(more[3] ? { type: more[2], year: more[3] } : { type: more[2] }))));
   }
   p.append(h("p", { class: "foot", text: `${plainSource(r.source)}. Whole months only.` }));
   return p;
@@ -3915,7 +3922,7 @@ function renderIncome() {
     const yr = Y[v];
     const ser = { label: "Income", unit: "$", form: "bars", points: yr.months };
     const top = h("div", { class: "trend-top" },
-      h("div", { class: "ftop" }, h("span", { class: "l", text: yr.so_far ? `February to ${keyLabel(yr.through, true)}` : `February ${v} to January ${Number(v) + 1}` }), basisDot(yr.basis, [`${yr.note.replace(/^./, c => c.toUpperCase())}.`, plainSource(I.source) + "."])),
+      h("div", { class: "ftop" }, h("span", { class: "l", text: yr.so_far ? (yr.through && yr.through.slice(5) === "02" ? keyLabel(yr.through, true) : `February to ${keyLabel(yr.through, true)}`) : `February ${v} to January ${Number(v) + 1}` }), basisDot(yr.basis, [`${yr.note.replace(/^./, c => c.toUpperCase())}.`, plainSource(I.source) + "."])),
       h("div", { class: "v rounded", text: fmtWhole$(Math.round(money(yr.total))) }));
     if (yr.so_far && I.same_months_last_year) {
       const before = money(I.same_months_last_year), diff = money(I.same_months_this_year || yr.total) - before;
