@@ -3008,8 +3008,10 @@ function ytdMore(m, y) {
   const B = (SNAP && SNAP.saving) || {};
   if (m === "invested" && (B.years || []).length && B.life && B.life.pct !== undefined) {
     const row = B.years.find(z => z.year === y.year);
+    const crosses = lastMonth && lastMonth.slice(0, 4) !== String(y.year);
     const lm = lastMonth ? keyLabel(lastMonth, true).replace(/ \d{4}$/, "") : "";
-    return ["What you invest", `Your Income and Investment tab, by calendar year: every contribution you have typed${lm ? `, any after ${lm} included` : ""}; January too; not the joint savings${row && row.pct !== null && row.pct !== undefined ? `. It shows ${pctText(row.pct)} for ${y.year}` : ""}. Each year since ${B.years[0].year}${B.years[0].year !== String(B.since) ? `, and the share since ${B.since}` : ""}.`, "saving"];
+    return ["What you invest", `Your Income and Investment tab, by calendar year${crosses ? `, January ${y.year} to December, not February to January`
+      : `: every contribution you have typed${lm ? `, any after ${lm} included` : ""}; January too`}; not the joint savings${row && row.pct !== null && row.pct !== undefined ? `. It shows ${pctText(row.pct)} for ${y.year}` : ""}. Each year since ${B.years[0].year}${B.years[0].year !== String(B.since) ? `, and the share since ${B.since}` : ""}.`, "saving"];
   }
   return null;
 }
@@ -3035,7 +3037,9 @@ function renderYtd() {
         mr.map(x => [h("span", { class: "ty ytdmonth", text: x.this_month.slice(0, 4) === String(y.year) ? keyLabel(x.this_month, true).replace(/ \d{4}$/, "") : keyLabel(x.this_month, true) }), h("span", { class: "tv", text: v(x.this_year) }), h("span", { class: "tv faint", text: v(x.last_year) })]),
         h("span", { class: "ty", text: "Total" }), h("span", { class: "tv ytdtotal", text: v(r.this_year) }), h("span", { class: "tv faint ytdtotal", text: v(r.last_year) })));
     sec.append(h("p", { class: "small muted", text: (m === "work income" ? "Each month is the money that arrived in it, as Income shows it. January's deposits belong to the year before, as your accountant counts them. "
-      : "It starts in February, as Income does, so every line covers the same months; January is left out of both years. ")
+      : mr.length && mr[mr.length - 1].this_month.slice(0, 4) !== String(y.year)
+        ? "It runs February to January, as Income's year does, so every line covers the same months. "
+        : "It starts in February, as Income does, so every line covers the same months; January is left out of both years. ")
       + "Each figure is rounded to the dollar, so the months can add to a dollar off the total." }));
     p.append(sec);
   }
