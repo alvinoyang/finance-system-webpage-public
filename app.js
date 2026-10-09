@@ -3035,7 +3035,7 @@ function renderYtd() {
         mr.map(x => [h("span", { class: "ty ytdmonth", text: x.this_month.slice(0, 4) === String(y.year) ? keyLabel(x.this_month, true).replace(/ \d{4}$/, "") : keyLabel(x.this_month, true) }), h("span", { class: "tv", text: v(x.this_year) }), h("span", { class: "tv faint", text: v(x.last_year) })]),
         h("span", { class: "ty", text: "Total" }), h("span", { class: "tv ytdtotal", text: v(r.this_year) }), h("span", { class: "tv faint ytdtotal", text: v(r.last_year) })));
     sec.append(h("p", { class: "small muted", text: (m === "work income" ? "Each month is the money that arrived in it, as Income shows it. January's deposits belong to the year before, as your accountant counts them. "
-      : "It starts in February, as Income does: January counts with the year before, so every line covers the same months. ")
+      : "It starts in February, as Income does, so every line covers the same months; January is left out of both years. ")
       + "Each figure is rounded to the dollar, so the months can add to a dollar off the total." }));
     p.append(sec);
   }
