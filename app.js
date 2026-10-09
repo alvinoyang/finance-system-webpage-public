@@ -2932,10 +2932,10 @@ function summaryTotal() {
 const YTD_NAMES = { "work income": "Income", "corporate expenses": "Corporate expenses", "personal spending": "Personal spending", "invested": "Invested" };
 const YTD_ORDER = Object.keys(YTD_NAMES);
 function ytdWhen(y) { return `${/\d{4}/.test(y.months) ? y.months : `${y.months} ${y.year}`} · against ${Number(y.year) - 1}`; }
-const YTD_WHAT = { "work income": "Deposits into the corporation this year so far, counted as Income counts them: in the year of the work they pay for.",
-                   "corporate expenses": "What the corporation spent on running the practice.",
-                   "personal spending": "Your everyday cost of living, from YNAB: bills, everyday and irregular costs.",
-                   "invested": "Everything put away: the corporation's investing, your TFSA, RRSP and FHSA, and the joint savings." };
+const YTD_WHAT = { "work income": "Deposits, in the year of the work they pay for.",
+                   "corporate expenses": "What the corporation spent.",
+                   "personal spending": "Your everyday cost of living, from YNAB.",
+                   "invested": "The corporation's, your TFSA, RRSP, FHSA and the joint savings." };
 function ytdRise(thisY, lastY) {
   if (thisY === "" || lastY === "" || thisY === undefined || lastY === undefined) return "";
   const before = money(lastY), diff = money(thisY) - before;
@@ -2943,15 +2943,15 @@ function ytdRise(thisY, lastY) {
   return `${compact(Math.abs(diff), "$", true)} ${diff >= 0 ? "more" : "less"} than the same months a year before (${compact(before, "$", true)}).`;
 }
 function ytdWhy(r) {
-  const y = (SNAP && SNAP.ytd) || {}, B = (SNAP && SNAP.saving) || {}, inv = r.measure === "invested";
+  const y = (SNAP && SNAP.ytd) || {}, inv = r.measure === "invested";
   const ch = r.change === "" ? null : money(r.change);
   const parts = (y.rows || []).filter(p => p.measure === r.measure && p.part);
   return [ch === null || Math.round(ch) === 0 ? "" : `${ch > 0 ? "Up" : "Down"} ${fmtWhole$(Math.round(Math.abs(ch)))} on the same months a year before.`,
           inv && r.share_this_year ? `${r.share_this_year}% of income${r.share_last_year ? `, against ${r.share_last_year}% the same months a year before` : ""}.`
             : inv && r.share_last_year ? `${r.share_last_year}% of income the same months a year before.` : "",
-          r.note ? r.note.replace(/^./, c => c.toUpperCase()) + "." : "", `${plainSource(r.source)}.`]
+          r.note && !inv ? r.note.replace(/^./, c => c.toUpperCase()) + "." : "", `${plainSource(r.source)}.`]
     .concat(parts.map(p => `${p.part.replace(/^./, c => c.toUpperCase())}: ${fmtWhole$(Math.round(money(p.this_year)))} against ${fmtWhole$(Math.round(money(p.last_year)))}.`))
-    .concat(inv && B.life && B.life.pct !== undefined ? [`Since ${B.since}: ${pctText(B.life.pct)} of everything the corporation earned was invested. That share is recorded: worked out on your Income and Investment tab from what you typed, not read from the statements.`] : []).filter(Boolean);
+    .filter(Boolean);                                       // the share since the start is What you invest's, one tap away
 }
 function ytdCard() {
   const y = (SNAP && SNAP.ytd) || {};
@@ -2976,8 +2976,8 @@ function ytdCard() {
   }
   if (!list.children.length) return ytdWaiting();          // rows, but none with a figure for this year (the fifth review)
   return h("section", { class: "section" }, h("h2", { text: "This year against last" }),
-    h("div", { class: "card glass" }, h("p", { class: "ytdcap", text: ytdWhen(y) }), list,
-      h("p", { class: "foot", text: "Choose a line to see it month by month." })));
+    h("div", { class: "card glass" }, h("p", { class: "ytdcap", text: ytdWhen(y) }), list),
+    h("p", { class: "foot", text: "Choose a line to see it month by month." }));
 }
 
 function ytdWaiting() {
@@ -2989,8 +2989,8 @@ function ytdWaiting() {
     basisDot(B.basis, [`Since ${B.since}: ${pctText(B.life.pct)} of everything the corporation earned was invested.`, `${plainSource(B.source)}.`, B.note]));
   return h("section", { class: "section" }, h("h2", { text: "This year against last" }),
     h("div", { class: "card glass" }, h("p", { class: "ytdcap", text: "Not every statement is read yet" }),
-      h("div", { class: "list flat" }, tapArea(row, `Invested since ${B.since}, ${pctText(B.life.pct)}. Show what you invest`, () => openView({ type: "saving" }))),
-      h("p", { class: "foot", text: "This year is compared once every statement and YNAB is read. Choose Invested to see what you invest, year by year." })));
+      h("div", { class: "list flat" }, tapArea(row, `Invested since ${B.since}, ${pctText(B.life.pct)}. Show what you invest`, () => openView({ type: "saving" })))),
+    h("p", { class: "foot", text: "This year is compared once every statement and YNAB is read. Choose Invested to see what you invest, year by year." }));
 }
 
 function ytdMore(m, y) {
@@ -3001,12 +3001,15 @@ function ytdMore(m, y) {
       ? `Every year, month by month. It counts to ${keyLabel(through, true)}; this page stops at ${keyLabel(lastMonth, true)}, where every statement and YNAB is read.`
       : "Every year, month by month, and what this one is expected to reach.", "income"];
   }
-  if (m === "personal spending" && ((SNAP && SNAP.spending) || {}).months)
-    return ["What you spend", `Every month YNAB has, by calendar year, to ${keyLabel(SNAP.spending.as_of, true)}${SNAP.spending.as_of >= new Date().toISOString().slice(0, 7) ? " so far" : ""}, and the average month.`, "spending"];
+  if (m === "personal spending" && ((SNAP && SNAP.spending) || {}).months) {
+    const now = new Date(), here = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;   // this month on the phone's clock, not UTC's
+    return ["What you spend", `Every month YNAB has, by calendar year, so January counts too, to ${keyLabel(SNAP.spending.as_of, true)}${SNAP.spending.as_of >= here ? " so far" : ""}; and the average month.`, "spending"];
+  }
   const B = (SNAP && SNAP.saving) || {};
   if (m === "invested" && (B.years || []).length && B.life && B.life.pct !== undefined) {
     const row = B.years.find(z => z.year === y.year);
-    return ["What you invest", `Your Income and Investment tab: every contribution you have typed this year, by calendar year, so January counts too, and without the joint savings${row && row.pct !== null && row.pct !== undefined ? `. It shows ${pctText(row.pct)} for ${y.year}` : ""}. Every year since ${B.since}.`, "saving"];
+    const lm = lastMonth ? keyLabel(lastMonth, true).replace(/ \d{4}$/, "") : "";
+    return ["What you invest", `Your Income and Investment tab, by calendar year: every contribution you have typed${lm ? `, any after ${lm} included` : ""}; January too; not the joint savings${row && row.pct !== null && row.pct !== undefined ? `. It shows ${pctText(row.pct)} for ${y.year}` : ""}. Every year since ${B.since}.`, "saving"];
   }
   return null;
 }
