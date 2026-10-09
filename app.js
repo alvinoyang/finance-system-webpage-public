@@ -3887,6 +3887,10 @@ function renderVehicle() {
 }
 
 
+function fromFebruary(through, withYear = true) {
+  const t = withYear ? keyLabel(through, true) : keyLabel(through, true).replace(/ \d{4}$/, "");
+  return through && through.slice(5) === "02" ? t : `February to ${t}`;
+}
 function renderIncome() {
   const I = (SNAP && SNAP.income) || {}, Y = I.years || {};
   const p = h("div", { class: "page narrow" });
@@ -3908,7 +3912,7 @@ function renderIncome() {
         h("div", { class: "ftop" }, h("span", { class: "l", text: `Since ${ys[0]}` }), basisDot(basis, [ys.map(y => `${y}: ${BASIS_NAME[Y[y].basis].toLowerCase()}, ${Y[y].note}.`).join(" "), plainSource(I.source) + "."])),
         h("div", { class: "v rounded", text: fmtWhole$(Math.round(total)) }),
         h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${ys.length} years with a year tab; 2022 has none of its own, and its last days, from December 23, are counted in 2023.` +
-          " Each year is its work, as your accountant counts it: February to the next January." + (Y[now] && Y[now].so_far && Y[now].through ? ` ${now} counts February to ${keyLabel(Y[now].through, true)} so far.` : "") }))));
+          " Each year is its work, as your accountant counts it: February to the next January." + (Y[now] && Y[now].so_far && Y[now].through ? ` ${now} counts ${fromFebruary(Y[now].through)} so far.` : "") }))));
       const ser = { label: "Income", unit: "$", form: "bars", points: ys.map(y => [y, money(Y[y].total)]) };
       holder.append(h("div", { class: "card glass chartcard" }, chart([ser], { form: "bars", unit: "$", height: 220, axis: true, hover: true })));
       holder.append(h("div", { class: "list glass" }, ys.slice().reverse().map(y => {
@@ -3922,7 +3926,7 @@ function renderIncome() {
     const yr = Y[v];
     const ser = { label: "Income", unit: "$", form: "bars", points: yr.months };
     const top = h("div", { class: "trend-top" },
-      h("div", { class: "ftop" }, h("span", { class: "l", text: yr.so_far ? (yr.through && yr.through.slice(5) === "02" ? keyLabel(yr.through, true) : `February to ${keyLabel(yr.through, true)}`) : `February ${v} to January ${Number(v) + 1}` }), basisDot(yr.basis, [`${yr.note.replace(/^./, c => c.toUpperCase())}.`, plainSource(I.source) + "."])),
+      h("div", { class: "ftop" }, h("span", { class: "l", text: yr.so_far ? fromFebruary(yr.through) : `February ${v} to January ${Number(v) + 1}` }), basisDot(yr.basis, [`${yr.note.replace(/^./, c => c.toUpperCase())}.`, plainSource(I.source) + "."])),
       h("div", { class: "v rounded", text: fmtWhole$(Math.round(money(yr.total))) }));
     if (yr.so_far && I.same_months_last_year) {
       const before = money(I.same_months_last_year), diff = money(I.same_months_this_year || yr.total) - before;
@@ -3965,7 +3969,7 @@ function expectedCard(exp) {
                `Your usual month is the middle of the ${plural(exp.usual_count || 12, "month")} from ${keyLabel(exp.usual_from, true)} to ${keyLabel(exp.usual_to, true)}: a lump, such as a December's retro pay, or a payment that lands a month early or late, does not move it.`,
                bonus ? `The bonus is taken as one month of MGH pay at ${exp.year}'s average so far (${plural(exp.bonus_months, "month")}), as you expect. December's other lumps, such as retro pay, are not counted until they are known.` : "",
                (exp.assumptions || []).length ? `Written down as ${exp.assumptions.length > 1 ? "assumptions" : "assumption"} ${exp.assumptions.join(" and ")} in the Finance System (profile/assumptions.csv), each with the date it is checked again.` : ""];
-  const rows = [[last ? `Arrived, February to ${mon(last[0])}` : "Arrived", arrived, "s0"],
+  const rows = [[last ? `Arrived, ${fromFebruary(last[0], false)}` : "Arrived", arrived, "s0"],
                 [n ? `${plural(n, "month")} to come at your usual ${fmtWhole$(Math.round(usual))}` : "", usual * n, "later"],
                 [bonus ? "MGH's active staff bonus, in December" : "", bonus, "later"],
                 [(exp.counted_from_calendar || []).length ? "From your calendar" : "",
