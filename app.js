@@ -2952,7 +2952,7 @@ function ytdCard() {
                  inv ? `This counts the joint savings and stops at the last whole month. What you invest reads the Income and Investment tab, which leaves the joint savings out and counts every contribution you have typed this year, so ${((B.years || []).find(z => z.year === y.year) || {}).pct !== undefined ? `it shows ${pctText(B.years.find(z => z.year === y.year).pct)} for ${y.year}` : "its share for this year can differ"}.` : "",
                  r.note ? r.note.replace(/^./, c => c.toUpperCase()) + "." : "", `From ${r.source}.`]
       .concat(parts(r.measure).map(p => `${p.part.replace(/^./, c => c.toUpperCase())}: ${fmtWhole$(Math.round(money(p.this_year)))} against ${fmtWhole$(Math.round(money(p.last_year)))}.`))
-      .concat(inv && B.life && B.life.pct !== undefined ? [`Since ${B.since}: ${pctText(B.life.pct)} of everything the corporation earned was invested. That share is recorded, typed on your Income and Investment tab, not read from the statements.`] : []).filter(Boolean);
+      .concat(inv && B.life && B.life.pct !== undefined ? [`Since ${B.since}: ${pctText(B.life.pct)} of everything the corporation earned was invested. That share is recorded: worked out on your Income and Investment tab from what you typed, not read from the statements.`] : []).filter(Boolean);
     const name = YTD_NAMES[r.measure] || r.measure, share = inv ? sh(r.share_this_year) : "", amt = fmtWhole$(Math.round(money(r.this_year))) + share;
     const row = h("div", { class: "row ytdrow" },
       h("span", { class: "main" }, h("span", { class: "title", text: name }),
