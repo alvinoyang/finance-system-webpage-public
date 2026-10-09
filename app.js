@@ -2964,14 +2964,14 @@ function ytdCard() {
     if (r.this_year === "") continue;                        // nothing to show for this year: no line, never "$0"
     const ch = r.change === "" ? null : money(r.change), pct = r.change_pct !== "" ? Number(r.change_pct) : null;
     const word = ch === null ? "" : Math.round(ch) === 0 ? "no change"
-      : `${ch > 0 ? "▲" : "▼"}\u00a0${pct !== null ? Math.abs(pct).toFixed(1) + "%" : fmtWhole$(Math.round(Math.abs(ch)))}`;
+      : `${ch > 0 ? "▲" : "▼"}\u00a0${pct !== null && Math.abs(pct) >= 0.05 ? Math.abs(pct).toFixed(1) + "%" : fmtWhole$(Math.round(Math.abs(ch)))}`;
     const name = YTD_NAMES[r.measure] || r.measure, amt = fmtWhole$(Math.round(money(r.this_year)));
     const share = r.measure === "invested" && r.share_this_year !== "" && r.share_this_year !== undefined ? `${r.share_this_year}% of income` : "";
     const meta = (r.last_year === "" ? "" : `${prev}: ${fmtWhole$(Math.round(money(r.last_year)))}`) + (word ? ` · ${word}` : "");
     const row = h("div", { class: "row ytdrow" },
       h("span", { class: "main" }, h("span", { class: "title", text: name }), h("span", { class: "meta", text: meta })),
       h("span", { class: "amt" }, amt, share ? h("span", { class: "share", text: share }) : ""), basisDot(r.basis, ytdWhy(r)));
-    const spoken = `${name}, ${amt}${share ? ", " + share : ""}; ${r.last_year === "" ? "" : `${prev}, ${fmtWhole$(Math.round(money(r.last_year)))}; `}${ch === null ? "" : Math.round(ch) === 0 ? "no change" : `${ch > 0 ? "up" : "down"} ${pct !== null ? Math.abs(pct).toFixed(1) + " percent" : fmtWhole$(Math.round(Math.abs(ch)))}`}. Show month by month`;
+    const spoken = `${name}, ${amt}${share ? ", " + share : ""}; ${r.last_year === "" ? "" : `${prev}, ${fmtWhole$(Math.round(money(r.last_year)))}; `}${ch === null ? "" : Math.round(ch) === 0 ? "no change" : `${ch > 0 ? "up" : "down"} ${pct !== null && Math.abs(pct) >= 0.05 ? Math.abs(pct).toFixed(1) + " percent" : fmtWhole$(Math.round(Math.abs(ch)))}`}. Show month by month`;
     list.append(tapArea(row, spoken, () => openView({ type: "ytd", measure: r.measure })));
   }
   if (!list.children.length) return ytdWaiting();          // rows, but none with a figure for this year (the fifth review)
@@ -2998,12 +2998,12 @@ function ytdMore(m, y) {
   if (m === "work income" && SNAP && SNAP.income && (SNAP.income.years || {})[y.year]) {
     const through = SNAP.income.years[y.year].through;
     return ["Income", through && lastMonth && through !== lastMonth
-      ? `Every year, month by month. It counts to ${keyLabel(through, true)}; this page stops at ${keyLabel(lastMonth, true)}, where every statement and YNAB is read.`
+      ? `Every year, month by month. It counts to ${keyLabel(through, true)}; this page, to ${keyLabel(lastMonth, true)}.`
       : "Every year, month by month, and what this one is expected to reach.", "income"];
   }
   if (m === "personal spending" && ((SNAP && SNAP.spending) || {}).months) {
     const now = new Date(), here = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;   // this month on the phone's clock, not UTC's
-    return ["What you spend", `Every month YNAB has, by calendar year, so January counts too, to ${keyLabel(SNAP.spending.as_of, true)}${SNAP.spending.as_of >= here ? " so far" : ""}; and the average month.`, "spending"];
+    return ["What you spend", `Every month YNAB has, by calendar year, January to December, to ${keyLabel(SNAP.spending.as_of, true)}${SNAP.spending.as_of >= here ? " so far" : ""}; and the average month.`, "spending"];
   }
   const B = (SNAP && SNAP.saving) || {};
   if (m === "invested" && (B.years || []).length && B.life && B.life.pct !== undefined) {
@@ -3054,7 +3054,7 @@ function renderYtd() {
     const row = h("div", { class: "row plain" }, h("span", { class: "main" }, h("span", { class: "title link", text: more[0] }), h("span", { class: "meta", text: more[1] })), icon("chevR"));
     p.append(h("div", { class: "list glass ytdmore" }, tapArea(row, `${more[0]}. ${more[1]}`, () => openView({ type: more[2] }))));
   }
-  p.append(h("p", { class: "foot", text: `${plainSource(r.source)}. Whole months only, to the last one every statement and YNAB has.` }));
+  p.append(h("p", { class: "foot", text: `${plainSource(r.source)}. Whole months only.` }));
   return p;
 }
 
