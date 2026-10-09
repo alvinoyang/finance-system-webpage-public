@@ -641,6 +641,7 @@ function pageFor() {
   else if (VIEW && VIEW.type === "account") page = renderAccount();
   else if (VIEW && VIEW.type === "sitting") page = renderSitting();
   else if (VIEW && VIEW.type === "saving") page = renderSaving();
+  else if (VIEW && VIEW.type === "ytd") page = renderYtd();
   else if (VIEW && VIEW.type === "returns") page = renderReturns();
   else if (VIEW && VIEW.type === "spending") page = renderSpending();
   else if (VIEW && VIEW.type === "vehicle") page = renderVehicle();
@@ -722,7 +723,7 @@ function viewTitle(v) {
   return ({ form: kindOf(v.kind).name, settings: "Settings", questions: "Questions", shifts: "Your shifts", income: "Income",
             work: v.metric === "rate" ? "Pay per hour" : "Hours", workunit: v.title || "A shift", account: ({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[v.account] || "Account",
             card: v.title || "Card", trend: v.title || "History", sitting: "Monthly banking",
-            saving: "What you invest", returns: "What it is worth", spending: "What you spend", vehicle: (SNAP && SNAP.vehicle && SNAP.vehicle.name) || "Your car" })[v.type] || "Back";
+            saving: "What you invest", ytd: YTD_NAMES[v.measure] || "This year", returns: "What it is worth", spending: "What you spend", vehicle: (SNAP && SNAP.vehicle && SNAP.vehicle.name) || "Your car" })[v.type] || "Back";
 }
 function onScroll() { document.getElementById("bar").classList.toggle("scrolled", window.scrollY > (document.body.classList.contains("toplevel") ? 48 : 28)); }
 function measureBar() {
@@ -2930,42 +2931,52 @@ function summaryTotal() {
 
 const YTD_NAMES = { "work income": "Income", "corporate expenses": "Corporate expenses", "personal spending": "Personal spending", "invested": "Invested" };
 const YTD_ORDER = Object.keys(YTD_NAMES);
+const YTD_WHAT = { "work income": "Every deposit into the corporation, in the year of the work it pays for.",
+                   "corporate expenses": "What the corporation spent on running the practice.",
+                   "personal spending": "Your everyday cost of living, from YNAB: bills, everyday and irregular costs.",
+                   "invested": "Everything put away: the corporation's investing, your TFSA, RRSP and FHSA, and the joint savings." };
+function ytdRise(thisY, lastY) {
+  if (thisY === "" || lastY === "" || thisY === undefined || lastY === undefined) return "";
+  const before = money(lastY), diff = money(thisY) - before;
+  if (Math.round(diff) === 0) return `The same as the same months a year before (${compact(before, "$", true)}).`;
+  return `${compact(Math.abs(diff), "$", true)} ${diff >= 0 ? "more" : "less"} than the same months a year before (${compact(before, "$", true)}).`;
+}
+function ytdWhy(r) {
+  const y = (SNAP && SNAP.ytd) || {}, B = (SNAP && SNAP.saving) || {}, inv = r.measure === "invested";
+  const ch = r.change === "" ? null : money(r.change);
+  const parts = (y.rows || []).filter(p => p.measure === r.measure && p.part);
+  return [ch === null || Math.round(ch) === 0 ? "" : `${ch > 0 ? "Up" : "Down"} ${fmtWhole$(Math.round(Math.abs(ch)))} on the same months a year before.`,
+          inv && r.share_this_year ? `${r.share_this_year}% of income${r.share_last_year ? `, against ${r.share_last_year}% the same months a year before` : ""}.`
+            : inv && r.share_last_year ? `${r.share_last_year}% of income the same months a year before.` : "",
+          r.note ? r.note.replace(/^./, c => c.toUpperCase()) + "." : "", `${plainSource(r.source)}.`]
+    .concat(parts.map(p => `${p.part.replace(/^./, c => c.toUpperCase())}: ${fmtWhole$(Math.round(money(p.this_year)))} against ${fmtWhole$(Math.round(money(p.last_year)))}.`))
+    .concat(inv && B.life && B.life.pct !== undefined ? [`Since ${B.since}: ${pctText(B.life.pct)} of everything the corporation earned was invested. That share is recorded: worked out on your Income and Investment tab from what you typed, not read from the statements.`] : []).filter(Boolean);
+}
 function ytdCard() {
   const y = (SNAP && SNAP.ytd) || {};
   if (!(y.rows || []).length) return ytdWaiting();
   const at = m => YTD_ORDER.includes(m) ? YTD_ORDER.indexOf(m) : YTD_ORDER.length;
   const lines = y.rows.filter(r => !r.part).sort((a, b) => at(a.measure) - at(b.measure));
-  const B = (SNAP && SNAP.saving) || {};
-  let tappable = false;                                     // the foot names Invested only when its line is there to choose
-  const parts = m => y.rows.filter(r => r.measure === m && r.part);
+  const prev = Number(y.year) - 1;
   const list = h("div", { class: "list flat" });
   for (const r of lines) {
     if (r.this_year === "") continue;                        // nothing to show for this year: no line, never "$0"
     const ch = r.change === "" ? null : money(r.change), pct = r.change_pct !== "" ? Number(r.change_pct) : null;
     const word = ch === null ? "" : Math.round(ch) === 0 ? "no change"
       : `${ch > 0 ? "▲" : "▼"}\u00a0${pct !== null ? Math.abs(pct).toFixed(1) + "%" : fmtWhole$(Math.round(Math.abs(ch)))}`;
-    const sh = v => v === "" || v === undefined ? "" : ` (${v}%)`;      // the model's whole percent, rounded once there
-    const inv = r.measure === "invested";
-    const why = [ch === null || Math.round(ch) === 0 ? "" : `${ch > 0 ? "Up" : "Down"} ${fmtWhole$(Math.round(Math.abs(ch)))} on the same months of last year.`,
-                 inv && r.share_this_year ? `${r.share_this_year}% of this year's income so far${r.share_last_year ? `, against ${r.share_last_year}% in the same months of last year` : ""}.`
-                   : inv && r.share_last_year ? `${r.share_last_year}% of income in the same months of last year.` : "",
-                 inv ? `This counts the joint savings and stops at the last whole month. What you invest reads the Income and Investment tab, which leaves the joint savings out and counts every contribution you have typed this year, so ${((B.years || []).find(z => z.year === y.year) || {}).pct !== undefined ? `it shows ${pctText(B.years.find(z => z.year === y.year).pct)} for ${y.year}` : "its share for this year can differ"}.` : "",
-                 r.note ? r.note.replace(/^./, c => c.toUpperCase()) + "." : "", `From ${r.source}.`]
-      .concat(parts(r.measure).map(p => `${p.part.replace(/^./, c => c.toUpperCase())}: ${fmtWhole$(Math.round(money(p.this_year)))} against ${fmtWhole$(Math.round(money(p.last_year)))}.`))
-      .concat(inv && B.life && B.life.pct !== undefined ? [`Since ${B.since}: ${pctText(B.life.pct)} of everything the corporation earned was invested. That share is recorded: worked out on your Income and Investment tab from what you typed, not read from the statements.`] : []).filter(Boolean);
-    const name = YTD_NAMES[r.measure] || r.measure, share = inv ? sh(r.share_this_year) : "", amt = fmtWhole$(Math.round(money(r.this_year))) + share;
+    const name = YTD_NAMES[r.measure] || r.measure, amt = fmtWhole$(Math.round(money(r.this_year)));
+    const share = r.measure === "invested" && r.share_this_year !== "" && r.share_this_year !== undefined ? `${r.share_this_year}% of income` : "";
+    const meta = (r.last_year === "" ? "" : `${prev}: ${fmtWhole$(Math.round(money(r.last_year)))}`) + (word ? ` · ${word}` : "");
     const row = h("div", { class: "row ytdrow" },
-      h("span", { class: "main" }, h("span", { class: "title", text: name }),
-        h("span", { class: "meta", text: (r.last_year === "" ? "" : `${Number(y.year) - 1}: ${fmtWhole$(Math.round(money(r.last_year)))}`) + (word ? ` · ${word}` : "") })),
-      h("span", { class: "amt" }, fmtWhole$(Math.round(money(r.this_year))), share ? h("span", { class: "share", text: share }) : ""), basisDot(r.basis, why));
-    const opens = inv && (B.years || []).length && B.life && B.life.pct !== undefined;
-    if (opens) tappable = true;
-    list.append(opens ? tapArea(row, `${name}, ${amt}. Show what you invest`, () => openView({ type: "saving" })) : row);
+      h("span", { class: "main" }, h("span", { class: "title", text: name }), h("span", { class: "meta", text: meta })),
+      h("span", { class: "amt" }, amt, share ? h("span", { class: "share", text: share }) : ""), basisDot(r.basis, ytdWhy(r)));
+    const spoken = `${name}, ${amt}${share ? ", " + share : ""}; ${r.last_year === "" ? "" : `${prev}, ${fmtWhole$(Math.round(money(r.last_year)))}; `}${ch === null ? "" : Math.round(ch) === 0 ? "no change" : `${ch > 0 ? "up" : "down"} ${pct !== null ? Math.abs(pct).toFixed(1) + " percent" : fmtWhole$(Math.round(Math.abs(ch)))}`}. Show month by month`;
+    list.append(tapArea(row, spoken, () => openView({ type: "ytd", measure: r.measure })));
   }
   if (!list.children.length) return ytdWaiting();          // rows, but none with a figure for this year (the fifth review)
   return h("section", { class: "section" }, h("h2", { text: "This year against last" }),
-    h("div", { class: "card glass" }, list,
-      h("p", { class: "foot", text: `${y.months}, ${y.year} against the same months of ${Number(y.year) - 1}: whole months only, to the last one every statement and YNAB covers.${tappable ? " Choose Invested to see what you invest, year by year." : ""}` })));
+    h("div", { class: "card glass" }, h("p", { class: "ytdcap", text: `${y.months} · ${y.year} against ${prev}` }), list,
+      h("p", { class: "foot", text: "Choose a line to see it month by month." })));
 }
 
 function ytdWaiting() {
@@ -2976,8 +2987,65 @@ function ytdWaiting() {
     h("span", { class: "amt", text: pctText(B.life.pct) }),
     basisDot(B.basis, [`Since ${B.since}: ${pctText(B.life.pct)} of everything the corporation earned was invested.`, `${plainSource(B.source)}.`, B.note]));
   return h("section", { class: "section" }, h("h2", { text: "This year against last" }),
-    h("div", { class: "card glass" }, h("div", { class: "list flat" }, tapArea(row, `Invested since ${B.since}, ${pctText(B.life.pct)}. Show what you invest`, () => openView({ type: "saving" }))),
-      h("p", { class: "foot", text: "This year is compared once every statement and YNAB has its first whole month. Choose Invested to see what you invest, year by year." })));
+    h("div", { class: "card glass" }, h("p", { class: "ytdcap", text: "Not every statement is read yet" }),
+      h("div", { class: "list flat" }, tapArea(row, `Invested since ${B.since}, ${pctText(B.life.pct)}. Show what you invest`, () => openView({ type: "saving" }))),
+      h("p", { class: "foot", text: "This year is compared once every statement and YNAB is read. Choose Invested to see what you invest, year by year." })));
+}
+
+function ytdMore(m, y) {
+  const lastMonth = (((y.months_rows || []).filter(x => x.measure === m && !x.part).pop()) || {}).this_month || "";
+  if (m === "work income" && SNAP && SNAP.income && (SNAP.income.years || {})[y.year]) {
+    const through = SNAP.income.years[y.year].through;
+    return ["Income", through && through !== lastMonth
+      ? `Every year, month by month. It counts to ${keyLabel(through, true)}; this page stops at ${keyLabel(lastMonth, true)}, where every statement and YNAB is read.`
+      : "Every year, month by month, and what this one is expected to reach.", "income"];
+  }
+  if (m === "personal spending" && ((SNAP && SNAP.spending) || {}).months)
+    return ["What you spend", `Every month YNAB has, by calendar year, to ${keyLabel(SNAP.spending.as_of, true)}, and the average month.`, "spending"];
+  const B = (SNAP && SNAP.saving) || {};
+  if (m === "invested" && (B.years || []).length && B.life && B.life.pct !== undefined) {
+    const row = B.years.find(z => z.year === y.year);
+    return ["What you invest", `Your Income and Investment tab, by calendar year and without the joint savings${row && row.pct !== null && row.pct !== undefined ? `: ${pctText(row.pct)} for ${y.year}` : ""}. Every year since ${B.since}.`, "saving"];
+  }
+  return null;
+}
+function renderYtd() {
+  const y = (SNAP && SNAP.ytd) || {}, m = VIEW.measure, name = YTD_NAMES[m] || m, prev = Number(y.year) - 1;
+  const r = (y.rows || []).find(x => x.measure === m && !x.part);
+  const p = h("div", { class: "page narrow" });
+  p.append(head(name, YTD_WHAT[m] || ""));
+  if (!r || r.this_year === "") { p.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "Not available yet." }))); return p; }
+  const top = h("div", { class: "trend-top" },
+    h("div", { class: "ftop" }, h("span", { class: "l", text: `${/\d{4}/.test(y.months) ? y.months : `${y.months} ${y.year}`}, against ${prev}` }), basisDot(r.basis, ytdWhy(r))),
+    h("div", { class: "v rounded", text: fmtWhole$(Math.round(money(r.this_year))) }));
+  const rise = ytdRise(r.this_year, r.last_year);
+  if (rise) top.append(h("div", { class: "fmeta rise", text: rise }));
+  if (m === "invested" && r.share_this_year !== "" && r.share_this_year !== undefined)
+    top.append(h("div", { class: "fmeta", text: `${r.share_this_year}% of income${r.share_last_year !== "" && r.share_last_year !== undefined ? `, against ${r.share_last_year}% the same months a year before` : ""}.` }));
+  p.append(top);
+  const mr = (y.months_rows || []).filter(x => x.measure === m && !x.part);
+  const v = x => x === "" || x === undefined ? "—" : fmtWhole$(Math.round(money(x)));
+  if (mr.length) {
+    const sec = h("section", { class: "card glass" }, h("h3", { text: "Month by month" }),
+      h("div", { class: "trio" }, h("span", { text: "Month" }), h("span", { class: "tv", text: y.year }), h("span", { class: "tv", text: String(prev) }),
+        mr.map(x => [h("span", { class: "ty ytdmonth", text: keyLabel(x.this_month, true).replace(/ \d{4}$/, "") }), h("span", { class: "tv", text: v(x.this_year) }), h("span", { class: "tv faint", text: v(x.last_year) })]),
+        h("span", { class: "ty", text: "Total" }), h("span", { class: "tv ytdtotal", text: v(r.this_year) }), h("span", { class: "tv faint ytdtotal", text: v(r.last_year) })));
+    if (m === "work income") sec.append(h("p", { class: "small muted", text: "Each month is the money that arrived in it, as Income shows it. January's deposits belong to the year before, as your accountant counts them." }));
+    p.append(sec);
+  }
+  const parts = (y.rows || []).filter(x => x.measure === m && x.part);
+  if (parts.length) p.append(h("section", { class: "card glass" }, h("h3", { text: "What it is made of" }),
+    h("div", { class: "list flat ytdparts" }, parts.map(x => h("div", { class: "row amtrow" },
+      h("span", { class: "main" }, h("span", { class: "title", text: x.part.replace(/^./, c => c.toUpperCase()) }),
+        h("span", { class: "meta", text: `${prev}: ${v(x.last_year)}${x.note ? " · " + x.note : ""}` })),
+      h("span", { class: "amt", text: v(x.this_year) }), basisDot(x.basis, [`${plainSource(x.source)}.`]))))));
+  const more = ytdMore(m, y);
+  if (more) {
+    const row = h("div", { class: "row plain" }, h("span", { class: "main" }, h("span", { class: "title link", text: more[0] }), h("span", { class: "meta", text: more[1] })), icon("chevR"));
+    p.append(h("div", { class: "list glass ytdmore" }, tapArea(row, `${more[0]}. ${more[1]}`, () => openView({ type: more[2] }))));
+  }
+  p.append(h("p", { class: "foot", text: `${plainSource(r.source)}. Whole months only, to the last one every statement and YNAB has.` }));
+  return p;
 }
 
 function pctText(v) { return Math.round(Number(v) * 100) + "%"; }
