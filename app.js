@@ -3145,6 +3145,7 @@ function incomeVsLastYear() {
   const I = (SNAP && SNAP.income) || {}, wy = I.work_year || String(new Date().getFullYear()), cur = (I.years || {})[wy];
   if (!cur || !I.same_months_last_year) return "";
   const d = money(I.same_months_this_year || cur.total) - money(I.same_months_last_year);
+  if (Math.round(d) === 0) return `The same as the same months of ${Number(wy) - 1}`;
   return `${d >= 0 ? "Up" : "Down"} ${compact(Math.abs(d), "$", true)} on the same months of ${Number(wy) - 1}`;
 }
 function summaryCorp() {
@@ -3928,7 +3929,12 @@ function renderIncome() {
     const top = h("div", { class: "trend-top" },
       h("div", { class: "ftop" }, h("span", { class: "l", text: yr.so_far ? fromFebruary(yr.through) : `February ${v} to January ${Number(v) + 1}` }), basisDot(yr.basis, [`${yr.note.replace(/^./, c => c.toUpperCase())}.`, plainSource(I.source) + "."])),
       h("div", { class: "v rounded", text: fmtWhole$(Math.round(money(yr.total))) }));
-    if (yr.so_far && I.same_months_last_year) top.append(h("div", { class: "fmeta rise", text: ytdRise(I.same_months_this_year || yr.total, I.same_months_last_year) }));
+    if (yr.so_far && I.same_months_last_year) {
+      const now = new Date(), here = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
+      const done = yr.months.map(x => x[0]).filter(k => k < here), whole = I.same_months_this_year && done.length < yr.months.length;
+      const rise = ytdRise(I.same_months_this_year || yr.total, I.same_months_last_year);
+      top.append(h("div", { class: "fmeta rise", text: whole && done.length ? `${fromFebruary(done[done.length - 1])}: ${rise.replace(/^./, c => c.toLowerCase())}` : rise }));
+    }
     holder.append(top);
     const exp = v === now && I.expected && I.expected.year === v ? I.expected : null;
     if (exp) {
