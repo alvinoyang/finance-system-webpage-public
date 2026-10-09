@@ -3928,10 +3928,7 @@ function renderIncome() {
     const top = h("div", { class: "trend-top" },
       h("div", { class: "ftop" }, h("span", { class: "l", text: yr.so_far ? fromFebruary(yr.through) : `February ${v} to January ${Number(v) + 1}` }), basisDot(yr.basis, [`${yr.note.replace(/^./, c => c.toUpperCase())}.`, plainSource(I.source) + "."])),
       h("div", { class: "v rounded", text: fmtWhole$(Math.round(money(yr.total))) }));
-    if (yr.so_far && I.same_months_last_year) {
-      const before = money(I.same_months_last_year), diff = money(I.same_months_this_year || yr.total) - before;
-      top.append(h("div", { class: "fmeta rise" }, `${compact(Math.abs(diff), "$", true)} ${diff >= 0 ? "more" : "less"} than the same months a year before (${compact(before, "$", true)}).`));
-    }
+    if (yr.so_far && I.same_months_last_year) top.append(h("div", { class: "fmeta rise", text: ytdRise(I.same_months_this_year || yr.total, I.same_months_last_year) }));
     holder.append(top);
     const exp = v === now && I.expected && I.expected.year === v ? I.expected : null;
     if (exp) {
