@@ -3009,7 +3009,7 @@ function ytdMore(m, y) {
   if (m === "invested" && (B.years || []).length && B.life && B.life.pct !== undefined) {
     const row = B.years.find(z => z.year === y.year);
     const lm = lastMonth ? keyLabel(lastMonth, true).replace(/ \d{4}$/, "") : "";
-    return ["What you invest", `Your Income and Investment tab, by calendar year: every contribution you have typed${lm ? `, any after ${lm} included` : ""}; January too; not the joint savings${row && row.pct !== null && row.pct !== undefined ? `. It shows ${pctText(row.pct)} for ${y.year}` : ""}. Every year since ${B.since}.`, "saving"];
+    return ["What you invest", `Your Income and Investment tab, by calendar year: every contribution you have typed${lm ? `, any after ${lm} included` : ""}; January too; not the joint savings${row && row.pct !== null && row.pct !== undefined ? `. It shows ${pctText(row.pct)} for ${y.year}` : ""}. Each year since ${B.years[0].year}${B.years[0].year !== String(B.since) ? `, and the share since ${B.since}` : ""}.`, "saving"];
   }
   return null;
 }
