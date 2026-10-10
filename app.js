@@ -1231,6 +1231,7 @@ function renderSitting() {
     h("span", { class: "what" }, h("span", { text: "To savings with Gloria" }),
       h("span", { class: "how", text: pd.savings_plan.skip ? `Skip this month: ${pd.savings_plan.skip.replace(/^./, c => c.toLowerCase())} (your calendar); the form starts it at nothing` : "From your own chequing; clear it on the form if not sent" })),
     h("span", { class: "amt num" }, h("span", { text: fmt$(pd.savings_plan.amount) })))));
+  investRows(pd, pay.querySelector(".items"), pay);
   function dueWords(due) {
     if (!due) return "";
     const d = dayName(due, { weekday: "short", day: "numeric", month: "long" }), now = todayISO();
@@ -1244,7 +1245,7 @@ function renderSitting() {
   const cardWord = c => ({ amex: "the Amex", visa: "the Visa" })[c.id] || c.name;
   const toPay = (pd.cards || []).filter(c => !c.pays_itself).map(cardWord);
   p.append(step(3, toPay.length ? "Pay yourself, CRA and " + toPay.join(" and ") : "Pay yourself and CRA", stateOf(3), pd.ready
-    ? `From corporate chequing, in this order; then the savings, from your own.`
+    ? `From corporate chequing, in this order; then, from your own, the savings and what to invest.`
     : `Not yet: do step 2 first. These are last month's figures; pay only what ${mon}'s own calculation says, from corporate chequing, in this order.`, pay));
   const s4 = h("div", {},
     pd.logged ? h("p", { class: "foot", text: `Logged ${dayName(pd.logged.date, { day: "numeric", month: "long" })}` + (money(pd.logged.sweep) ? `: ${fmt$(pd.logged.sweep)} sent to Questrade.` : ".") })
@@ -1255,8 +1256,8 @@ function renderSitting() {
     : pd.last_logged && money(pd.last_logged.sweep) && todayISO() <= plusDays(landsBy(pd.last_logged.date), 2) ? pd.last_logged : null;
   const sentOn = lastSent ? lastSent.date : null;
   p.append(step(5, "Buy VEQT when it lands", null, sentOn
-    ? `The ${fmt$(lastSent.sweep)} sent ${dayName(sentOn, { day: "numeric", month: "long" })} lands in the corporation's Questrade account by ${dayName(landsBy(sentOn), { weekday: "long", day: "numeric", month: "long" })}. Then, in Questrade, buy VEQT with the cash there.`
-    : "The money lands in the corporation's Questrade account in 1 to 3 business days. Then, in Questrade, buy VEQT with the cash there.", null));
+    ? `The ${fmt$(lastSent.sweep)} sent ${dayName(sentOn, { day: "numeric", month: "long" })} lands in the corporation's Questrade account by ${dayName(landsBy(sentOn), { weekday: "long", day: "numeric", month: "long" })}. Then, in Questrade, buy VEQT with the cash there.` + ((pd.invest && (pd.invest.sent || []).length) ? " Buy VEQT in your own account too, with what you sent from your own pay, once it lands (0 to 2 business days)." : "")
+    : "The money lands in the corporation's Questrade account in 1 to 3 business days. Then, in Questrade, buy VEQT with the cash there." + ((pd.invest && (pd.invest.sent || []).length) ? " Buy VEQT in your own account too, with what you sent from your own pay, once it lands (0 to 2 business days)." : ""), null));
   const qn = openQuestions().length;
   p.append(step(6, "Answer the questions", qn ? "now" : "done", qn
     ? `${qn} open: what an expense was for, or something the statements could not say. New ones from this month's statements come within a few hours of step 1.`
@@ -1270,6 +1271,40 @@ function renderSitting() {
     p.append(step(7, "Before the 31st, look once more", null, "December only: what falls between this day and the year end, so that it and both pay legs clear inside the year.", ye));
   }
   return p;
+}
+
+function investRows(pd, items, box) {
+  const inv = pd.invest;
+  if (!inv) return;
+  const ring = () => h("span", { class: "bd estimate", "aria-hidden": "true" });
+  const note = (t, warn) => box.append(h("p", { class: "small " + (warn ? "warnline" : "muted"), text: t }));
+  if (inv.error) { note(`What to invest from your own pay could not be worked out: ${inv.error}. A session can look.`, true); return; }
+  const sent = inv.sent || [];
+  for (const s of sent) items.append(h("div", { class: "item" },
+    h("span", { class: "what" }, h("span", { text: `Into your ${s.name}` }), h("span", { class: "how", text: `Logged ${dayName(s.date, { day: "numeric", month: "long" })}: buy VEQT with it once it lands, with the corporation's` })),
+    h("span", { class: "amt num" }, h("span", { text: fmt$(s.amount) }))));
+  for (const s of (inv.split || [])) {
+    const log = h("button", { class: "btn small tinted", type: "button", text: "Log it" });
+    log.addEventListener("click", () => startForm("registered", { account: s.account, direction: "contribution", amount: Number(s.amount).toFixed(2), date: todayISO() }, "sitting"));
+    items.append(h("div", { class: "item", title: `Room left this year: ${fmt$(s.room_left)} (${s.basis})` },
+      h("span", { class: "what" }, h("span", { text: `${sent.length ? "Also into" : "Into"} your ${s.name}` }),
+        h("span", { class: "how", text: `From your own chequing to Questrade, as a bill payment; then log it` }), log),
+      h("span", { class: "amt num" }, inv.pay_estimate || s.basis === "estimate" ? ring() : null, h("span", { text: fmt$(s.amount) }))));
+  }
+  if (inv.to_savings > 0) items.append(h("div", { class: "item" },
+    h("span", { class: "what" }, h("span", { text: "Also to savings with Gloria" }), h("span", { class: "how", text: "Every account's room for the year is full: the rest goes to savings, for the home. Once it is sent, ask a session to match the savings envelope in YNAB; the MacBook does not yet do this itself, so until then the page offers it again" })),
+    h("span", { class: "amt num" }, h("span", { text: fmt$(inv.to_savings) }))));
+  if (!(inv.split || []).length && !(inv.to_savings > 0) && !sent.length) note(`Nothing to invest from your own pay this month. ${inv.why_none || ""}`.trim() + (inv.why_none ? "." : ""));
+  else if (inv.room_unknown && inv.why_none) note(inv.why_none + ".", true);
+  if (inv.pay_note) note(inv.pay_note + ".");
+  const lineOf = re => (inv.lines || []).find(l => re.test(l[0]));
+  const nextLine = lineOf(/'s budget, every target in full$/), keep = lineOf(/^Kept back for costs/);
+  const kept = [`${nextLine ? nextLine[0].split("'s ")[0] : "next month"}'s budget`].concat(keep ? [`${fmtWhole$(-keep[1])} for costs you do not budget`] : []);
+  if ((inv.split || []).length) note(`Worked out from your budget in YNAB: what is left once ${kept.join(" and ")} ${kept.length > 1 ? "are" : "is"} kept back; into the FHSA first, then the TFSA, then the RRSP. Not sending it is fine: it stays in your budget and is counted next month.` + (inv.pay_estimate ? " Approximate until this month's calculation is read (step 2)." : "")
+    + (inv.room_estimate ? " The RRSP's room this year is worked out by CRA's rule until your notice of assessment says it." : ""));
+  if (inv.year_note) note(inv.year_note + ".", true);
+  if ((inv.missing_cards || []).length) note(`Not in YNAB, so what ${inv.missing_cards.length > 1 ? "they owe is" : "it owes is"} not counted: ${inv.missing_cards.join(" and ")}. Keep that much back, or add ${inv.missing_cards.length > 1 ? "them" : "it"} to YNAB.`, true);
+  if (inv.stale && inv.read_at) note(`YNAB was last read ${dayName(inv.read_at.slice(0, 10), { day: "numeric", month: "long" })} at ${inv.read_at.slice(11, 16)}: open the MacBook so it reads it again before you send.`, true);
 }
 
 function upcoming() {
