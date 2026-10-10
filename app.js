@@ -3429,8 +3429,8 @@ function salaryCard(sal, S) {
   const room = sal.rrsp_limit ? ` is the full ${fmtWhole$(Number(sal.rrsp_limit))}` : " is full";
   const why = [`Paid to ${prettyDates(sal.as_of)}. ${plainSource(sal.source)}.`,
     expected ? `Expected for ${yr}: what is paid, and ${left} month${left === 1 ? "" : "s"} still to come at ${fmtWhole$(Math.round(money(sal.monthly)))}, an estimate until they are paid.` : "",
-    `${fmtWhole$(Math.round(target))} fills ${nextYr}'s RRSP room${sal.rrsp_limit ? " of " + fmtWhole$(Number(sal.rrsp_limit)) : ""}. The room is 18% of ${yr}'s earned income, which is your salary and any consulting income, less your employment expenses.`
-    + (basisOf(sal.rrsp_target_basis) === "estimate" ? ` An estimate: it counts only the consulting income actually invoiced in ${yr}, and takes this year's employment expenses to be last year's.` : "")];
+    `${fmtWhole$(Math.round(target))} fills ${nextYr}'s RRSP room${sal.rrsp_limit ? " of " + fmtWhole$(Number(sal.rrsp_limit)) : ""} from your salary alone. The room is 18% of ${yr}'s earned income, less your employment expenses; any consulting income adds room on top and never lowers the salary.`
+    + (basisOf(sal.rrsp_target_basis) === "estimate" ? ` An estimate: it takes this year's employment expenses to be last year's.` : "")];
   let note = null;
   if (paid >= target - 0.5) note = h("div", { class: "salnote ok" }, h("b", { text: "Reached. " }), `What has been paid already fills ${nextYr}'s RRSP room.`);
   else if (expected !== null && short > 0.5) note = h("div", { class: "salnote short" }, h("b", { text: `${fmtWhole$(Math.round(short))} short. ` }),
