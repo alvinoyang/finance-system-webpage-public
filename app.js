@@ -1126,6 +1126,8 @@ function visitCard() {
   const ll = !pd.logged && !pd.late && pd.last_logged && money(pd.last_logged.sweep) ? pd.last_logged : null;
   const veqt = ll && todayISO() <= plusDays(landsBy(ll.date), 2) ? `Next: buy VEQT once the ${fmt$(ll.sweep)} sent ${dayName(ll.date, { day: "numeric", month: "long" })} lands, by ${dayName(landsBy(ll.date), { weekday: "short", day: "numeric", month: "long" })}.` : "";
   c.append(h("p", { class: "visit-foot" + (pd.late && !pd.logged ? " late" : "") }, h("span", { text: veqt || nextWords })));
+  const svT = pd.invest && pd.invest.savings;
+  if (svT && svT.balance < svT.low_below) c.append(h("p", { class: "foot", text: `Savings is at ${fmt$(svT.balance)}, under a month's ${fmtWhole$(svT.low_below)}.` }));
   if ((pd.year_end || []).length) c.append(h("p", { class: "foot", text: `December: look once more before the 31st (${pd.year_end.length} thing${pd.year_end.length === 1 ? "" : "s"}, on the steps page).` }));
   return tapArea(c, `Monthly banking, ${sittingName().toLowerCase()}: every step of the day`, () => openView({ type: "sitting" }));
 }
@@ -1279,6 +1281,14 @@ function investRows(pd, items, box) {
   const ring = () => h("span", { class: "bd estimate", "aria-hidden": "true" });
   const note = (t, warn) => box.append(h("p", { class: "small " + (warn ? "warnline" : "muted"), text: t }));
   if (inv.error) { note(`What to invest from your own pay could not be worked out: ${inv.error}. A session can look.`, true); return; }
+  const sv = inv.savings;
+  if (sv && sv.owed > 0) {
+    const when = (sv.owed_items || []).map(o => dayName(o.date, { day: "numeric", month: "long" })).join(" and ");
+    note(`Savings owes ${fmt$(sv.owed)} for what was filed in savings but paid from chequing (${when}): move it from savings to chequing.`
+      + (sv.short > 0 ? ` Savings holds ${fmt$(sv.balance)}, so move what it holds; the other ${fmt$(sv.short)} comes out of a later $3,000.` : ""), true);
+  }
+  if (sv && sv.asked) note(`To match your savings envelope in YNAB to the savings account, the MacBook would move ${fmt$(Math.abs(sv.asked))} between the envelope and the rest of your budget, more than the $1,000 it moves by itself: tell a session "match my savings envelope" to make it.`, true);
+  if (sv && sv.stopped) note(`The savings envelope is not being matched: ${sv.stopped}. A session can look.`, true);
   const sent = inv.sent || [];
   for (const s of sent) items.append(h("div", { class: "item" },
     h("span", { class: "what" }, h("span", { text: `Into your ${s.name}` }), h("span", { class: "how", text: `Logged ${dayName(s.date, { day: "numeric", month: "long" })}: buy VEQT with it once it lands, with the corporation's` })),
