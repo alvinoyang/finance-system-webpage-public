@@ -3511,6 +3511,7 @@ const CARD_ITEM = {
   "you-told-us": "Something you sent", nothing: "Nothing to watch",
   "next-card": "Worth opening",
   "keep-until": "The day it is safe to close", "first-fee-refund": "Asking the first year's fee back",
+  "fee-while-kept": "A fee worth paying to keep it",
 };
 function cardItemName(item) {
   return CARD_ITEM[item] || String(item || "").replace(/-/g, " ").replace(/^./, c => c.toUpperCase());
@@ -3537,6 +3538,7 @@ function cardLead(it) {
     if (it.due && it.due < todayISO()) return `That day passed on ${monthDay(it.due)}.`;
     return `Keep it, or close it${it.due ? " by " + monthDay(it.due) : ""}?`;
   }
+  if (it.item === "fee-while-kept") return `${$(it.figure)}${it.due ? (it.due < todayISO() ? " on " : " due ") + monthDay(it.due) : ""}, worth paying: keep the card.`;
   if (it.item === "you-told-us") return "Something you sent is not in your books yet.";
   if (it.item === "nothing") return "Nothing about it is on a date.";
   if (it.item === "annual-fee") return `${$(it.figure)} a year${it.due ? ", next on " + monthDay(it.due) : ""}.`;
