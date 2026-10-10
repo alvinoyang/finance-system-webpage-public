@@ -1301,10 +1301,8 @@ function investRows(pd, items, box) {
         h("span", { class: "how", text: `From your own chequing to Questrade, as a bill payment; then log it` }), log),
       h("span", { class: "amt num" }, inv.pay_estimate || s.basis === "estimate" ? ring() : null, h("span", { text: fmt$(s.amount) }))));
   }
-  if (inv.to_savings > 0) items.append(h("div", { class: "item" },
-    h("span", { class: "what" }, h("span", { text: "Also to savings with Gloria" }), h("span", { class: "how", text: "Every account's room for the year is full: the rest goes to savings, for the home. Once it is sent, ask a session to match the savings envelope in YNAB; the MacBook does not yet do this itself, so until then the page offers it again" })),
-    h("span", { class: "amt num" }, h("span", { text: fmt$(inv.to_savings) }))));
-  if (!(inv.split || []).length && !(inv.to_savings > 0) && !sent.length) note(`Nothing to invest from your own pay this month. ${inv.why_none || ""}`.trim() + (inv.why_none ? "." : ""));
+  if (inv.left_over > 0) note(`Every account's room for the year is full, and ${fmt$(inv.left_over)} is left over after the $3,000 to savings. What should happen to it? Tell a session; nothing is sent anywhere by itself.`, true);
+  if (!(inv.split || []).length && !(inv.left_over > 0) && !sent.length) note(`Nothing to invest from your own pay this month. ${inv.why_none || ""}`.trim() + (inv.why_none ? "." : ""));
   else if (inv.room_unknown && inv.why_none) note(inv.why_none + ".", true);
   if (inv.pay_note) note(inv.pay_note + ".");
   const lineOf = re => (inv.lines || []).find(l => re.test(l[0]));
