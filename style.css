@@ -674,6 +674,7 @@ details.billing > .fields > .foot { padding: 0; }
 .visit .item .what { display: block; min-width: 0; overflow-wrap: anywhere; }
 .visit .item .what .how { display: block; margin-top: 2px; font-size: .8rem; color: var(--ink-2); line-height: 1.3; }
 .visit .item .what .how.late { color: var(--orange); font-weight: 500; }   /* a card due on the banking day or before it (2026-10-08) */   /* wraps, never cut off: at 320 px "CRA payroll remittance" was "CRA payroll remitta…" (2026-09-21) */
+.visit .item .what .btn { display: inline-block; margin-top: 6px; }   /* Log it, under a contribution from his own pay (2026-10-10, D-2026-10-10-02) */
 .visit .item .what .chip { display: table; margin-top: 4px; }
 .visit .item .amt { font-weight: 600; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 6px; }
 .visit .item .onscreen { color: var(--ink-2); font-weight: 500; font-size: .92rem; }
