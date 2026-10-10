@@ -1128,7 +1128,6 @@ function visitCard() {
   c.append(h("p", { class: "visit-foot" + (pd.late && !pd.logged ? " late" : "") }, h("span", { text: veqt || nextWords })));
   const svT = pd.invest && pd.invest.savings;
   if (svT && svT.balance < svT.low_below) c.append(h("p", { class: "foot", text: `Savings is at ${fmt$(svT.balance)}, under a month's ${fmtWhole$(svT.low_below)}.` }));
-  if ((pd.tasks || []).length) c.append(h("p", { class: "foot", text: `Also on the day: ${pd.tasks.length} thing${pd.tasks.length === 1 ? "" : "s"} more, on the steps page.` }));
   if ((pd.year_end || []).length) c.append(h("p", { class: "foot", text: `December: look once more before the 31st (${pd.year_end.length} thing${pd.year_end.length === 1 ? "" : "s"}, on the steps page).` }));
   return tapArea(c, `Monthly banking, ${sittingName().toLowerCase()}: every step of the day`, () => openView({ type: "sitting" }));
 }
@@ -1140,7 +1139,6 @@ function billsFrom() {
 }
 function plusDays(d, n) { const x = new Date(d + "T12:00:00"); x.setDate(x.getDate() + n); return x.toLocaleDateString("en-CA"); }
 function landsBy(d) { const x = new Date(d + "T12:00:00"); let n = 0; while (n < 3) { x.setDate(x.getDate() + 1); if (x.getDay() % 6) n++; } return x.toLocaleDateString("en-CA"); }
-function taskTitle(what) { const w = dropIds(what || ""), cut = w.search(/[:;]|\.\s/); return cut > 0 ? w.slice(0, cut) : w; }
 function visitMonths(pd) {
   return [...new Set(pd.items.map(i => (/ for (January|February|March|April|May|June|July|August|September|October|November|December)$/.exec(i.what) || [])[1]).filter(Boolean))];
 }
@@ -1267,18 +1265,6 @@ function renderSitting() {
     ? `${qn} open: what an expense was for, or something the statements could not say. New ones from this month's statements come within a few hours of step 1.`
     : "Nothing to answer. New ones from this month's statements come within a few hours of step 1.",
     qn ? h("button", { class: "btn wide", type: "button", onclick: () => openView({ type: "questions" }) }, qn === 1 ? "Open the question" : "Open the questions") : null));
-  if ((pd.tasks || []).length) {
-    const tl = h("div", { class: "list glass" });
-    for (const t of pd.tasks) {
-      const w = dropIds(t.what), title = taskTitle(t.what), rest = w.slice(title.length).replace(/^[:;.]\s*/, "");
-      tl.append(h("div", { class: "row" }, h("span", { class: "main" }, h("span", { class: "title", text: title }),
-        rest ? h("span", { class: "meta", text: rest.replace(/^./, c => c.toUpperCase()) }) : null),
-        money(t.amount) ? h("span", { class: "amt", text: "$" + Math.round(money(t.amount)).toLocaleString("en-CA") }) : h("span", {})));
-    }
-    const ts = h("section", { class: "section daytasks" }, h("h2", { text: "Also on the day" }));
-    ts.append(tl);
-    p.append(ts);
-  }
   if ((pd.year_end || []).length) {
     const ye = h("div", { class: "list glass" });
     for (const r of pd.year_end) ye.append(h("div", { class: "row" },
