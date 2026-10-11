@@ -192,6 +192,10 @@ function icon(name) {
   return s;
 }
 
+function roundWords() {
+  const m = SNAP && SNAP.payday && SNAP.payday.round_minutes;
+  return m ? `within ${m} minutes` : "soon";
+}
 function money(v) {
   const n = Number(String(v).replace(/[$,\s]/g, ""));
   return Number.isFinite(n) ? n : null;
@@ -992,7 +996,7 @@ function renderToday() {
   if (alerts.length) p.append(h("div", { class: "section" }, alerts));
   if (!SNAP) {
     p.append(h("div", { class: "card glass" }, h("h3", { text: "Waiting for the first summary" }),
-      h("p", { class: "muted", text: "The MacBook sends one within 15 minutes of being open. If it never has, its bookkeeper may be switched off: the web page's instructions on the MacBook say how to switch it on." })));
+      h("p", { class: "muted", text: "The MacBook sends one soon after it is opened. If it never has, its bookkeeper may be switched off: the web page's instructions on the MacBook say how to switch it on." })));
     return p;
   }
   const colA = h("div", {}), colB = h("div", {});
@@ -1202,7 +1206,7 @@ function renderSitting() {
   for (const w of (pd.inbox || [])) docs.append(h("p", { class: "foot warnline", text: `In the Inbox, waiting for a session: ${w.what || w.name} (${w.why}).` }));
   const todo = (pd.documents || []).filter(d => d.state === "todo").length;
   p.append(step(1, "Download the documents", stateOf(1),
-    `${todo ? `${todo} to get.` : "All in."} Save each to the Finance System Inbox (Files › iCloud Drive on the phone; Finance System › Documents › Inbox on the MacBook); a tick means the MacBook has it (~15 minutes while it is open). If a tick has not come, the reason shows under the list.`, docs));
+    `${todo ? `${todo} to get.` : "All in."} Save each to the Finance System Inbox (Files › iCloud Drive on the phone; Finance System › Documents › Inbox on the MacBook); a tick means the MacBook has it (${roundWords()} while it is open). If a tick has not come, the reason shows under the list.`, docs));
   const calc = pd.calculation || {};
   const s2 = h("div", { class: "card glass" },
     h("p", { text: "On the MacBook: Finance System › tools › double-click Monthly Banking. It types this month's figures into CRA's calculator (~1 minute)." }),
@@ -1338,7 +1342,7 @@ function upcoming() {
       const chargeDay = dateOf(d.paid_via);
       paid = !!d.paid_already;
       viaNote = paid ? "paid via Chexy" : chargeDay && chargeDay <= t ? "via Chexy, not yet confirmed" :
-        `via Chexy, ${chargeDay ? monthDay(isoOf(chargeDay)) : "the 20th"}`;
+        (chargeDay ? `via Chexy, ${monthDay(isoOf(chargeDay))}` : "via Chexy");
       rest = "";
     }
     const est = (d.basis || "").startsWith("estimate") && !via;
@@ -1544,7 +1548,7 @@ function recentSection() {
     ul.append(row(prettyDates(r.summary), r.received_at ? "Received " + ago(r.received_at) : "", lab, col, canAct ? () => entryActions(r) : null));
   }
   if (ul.firstChild) s.append(ul);
-  s.append(h("p", { class: "foot", text: (ul.firstChild ? "" : "Nothing sent yet. ") + "The MacBook files what you send within 15 minutes of being open." }));
+  s.append(h("p", { class: "foot", text: (ul.firstChild ? "" : "Nothing sent yet. ") + `The MacBook files what you send ${roundWords()} of being open.` }));
   return s;
 }
 
@@ -2605,12 +2609,15 @@ function sweepSum(pd, typed, today) {
     const v = c.field ? typed(c.field) : null;
     if (v === null) cardsOpen.push(c); else if (v > 0) lines.push({ kind: "card", c, amount: v, est: false });
   }
-  for (const r of reserve) lines.push({ kind: "bill", r, amount: money(r.amount), est: isEst(r) });
+  for (const r of reserve) if (money(r.amount) !== null) lines.push({ kind: "bill", r, amount: money(r.amount), est: isEst(r) });
   lines.push({ kind: "cushion", amount: money(pd.cushion) || 0, est: false });
+  const unreadable = [...items.filter(it => !gone(it) && money(it.amount) === null).map(it => it.what || "a payment"),
+                      ...reserve.filter(r => money(r.amount) === null).map(r => r.what || "a bill"),
+                      ...(money(pd.cushion) === null ? ["the cushion"] : [])];
   const bal = typed("balance");
-  const out = { beforeDay, billsTo, reserve, lines, cardsOpen, gone, isEst, balance: bal, wait: cardsOpen.length > 0 };
+  const out = { beforeDay, billsTo, reserve, lines, cardsOpen, gone, isEst, balance: bal, unreadable, wait: cardsOpen.length > 0 || unreadable.length > 0 };
   out.soon = (pd.soon_after || []).filter(r => r.due > billsTo && r.due <= plusDays(billsTo, 14));
-  if (bal === null) return out;
+  if (bal === null || unreadable.length) return out;
   let left = bal;
   for (const l of lines) left -= l.amount;
   out.left = left;
@@ -2664,14 +2671,15 @@ function updateSweep(form) {
   if (cardsOpen.length) box.append(h("div", { class: "line muted" }, h("span", { text: cardNames.replace(/^./, c => c.toUpperCase()) + ", not typed yet" }), h("span", { class: "amt", text: "not counted" })));
   const v = S.amount, wait = S.wait, approx = S.approx, shown = S.shown;
   box.append(h("div", { class: "res" + (wait ? " wait" : "") }, h("span", { text: "Amount to send" }),
-    wait ? h("span", { class: "v num rounded", text: "once the card balances are typed" })
+    wait ? h("span", { class: "v num rounded", text: S.unreadable.length ? "can't work it out" : "once the card balances are typed" })
          : h("span", { class: "est-wrap" }, h("span", { class: "v num rounded" + (approx ? " approx" : ""), text: (approx ? "~" + fmtWhole$(shown) : fmt$(v)) }))));
   if (approx) {
     const unpaidEst = pd.items.filter(it => !gone(it) && money(it.amount) && isEst(it));
     box.append(h("p", { class: "small muted", text: "Some amounts kept back are estimates, so this is approximate and rounded down." +
       (unpaidEst.length ? ` ${unpaidEst.map(it => "The " + itemName(it.what).toLowerCase()).join(" and ")} becomes exact once this month's calculation is read (step 2).` : "") }));
   }
-  if (wait) box.append(h("p", { class: "small muted", text: `Type the ${cardNames} above (0 if nothing is owing). The amount to send appears then.` }));
+  if (S.unreadable.length) box.append(h("p", { class: "small warnline", text: `Can't work it out: ${S.unreadable.map(w => shortly(dropIds(w))).join(" and ")} ${S.unreadable.length > 1 ? "have amounts" : "has an amount"} this page cannot read. Send nothing to Questrade until the MacBook's next round puts it right.` }));
+  else if (wait) box.append(h("p", { class: "small muted", text: `Type the ${cardNames} above (0 if nothing is owing). The amount to send appears then.` }));
   else if (v > 0 && !pd.ready) box.append(h("p", { class: "small muted", text: "Once step 2 is done and this page has the month's own figures, a button here puts the amount in the box below." }));
   else if (v > 0) {
     const use = h("button", { class: "btn small tinted", type: "button" }, `Put ${approx ? fmtWhole$(shown) : fmt$(v)} in the box below`);
@@ -3451,7 +3459,7 @@ function salaryCard(sal, S) {
   const room = sal.rrsp_limit ? ` is the full ${fmtWhole$(Number(sal.rrsp_limit))}` : " is full";
   const why = [`Paid to ${prettyDates(sal.as_of)}. ${plainSource(sal.source)}.`,
     expected ? `Expected for ${yr}: what is paid, and ${left} month${left === 1 ? "" : "s"} still to come${money(sal.monthly) > 0 ? ` at ${fmtWhole$(Math.round(money(sal.monthly)))}` : ""}, an estimate until they are paid.` : "",
-    `${fmtWhole$(Math.round(target))} fills ${nextYr}'s RRSP room${sal.rrsp_limit ? " of " + fmtWhole$(Number(sal.rrsp_limit)) : ""} from your salary alone. The room is 18% of ${yr}'s salary after your employment expenses; any consulting income adds room on top and never lowers the salary.`
+    `${fmtWhole$(Math.round(target))} fills ${nextYr}'s RRSP room${sal.rrsp_limit ? " of " + fmtWhole$(Number(sal.rrsp_limit)) : ""} from your salary alone. The room is ${sal.rrsp_rate ? sal.rrsp_rate + "%" : "a share"} of ${yr}'s salary after your employment expenses; any consulting income adds room on top and never lowers the salary.`
     + (basisOf(sal.rrsp_target_basis) === "estimate" ? ` An estimate: it takes this year's employment expenses to be last year's.` : "")];
   let note = null;
   if (paid >= target - 0.5) note = h("div", { class: "salnote ok" }, h("b", { text: "Reached. " }), `What has been paid already fills ${nextYr}'s RRSP room.`);
@@ -3786,7 +3794,7 @@ function renderAccount() {
           h("span", { class: "muted" }, "Room since " + acct.room_since + " ", h("b", { text: fmtWhole$(Math.round(lifeRoom)) }))) : null,
         h("p", { class: "small muted", text: tfsa ? "The bar is what went in, less what came out, against every year's limit added up. A year can take more than its own limit: room not used carries forward, and what comes out is room again the next January."
                                                     + (opening ? " Moved in is the account brought over from an earlier institution: what went in there, less what came out, not a year's contribution." : "")
-                                                   : `An FHSA takes ${fmtWhole$(Math.round(lifeRoom))} over its life, at most $8,000 a year.` })));
+                                                   : `An FHSA takes ${fmtWhole$(Math.round(lifeRoom))} over its life${money(acct.annual_limit) ? `, at most ${fmtWhole$(Math.round(money(acct.annual_limit)))} a year` : ""}.` })));
     }
     const list = h("div", { class: "list flat", hidden: true },
       years.slice().reverse().map(r => h("div", { class: "row plain" }, h("span", { class: "title", text: r[0] }),
@@ -4637,7 +4645,7 @@ function renderSettings() {
       h("div", { class: "fields" }, h("div", { class: "field" }, h("label", { for: "token", text: "New key" }), inp),
         h("button", { class: "row plain", type: "button", onclick: () => replaceKey(inp) }, h("span", { class: "title link", text: "Save the new key" }), h("span", {}))))),
     h("p", { class: "foot", text: "The key lets this page read your private mailbox on GitHub and post what you send to it, nothing else. One key per device: if a device is lost, delete its key on GitHub." }),
-    h("p", { class: "foot", text: "Only what you send from Add leaves this device. This page refuses to send text holding a number shaped like a SIN, a card, an account or a phone number. What you send waits in your private mailbox until the MacBook collects it, within 15 minutes of being open, and blacks out anything of that shape it still finds before it is written down. Never type a password here." }),
+    h("p", { class: "foot", text: `Only what you send from Add leaves this device. This page refuses to send text holding a number shaped like a SIN, a card, an account or a phone number. What you send waits in your private mailbox until the MacBook collects it, ${roundWords()} of being open, and blacks out anything of that shape it still finds before it is written down. Never type a password here.` }),
   ));
 
   p.append(h("button", { class: "btn danger wide", type: "button", onclick: () => sheet("Erase this device's copy?",
@@ -5237,6 +5245,7 @@ function renderWorkUnit() {
   const hero = h("div", { class: "fig hero glass shhero" }, h("div", { class: "ftop" }, h("span", { class: "l", text: "Pay" }),
     m.known ? basisDot(verified ? "verified" : "recorded", [verified ? "Every part is on a statement or a remittance advice." : "What you logged, until a statement or remittance advice shows it."]) : null));
   const isMgh = u.payer === "mgh";
+  const mghBy = (u.parts || []).map(x => x.expected_by).filter(Boolean).sort().pop();
   if (!parts.length) {
     const off = u.parts.some(x => /^written off/.test(x.status));
     hero.append(h("div", { class: "v shnone", text: off ? "Written off" : "Not owed" }),
@@ -5244,7 +5253,7 @@ function renderWorkUnit() {
   } else if (!m.known) {
     hero.append(h("div", { class: "v shnone", text: m.lump ? "Paid" : "Not priced yet" }), payBar(m.lump && !m.tbc ? { paid: 1, wait: 0, short: 0, over: 0, tbc: 0 } : m, "shbar big"),
       h("p", { class: "fmeta", text: m.lump ? (isMgh ? "Paid in the month's deposit; this shift's own figure comes with MGH's billing summary." : "Paid in a deposit that covers more than this shift; its own figure is to come.")
-                                   : isMgh ? "MGH prices a shift in its monthly billing summary, and pays it ~7 weeks later." : "Its amount is not known yet; it is filled in when the payment or its statement shows it." }));
+                                   : isMgh ? `MGH prices a shift in its monthly billing summary, and pays it${mghBy ? ` by about ${shortDate(mghBy)}` : " in a later month's deposit"}.` : "Its amount is not known yet; it is filled in when the payment or its statement shows it." }));
   } else {
     const leg = h("div", { class: "shlegend" });
     const item = (c, v, w) => leg.append(h("span", {}, h("i", { class: c }), h("b", { class: "num", text: fmt$(v) }), " " + w));
