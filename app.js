@@ -194,11 +194,12 @@ function icon(name) {
 
 function roundWords() {
   const m = SNAP && SNAP.payday && SNAP.payday.round_minutes;
-  return m ? `within ${m} minutes` : "soon";
+  return m ? `within ${m} minutes of being open` : "at its next round while it is open";
 }
 function money(v) {
-  const n = Number(String(v).replace(/[$,\s]/g, ""));
-  return Number.isFinite(n) ? n : null;
+  const t = String(v).replace(/[$,\s]/g, "");
+  if (t === "") return 0;
+  return /^[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)$/.test(t) ? Number(t) : null;
 }
 function fmt$(v) {
   const n = money(v);
@@ -1206,7 +1207,7 @@ function renderSitting() {
   for (const w of (pd.inbox || [])) docs.append(h("p", { class: "foot warnline", text: `In the Inbox, waiting for a session: ${w.what || w.name} (${w.why}).` }));
   const todo = (pd.documents || []).filter(d => d.state === "todo").length;
   p.append(step(1, "Download the documents", stateOf(1),
-    `${todo ? `${todo} to get.` : "All in."} Save each to the Finance System Inbox (Files › iCloud Drive on the phone; Finance System › Documents › Inbox on the MacBook); a tick means the MacBook has it (${roundWords()} while it is open). If a tick has not come, the reason shows under the list.`, docs));
+    `${todo ? `${todo} to get.` : "All in."} Save each to the Finance System Inbox (Files › iCloud Drive on the phone; Finance System › Documents › Inbox on the MacBook); a tick means the MacBook has it (${roundWords()}). If a tick has not come, the reason shows under the list.`, docs));
   const calc = pd.calculation || {};
   const s2 = h("div", { class: "card glass" },
     h("p", { text: "On the MacBook: Finance System › tools › double-click Monthly Banking. It types this month's figures into CRA's calculator (~1 minute)." }),
@@ -1548,7 +1549,7 @@ function recentSection() {
     ul.append(row(prettyDates(r.summary), r.received_at ? "Received " + ago(r.received_at) : "", lab, col, canAct ? () => entryActions(r) : null));
   }
   if (ul.firstChild) s.append(ul);
-  s.append(h("p", { class: "foot", text: (ul.firstChild ? "" : "Nothing sent yet. ") + `The MacBook files what you send ${roundWords()} of being open.` }));
+  s.append(h("p", { class: "foot", text: (ul.firstChild ? "" : "Nothing sent yet. ") + `The MacBook files what you send ${roundWords()}.` }));
   return s;
 }
 
@@ -4645,7 +4646,7 @@ function renderSettings() {
       h("div", { class: "fields" }, h("div", { class: "field" }, h("label", { for: "token", text: "New key" }), inp),
         h("button", { class: "row plain", type: "button", onclick: () => replaceKey(inp) }, h("span", { class: "title link", text: "Save the new key" }), h("span", {}))))),
     h("p", { class: "foot", text: "The key lets this page read your private mailbox on GitHub and post what you send to it, nothing else. One key per device: if a device is lost, delete its key on GitHub." }),
-    h("p", { class: "foot", text: `Only what you send from Add leaves this device. This page refuses to send text holding a number shaped like a SIN, a card, an account or a phone number. What you send waits in your private mailbox until the MacBook collects it, ${roundWords()} of being open, and blacks out anything of that shape it still finds before it is written down. Never type a password here.` }),
+    h("p", { class: "foot", text: `Only what you send from Add leaves this device. This page refuses to send text holding a number shaped like a SIN, a card, an account or a phone number. What you send waits in your private mailbox until the MacBook collects it, ${roundWords()}, and blacks out anything of that shape it still finds before it is written down. Never type a password here.` }),
   ));
 
   p.append(h("button", { class: "btn danger wide", type: "button", onclick: () => sheet("Erase this device's copy?",
