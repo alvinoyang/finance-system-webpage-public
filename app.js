@@ -1161,7 +1161,7 @@ function toBuyList() {
 function landingList() {
   const deps = toBuy().deposits || [];
   if (!deps.length) return null;
-  const word = { landed: "landed", due: "should have landed", "on-its-way": "lands by", "not-seen": "not seen at Questrade", late: "not on the statement" };
+  const word = { landed: "landed", due: "should have landed", "on-its-way": "lands by", "not-seen": "not seen at Questrade", late: "not on the statement", reversed: "taken back by Questrade, due" };
   const list = h("div", { class: "list glass" });
   for (const d of deps) {
     const when = d.status === "landed" ? d.landed_on : d.lands_by;
@@ -1169,7 +1169,7 @@ function landingList() {
     const state = `${word[d.status] || d.status} ${dayName(when, { day: "numeric", month: "short" })}` + (d.status === "due" ? " (not yet confirmed)" : "");
     list.append(h("div", { class: "row veqt" },
       h("span", { class: "main" }, h("span", { class: "title", text: what }),
-        h("span", { class: "meta" + (d.status === "not-seen" || d.status === "late" ? " warnline" : ""), text: state })),
+        h("span", { class: "meta" + (d.status === "not-seen" || d.status === "late" || d.status === "reversed" ? " warnline" : ""), text: state })),
       h("span", { class: "trail" }, basisDot(d.label, [prettyDates(d.how)]), h("span", { class: "amt num", text: fmt$(Math.abs(money(d.amount))) }))));
   }
   return list;
