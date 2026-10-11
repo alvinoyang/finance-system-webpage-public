@@ -1161,12 +1161,14 @@ function toBuyList() {
 function landingList() {
   const deps = toBuy().deposits || [];
   if (!deps.length) return null;
-  const word = { landed: "landed", due: "should have landed", "on-its-way": "lands by", "not-seen": "not seen at Questrade", late: "not on the statement", reversed: "taken back by Questrade, due" };
+  const word = { landed: "landed", due: "should have landed", "on-its-way": "lands by", "not-seen": "not seen at Questrade", late: "not on the statement" };
   const list = h("div", { class: "list glass" });
   for (const d of deps) {
     const when = d.status === "landed" ? d.landed_on : d.lands_by;
     const what = d.kind === "distribution" ? `VEQT's distribution, into ${d.name}` : d.kind === "withdrawal" ? `Taken out of ${d.name}` : `Sent ${dayName(d.sent, { day: "numeric", month: "short" })}, into ${d.name}`;
-    const state = `${word[d.status] || d.status} ${dayName(when, { day: "numeric", month: "short" })}` + (d.status === "due" ? " (not yet confirmed)" : "");
+    const state = d.status === "reversed" ? "taken back by Questrade"
+      : d.kind === "withdrawal" ? (d.status === "landed" ? `taken out ${dayName(d.landed_on, { day: "numeric", month: "short" })}` : `asked for ${dayName(d.sent, { day: "numeric", month: "short" })}, not yet seen gone`)
+      : `${word[d.status] || d.status} ${dayName(when, { day: "numeric", month: "short" })}` + (d.status === "due" ? " (not yet confirmed)" : "");
     list.append(h("div", { class: "row veqt" },
       h("span", { class: "main" }, h("span", { class: "title", text: what }),
         h("span", { class: "meta" + (d.status === "not-seen" || d.status === "late" || d.status === "reversed" ? " warnline" : ""), text: state })),
