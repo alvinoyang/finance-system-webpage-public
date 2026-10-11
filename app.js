@@ -2933,7 +2933,7 @@ function householdNow() {
   const nw = (SNAP && SNAP.networth) || {};
   if (nw.now) return { date: nw.now.date, total: money(nw.now.household), corp: money(nw.now.corporation), pers: money(nw.now.personal),
                        since: money(nw.now.personal_since), from: nw.now.personal_from, basis: nw.now.basis || "estimate", corpBasis: nw.now.corporation_label, note: nw.now.note, est: nw.now.basis !== "verified",
-                       aboutNow: !!nw.now.about_now, corpFrom: nw.now.corporation_from || nw.now.date, corpNote: nw.now.corporation_note, persNote: nw.now.personal_note };
+                       aboutNow: !!nw.now.about_now, corpFrom: nw.now.corporation_from || nw.now.date, corpNote: nw.now.corporation_note, persNote: nw.now.personal_note, persLabel: nw.now.personal_label };
   const me = nw.month_end;
   if (me) return { date: me.date, total: money(me.household), corp: money(me.corporation), pers: money(me.personal), since: 0, from: me.date,
                    basis: "derived", corpBasis: me.corporation_label, persBasis: "verified", est: false };
@@ -2990,7 +2990,7 @@ function summaryTotal() {
       h("div", { class: "list flat" },
         row("s0", "Corporation", `${pct(n.corp)} · ${n.aboutNow ? "about now" : "at market, " + monthDay(n.date)}`, n.corp, n.corpBasis,
             (n.aboutNow ? [`About now: ${n.corpNote}.`] : [`At ${prettyDates(n.date)}.`]).concat(["Its investments and chequing, plus money on its way from chequing to Questrade, less what it owes on its Visa.", "Before the tax paid to take money out of the corporation, and before a payroll remittance still to be paid."]), "corporation"),
-        row("s1", "TFSA, RRSP, FHSA", persSub, n.pers, n.aboutNow || n.since ? "estimate" : Object.entries(((SNAP.networth || {}).now || {}).personal_dates || {}).some(([a, d]) =>
+        row("s1", "TFSA, RRSP, FHSA", persSub, n.pers, n.aboutNow ? (n.persLabel || "estimate") : n.since ? "estimate" : Object.entries(((SNAP.networth || {}).now || {}).personal_dates || {}).some(([a, d]) =>
               ((regOf(a) || {}).values || []).some(v => v[0] === d && basisOf(v[2]) !== "verified")) ? "recorded" : (n.persBasis || nw.personal_label),
             n.aboutNow ? [`About now: ${n.persNote}.`] : [oneDate ? `Their values at ${prettyDates(n.from)}, from each account's own Questrade statement${n.persBasis ? "" : " (or a reading you sent from this page)"}.`
                      : `Each at its latest value: ${Object.entries(((SNAP.networth || {}).now || {}).personal_dates || {}).map(([a, d]) => `${({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[a]} ${monthDay(d)}`).join(", ")}, from each account's own Questrade statement (or a reading you sent from this page).`,
@@ -3316,7 +3316,7 @@ function movesSection(accts, title, nowName, rowName) {
                             `Worked out on the MacBook: ${plainSource(M.source || "")}.`])),
     h("div", { class: "list flat" }, rows));
   const an = accts.length === 1 && (((SNAP && SNAP.about_now) || {}).accounts || {})[accts[0]];
-  if (an) sec.append(nowLine({ statement_value: an.base, statement_date: an.base_date, on_its_way: 0, now: an.now, now_label: "estimate", note: an.note }, nowName, true));
+  if (an) sec.append(nowLine({ statement_value: an.base, statement_date: an.base_date, on_its_way: 0, now: an.now, now_label: an.label || "estimate", note: an.note, reading_time: an.reading_time || "" }, nowName, !an.reading_time));
   return sec;
 }
 
@@ -3338,8 +3338,10 @@ function bankingDaySection() {
 function nowLine(nowRow, nowName, withPrice) {
   return h("div", { class: "list flat" }, h("div", { class: "row plain" },
     h("span", { class: "main" }, h("span", { class: "title", text: `${nowName}, about now` }),
-      h("span", { class: "meta", text: `From ${fmtWhole$(Math.round(money(nowRow.statement_value)))} on ${prettyDates(nowRow.statement_date)}`
-        + (money(nowRow.on_its_way) ? `, ${fmtWhole$(Math.round(money(nowRow.on_its_way)))} on its way` : "") + ", plus what was sent since" })),
+      h("span", { class: "meta", text: (nowRow.reading_time ? `Questrade's own figure, ${prettyDates(nowRow.reading_time.slice(0, 10))} at ${nowRow.reading_time.slice(11, 16)}`
+        : `From ${fmtWhole$(Math.round(money(nowRow.statement_value)))} on ${prettyDates(nowRow.statement_date)}`
+        + (money(nowRow.on_its_way) ? `, ${fmtWhole$(Math.round(money(nowRow.on_its_way)))} on its way` : ""))
+        + (nowRow.reading_time && nowRow.now_label === "verified" ? "" : ", plus what was sent since") })),
     h("span", { class: "est-wrap" }, h("span", { class: "amt", text: fmtWhole$(Math.round(money(nowRow.now))) }),
       basisDot(nowRow.now_label, [nowRow.note + ".", withPrice ? "Carried at VEQT's latest price." : ""].filter(Boolean)))));
 }
@@ -3494,7 +3496,7 @@ function summaryPersonal() {
   if (pmc) g.append(pmc);
   const AN = (SNAP && SNAP.about_now) || {}, anA = AN.accounts || {};
   const aboutNow = !!(S.personal_market || {}).about_now && ACCOUNTS.every(([a]) => !regOf(a) || anA[a]);
-  const vals = ACCOUNTS.map(([a, n]) => [a, n, aboutNow && anA[a] ? [AN.date, money(anA[a].now), "estimate"] : lastValue(regOf(a))]).filter(x => x[2]);
+  const vals = ACCOUNTS.map(([a, n]) => [a, n, aboutNow && anA[a] ? [AN.date, money(anA[a].now), anA[a].label || "estimate"] : lastValue(regOf(a))]).filter(x => x[2]);
   const tabTo = ACCOUNTS.map(([a]) => (regOf(a) || {}).last_row || "").sort().pop();
   if (vals.length) {
     const at = vals[0][2][0], total = vals.reduce((s2, x) => s2 + x[2][1], 0);
@@ -3526,7 +3528,7 @@ function summaryPersonal() {
            : [same ? `At ${prettyDates(at)}.` : "Each at its latest value: " + vals.map(([a, n, v]) => `${n} ${prettyDates(v[0])}`).join(", ") + ".",
               "From each account's own Questrade statement, or a value you read off Questrade and sent from this page (Add › A reading)."],
         body: h("div", {}, meter(vals.map(([a, n, v], i) => ({ value: v[1], cls: "s" + i, label: n }))), rows),
-        meta: [h("span", { class: "asof", text: (aboutNow ? `Including what you logged since the statements, and VEQT's price. ` : since > 0 ? `${fmtWhole$(Math.round(since))} more has gone in since ${anyReading ? "these values" : "the statements"}. `
+        meta: [h("span", { class: "asof", text: (aboutNow ? (ACCOUNTS.some(([a2]) => (anA[a2] || {}).reading_time) ? `Questrade's own figures where it has read them since VEQT's last close; otherwise the statements, what you logged since, and VEQT's price. ` : `Including what you logged since the statements, and VEQT's price. `) : since > 0 ? `${fmtWhole$(Math.round(since))} more has gone in since ${anyReading ? "these values" : "the statements"}. `
                                                    : since < 0 ? `${fmtWhole$(Math.round(-since))} more has come out than gone in since ${anyReading ? "these values" : "the statements"}. ` : "")
                                                    + (withRoom.length ? `${y} is counted${tabTo ? " to " + monthDay(tabTo) : ""}, from your Registered Contributions tab${withRoom.some(([a]) => (regOf(a).waiting || []).length) ? " and this page" : ""}.` : "") })] }));
   }
@@ -4341,7 +4343,7 @@ function renderTrend() {
   const anT = main.about_now, estNow = !fig && !!(anT && String(last[0]) >= anT.date);
   const big = h("div", { class: "trend-top" },
     h("div", { class: "ftop" }, h("span", { class: "l", text: estNow ? "About now, " + asOf : "At " + asOf }),
-      basisDot(estNow ? "estimate" : fig ? fig.basis : main.basis, estNow ? [`About now: ${anT.note}.`, `The statements stop at ${prettyDates(anT.from)}; the next statement replaces this estimate.`]
+      basisDot(estNow ? (anT.label || "estimate") : fig ? fig.basis : main.basis, estNow ? [`About now: ${anT.note}.`, `The statements stop at ${prettyDates(anT.from)}; the next statement replaces this estimate.`]
                                                          : fig ? whyLines(fig) : [plainSource(main.source) + "."])),
     h("div", { class: "v rounded" }, estNow ? h("span", { class: "about", text: "~" }) : null, lead));
   if (fig && fig.note) big.append(h("div", { class: "fmeta" }, h("span", { class: "asof", text: fig.note + "." })));
