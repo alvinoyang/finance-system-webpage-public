@@ -454,6 +454,7 @@ const KINDS = {
           help: "Anything that changes the plan." },
   answer: { name: "Answer a question", desc: "", icon: "bubble", color: "purple", group: "any", help: "" },
   note: { name: "Note", desc: "Anything else for the record", icon: "pencil", color: "gray", group: "any", help: "" },
+  invested: { name: "Bought VEQT", desc: "", icon: "vault", color: "blue", group: "button", help: "" },
 };
 function kindOf(k) {
   const o = KINDS[k] || { name: k, desc: "", icon: "pencil", color: "gray" };
@@ -1002,6 +1003,8 @@ function renderToday() {
   }
   const colA = h("div", {}), colB = h("div", {});
   colA.append(h("section", { class: "section" }, h("h2", { text: "Monthly banking" }), visitCard()));
+  const buy = toBuyList();
+  if (buy) colA.append(h("section", { class: "section" }, h("h2", { text: "To invest" }), buy));
   colA.append(questionsSection());
   colB.append(upcoming());
   p.append(h("div", { class: "cols" }, colA, colB));
@@ -1035,6 +1038,10 @@ function attention() {
   }
   if (m.collect_failed_since && !asleep) out.push(alert("orange", "warn", "The MacBook cannot collect your entries",
     `Since ${ago(m.collect_failed_since)}${m.collect_failed_reason ? ` (${m.collect_failed_reason})` : ""}. They wait in your mailbox, safe, until it can.`, null));
+  for (const d of (toBuy().warn || [])) {
+    out.push(alert("orange", "warn", `${fmt$(money(d.amount))} sent ${dayName(d.sent, { day: "numeric", month: "long" })} has not reached ${d.name || "Questrade"}`,
+      `It was due by ${dayName(d.lands_by, { weekday: "short", day: "numeric", month: "long" })}, and Questrade's own record does not show it. Look in the bank (did it leave?) and in Questrade (did it arrive?), then tell a session what you see.`));
+  }
   for (const c of ((SNAP && SNAP.cards && SNAP.cards.cards) || [])) {
     for (const it of (c.items || [])) {
       if (it.status !== "ACT" && it.status !== "MISSED") continue;
@@ -1127,6 +1134,45 @@ function visitCard() {
   if (svT && svT.balance < svT.low_below) c.append(h("p", { class: "foot", text: `Savings is at ${fmt$(svT.balance)}, under a month's ${fmtWhole$(svT.low_below)}.` }));
   if ((pd.year_end || []).length) c.append(h("p", { class: "foot", text: `December: look once more before the 31st (${pd.year_end.length} thing${pd.year_end.length === 1 ? "" : "s"}, on the steps page).` }));
   return tapArea(c, `Monthly banking, ${sittingName().toLowerCase()}: every step of the day`, () => openView({ type: "sitting" }));
+}
+function toBuy() { return (SNAP && SNAP.payday && SNAP.payday.to_buy) || {}; }
+function boughtSent(acct) {
+  return load("outbox", []).concat(load("sent", []).map(x => x.entry)).some(e => e && e.kind === "invested" && e.fields
+    && e.fields.account === acct && e.fields.date === todayISO());
+}
+function toBuyList() {
+  const tb = toBuy(), rows = (tb.buy || []).filter(b => !boughtSent(b.account));
+  const said = tb.said || [];
+  if (!rows.length && !said.length) return null;
+  const list = h("div", { class: "list glass" });
+  for (const b of rows) {
+    const btn = h("button", { class: "btn small tinted", type: "button", text: "Bought" });
+    btn.addEventListener("click", () => { submit("invested", { date: todayISO(), account: b.account }, null, "Saved. The reminder goes; Questrade's own reading, or the next statement, checks it."); render(); });
+    const since = b.since ? `Waiting since ${dayName(b.since, { day: "numeric", month: "long" })}.` : "";
+    list.append(h("div", { class: "row veqt" },
+      h("span", { class: "main" }, h("span", { class: "title", text: prettyDates(b.words) }),
+        h("span", { class: "meta", text: [since, "Buy it in Questrade, then tap Bought.", b.said].filter(Boolean).join(" ") })),
+      h("span", { class: "trail" }, basisDot(b.label, [tb.source || ""]), btn)));
+  }
+  for (const x of said) list.append(h("div", { class: "row veqt" },
+    h("span", { class: "main" }, h("span", { class: "title", text: `About ${x.name}` }), h("span", { class: "meta", text: prettyDates(x.said) }))));
+  return list;
+}
+function landingList() {
+  const deps = toBuy().deposits || [];
+  if (!deps.length) return null;
+  const word = { landed: "landed", due: "should have landed", "on-its-way": "lands by", "not-seen": "not seen at Questrade", late: "not on the statement" };
+  const list = h("div", { class: "list glass" });
+  for (const d of deps) {
+    const when = d.status === "landed" ? d.landed_on : d.lands_by;
+    const what = d.kind === "distribution" ? `VEQT's distribution, into ${d.name}` : d.kind === "withdrawal" ? `Taken out of ${d.name}` : `Sent ${dayName(d.sent, { day: "numeric", month: "short" })}, into ${d.name}`;
+    const state = `${word[d.status] || d.status} ${dayName(when, { day: "numeric", month: "short" })}` + (d.status === "due" ? " (not yet confirmed)" : "");
+    list.append(h("div", { class: "row veqt" },
+      h("span", { class: "main" }, h("span", { class: "title", text: what }),
+        h("span", { class: "meta" + (d.status === "not-seen" || d.status === "late" ? " warnline" : ""), text: state })),
+      h("span", { class: "trail" }, basisDot(d.label, [prettyDates(d.how)]), h("span", { class: "amt num", text: fmt$(Math.abs(money(d.amount))) }))));
+  }
+  return list;
 }
 function billsFrom(today) {
   const off = new Set((SNAP && SNAP.payday && SNAP.payday.holidays) || []);
@@ -1255,9 +1301,11 @@ function renderSitting() {
   const sentOn = lastSent ? lastSent.date : null;
   const lands = pd.lands || {}, within = n => n != null ? `within ${plural(n, "business day", "business days")}` : "in a few business days";
   const ownToo = (pd.invest && (pd.invest.sent || []).length) ? ` Buy VEQT in your own account too, with what you sent from your own pay, once it lands (${within(lands.registered)}).` : "";
-  p.append(step(5, "Buy VEQT when it lands", null, sentOn && lastSent.lands_by
+  const s5 = [landingList(), toBuyList()].filter(Boolean);
+  p.append(step(5, "Buy VEQT when it lands", null, (sentOn && lastSent.lands_by
     ? `The ${fmt$(lastSent.sweep)} sent ${dayName(sentOn, { day: "numeric", month: "long" })} lands in the corporation's Questrade account by ${dayName(lastSent.lands_by, { weekday: "long", day: "numeric", month: "long" })}. Then, in Questrade, buy VEQT with the cash there.` + ownToo
-    : `The money lands in the corporation's Questrade account ${within(lands.questrade)}. Then, in Questrade, buy VEQT with the cash there.` + ownToo, null));
+    : `The money lands in the corporation's Questrade account ${within(lands.questrade)}. Then, in Questrade, buy VEQT with the cash there.` + ownToo)
+    + " Once you have bought, tap Bought beside it; Questrade's own reading, or the next statement, checks it.", s5.length ? h("div", {}, ...s5) : null));
   const qn = openQuestions().length;
   p.append(step(6, "Answer the questions", qn ? "now" : "done", qn
     ? `${qn} open: what an expense was for, or something the statements could not say. New ones from this month's statements come within a few hours of step 1.`
@@ -1569,6 +1617,7 @@ function summaryOf(e) {
     case "income": return `Income ${fmt$(f.amount)}`;
     case "registered": return `${fmt$(f.amount)} ${f.direction === "withdrawal" ? "out of" : "into"} ${(f.account || "").replace(/^qt-/, "").toUpperCase()}`;
     case "reading": return `Reading: ${f.value || ""}`;
+    case "invested": return `Bought VEQT, ${(((toBuy().buy || []).find(b => b.account === f.account) || {}).name || (f.account || "").replace(/^qt-/, "").toUpperCase())}, ${shortDate(f.date)}`;
     case "card": return "Card change";
     case "life": return "Change: " + (f.text || "").slice(0, 60);
     case "answer": {
