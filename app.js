@@ -1480,6 +1480,18 @@ function investRows(pd, items, box) {
   if (inv.stale && inv.read_at) note(`YNAB was last read ${dayName(inv.read_at.slice(0, 10), { day: "numeric", month: "long" })} at ${inv.read_at.slice(11, 16)}: open the MacBook so it reads it again before you send.`, true);
 }
 
+function titleCut(title) {
+  if (title.length <= 28) return [title, ""];
+  let depth = 0;
+  for (let i = 0; i < title.length - 1; i++) {
+    const c = title[i];
+    if (c === "(") depth++;
+    else if (c === ")") depth = Math.max(0, depth - 1);
+    else if (c === "," && title[i + 1] === " " && depth === 0 && i >= 10) return [title.slice(0, i), title.slice(i + 2)];
+  }
+  return [title, ""];
+}
+
 function upcoming() {
   const s = h("section", { class: "section" }, h("h2", { text: "Coming up" }));
   const visitItems = ((SNAP.payday && SNAP.payday.items) || []).filter(i => i.due && money(i.amount) !== null);
@@ -1509,8 +1521,8 @@ function upcoming() {
       rest = "";
     }
     const est = (d.basis || "").startsWith("estimate") && !via;
-    const comma = title.length > 28 ? title.indexOf(", ") : -1;
-    if (comma >= 10) { rest = (title.slice(comma + 2) + (rest ? ". " + rest : "")).trim(); title = title.slice(0, comma); }
+    const [t1, t2] = titleCut(title);
+    if (t2) { rest = (t2 + (rest ? ". " + rest : "")).trim(); title = t1; }
     const detail = rest ? rest.replace(/^./, c => c.toUpperCase()).replace(/(^|[^$\d.,])(\d{1,3}(?:,\d{3})*\.\d{2})\b/g, "$1$$$2") : "";
     const more = !!detail || title.length > 30;
     const main = h("span", { class: "main" }, h("span", { class: "title one", text: title }),
@@ -4763,6 +4775,7 @@ const ID_RE = "[QDA]-20\\d\\d-\\d\\d-\\d\\d(?:-\\d\\d)?";
 function dropIds(t) {
   return String(t || "")
     .replace(new RegExp("\\s*\\((?:see\\s+|under\\s+)?" + ID_RE + "\\)", "gi"), "")
+    .replace(new RegExp("\\((?:see\\s+|under\\s+)?" + ID_RE + "\\s*[,;]\\s*", "gi"), "(")
     .replace(new RegExp("\\s*(?:Recorded as|Recorded under|Under|See)\\s+" + ID_RE + "\\s*\\.", "gi"), "")
     .replace(new RegExp("\\s*,?\\s*" + ID_RE, "g"), "")
     .replace(/\s{2,}/g, " ").replace(/\s+([,;.])/g, "$1").trim();
