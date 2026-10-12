@@ -104,11 +104,11 @@ input.masked { -webkit-text-security: disc; }
 .icon-btn { position: relative; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; color: var(--accent); }
 .icon-btn svg { width: 22px; height: 22px; }
 @media (hover: hover) { .icon-btn:hover { background: var(--fill); } }
-body.in-form .bar .seg, body.in-form .bar .sync, body.in-form #gear { visibility: hidden; pointer-events: none; }
+body.in-form .bar .seg, body.in-form .bar .sync, body.in-form #gear, body.in-form .bar-hide { visibility: hidden; pointer-events: none; }
 .bar-done { display: none; color: var(--accent); font-weight: 600; padding: 10px 2px; min-height: 44px; }
 body.in-settings .bar-done { display: inline-flex; align-items: center; }
 body.in-settings .seg { visibility: hidden; }
-body.in-settings .bar .sync, body.in-settings #gear { visibility: hidden; display: none !important; }
+body.in-settings .bar .sync, body.in-settings #gear, body.in-settings .bar-hide { visibility: hidden; display: none !important; }
 body.in-settings main { padding-bottom: 60px; }
 
 .sync {
@@ -157,8 +157,17 @@ body.in-form main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 .head-sync .sync-t { overflow: hidden; text-overflow: ellipsis; }
 .head-gear { width: 40px; height: 40px; margin-right: -8px; }
 .head-gear svg { width: 23px; height: 23px; }
+.head-hide { width: 40px; height: 40px; }
+.hide-btn { color: var(--ink-3); }
+.hide-btn[aria-pressed="true"] { color: var(--accent); }
+.hide-btn svg { width: 23px; height: 23px; }
+@media (max-width: 359px) {
+  .head .head-sync .sync-t { display: none; }
+  .head .head-sync { padding-left: 10px; padding-right: 10px; gap: 0; overflow: visible; }
+  .head .head-sync::after { inset: -13px -8px; }
+}
 @media (max-width: 599px) {
-  .bar #gear { display: none; }
+  .bar #gear, .bar .bar-hide { display: none; }
   body.toplevel #bar, body.toplevel #bar.scrolled { opacity: 0; pointer-events: none; }
   body.toplevel::after {
     content: ""; position: fixed; top: 0; left: 0; right: 0; z-index: 19; pointer-events: none;
@@ -219,6 +228,8 @@ body.in-form main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 .fig .v .c { font-size: .66em; font-weight: 600; opacity: .7; }
 .fig .v .about { font-size: .42em; font-weight: 600; color: var(--ink-2); letter-spacing: 0; margin-right: 1px; vertical-align: .34em; }
 .fig.hero .v { font-size: 2.3rem; letter-spacing: -.04em; font-variant-numeric: normal; }
+.fchange { margin-top: -4px; font-size: .9375rem; font-weight: 600; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.fchange .arrow { font-size: .72em; margin-right: 5px; position: relative; top: -1px; }
 .fig .more { font-size: .8125rem; color: var(--ink-2); display: grid; gap: 2px; }
 .fig .spark { display: block; }
 .fig .spark.none:empty { display: none; }
@@ -343,6 +354,10 @@ body.in-form main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 .row > svg, .row .chev { color: var(--ink-3); width: 14px; height: 14px; flex: none; }
 .row .trail { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-3); }
 .row .trail svg { width: 14px; height: 14px; }
+.buyrow { grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+.buyrow .trail { padding-top: 1px; }
+.buyrow .trail .amt { color: var(--ink); }
+.buyrow .buyact { margin-top: 8px; }
 .row .chiprow { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .row.open .clamp { -webkit-line-clamp: unset; display: block; }
@@ -427,7 +442,7 @@ details.fold[open] > summary .when-closed, details.fold:not([open]) > summary .w
 .segs:has(> button:nth-of-type(4)[aria-checked="true"]) { --i: 3; } .segs:has(> button:nth-of-type(5)[aria-checked="true"]) { --i: 4; }
 .segs:has(> button:nth-of-type(6)[aria-checked="true"]) { --i: 5; }
 .segs button:active:not([aria-checked="true"]) { opacity: .55; }
-.segs.range { max-width: 320px; }
+.segs.range { max-width: 400px; }   /* four choices since 2026-10-11 ("This year" added): wider, or they crowd */
 .segs.wide { max-width: none; }
 .segs.partseg { max-width: 460px; width: 100%; justify-self: center; margin-top: 0; }
 .segs.partseg button { padding: 7px 2px; font-size: .84rem; }
