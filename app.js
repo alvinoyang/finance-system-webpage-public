@@ -826,7 +826,16 @@ function viewTitle(v) {
             card: v.title || "Card", trend: v.title || "History", sitting: "Monthly banking",
             saving: "What you invest", ytd: ytdTitle(v.measure), returns: "What it is worth", spending: "What you spend", vehicle: (SNAP && SNAP.vehicle && SNAP.vehicle.name) || "Your car" })[v.type] || "Back";
 }
-function onScroll() { document.getElementById("bar").classList.toggle("scrolled", window.scrollY > (document.body.classList.contains("toplevel") ? 48 : 28)); }
+function onScroll() {
+  document.getElementById("bar").classList.toggle("scrolled", window.scrollY > (document.body.classList.contains("toplevel") ? 48 : 28));
+  let held = false;
+  for (const hd of document.querySelectorAll("#main .shmonth-h")) {
+    const top = parseFloat(getComputedStyle(hd).top) || 0;
+    const on = window.scrollY > 0 && hd.getBoundingClientRect().top <= top + 0.5;
+    hd.classList.toggle("stuck", on); held = held || on;
+  }
+  document.body.classList.toggle("month-held", held);
+}
 function measureBar() {
   const b = document.getElementById("bar");
   if (b && b.offsetHeight) document.documentElement.style.setProperty("--bar-h", b.offsetHeight + "px");
