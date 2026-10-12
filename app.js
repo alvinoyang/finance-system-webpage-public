@@ -4296,17 +4296,17 @@ function renderWork(embedded) {
     }
     const K = W.kinds || {};
     const kind = t => K[`${y}|${t}`];
-    const unitWord = (place, n) => plural(n, ({ mgh: "shift or call", edlp: "shift", bochner: "list", endoscopy: "list", abp: "month" })[place] || "entry",
-                                          ({ mgh: "shifts and calls", edlp: "shifts", bochner: "lists", endoscopy: "lists", abp: "months" })[place] || "entries");
+    const unitWord = (place, n) => plural(n, ({ mgh: "shift or call", edlp: "shift", bochner: "sedation", endoscopy: "sedation", abp: "month" })[place] || "entry",
+                                          ({ mgh: "shifts and calls", edlp: "shifts", bochner: "sedations", endoscopy: "sedations", abp: "months" })[place] || "entries");
     const unitsText = () => {
       if (pl === "edlp") { const sh = kind("edlp-shift"); return sh ? plural(Number(sh.units), "shift") : ""; }
       const ppk = (pl === "mgh" || pl === "all") && kind("mgh-practice-plan");   // its activities are not shifts
       const stk = pl === "all" && kind("edlp-stipend");                          // nor is a month's stipend (since 2026-09-15)
       const abk = pl === "all" && kind("abp-consulting");                        // ABP's months are named apart (since 2026-09-15)
       const n = units - (ppk ? Number(ppk.units) : 0) - (stk ? Number(stk.units) : 0) - (abk ? Number(abk.units) : 0);
-      if (abk && Number(abk.units)) return plural(n, "shift or list", "shifts and lists") + ` and ${plural(Number(abk.units), "month", "months")} of ABP`;
-      return plural(n, ({ mgh: "shift or call", bochner: "list", endoscopy: "list", abp: "month's entry", all: "shift or list" })[pl] || "entry",
-                    ({ mgh: "shifts and calls", bochner: "lists", endoscopy: "lists", abp: "months' entries", all: "shifts and lists" })[pl] || "entries");
+      if (abk && Number(abk.units)) return plural(n, "shift or sedation", "shifts and sedations") + ` and ${plural(Number(abk.units), "month", "months")} of ABP`;
+      return plural(n, ({ mgh: "shift or call", bochner: "sedation", endoscopy: "sedation", abp: "month's entry", all: "shift or sedation" })[pl] || "entry",
+                    ({ mgh: "shifts and calls", bochner: "sedations", endoscopy: "sedations", abp: "months' entries", all: "shifts and sedations" })[pl] || "entries");
     };
     if (!c) { holder.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: `No work at ${nameOf(pl)} ${y === "all" ? "yet" : "in " + y}.` }))); return; }
     const hrs = money(c.hours), units = Number(c.units), tr = money(c.travel_hours);
@@ -5198,7 +5198,7 @@ function unitDid(u) {
 function workedWords(us) {
   const lists = us.filter(u => u.payer === "bochner" || u.payer === "endoscopy").length, calls = us.filter(u => /call/.test(u.type || "")).length;
   const shifts = us.length - lists - calls;
-  return [shifts ? plural(shifts, "shift") : "", lists ? plural(lists, "list") : "", calls ? plural(calls, "call") : ""].filter(Boolean).join(" · ") || plural(0, "shift");
+  return [shifts ? plural(shifts, "shift") : "", calls ? plural(calls, "call") : "", lists ? plural(lists, "sedation") : ""].filter(Boolean).join(" · ") || plural(0, "shift");
 }
 function unitHead(u) {
   if (/stipend/.test(u.type)) return `${PLACE_NAMES_PAGE[u.payer] || u.payer} stipend`;
