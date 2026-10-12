@@ -5455,7 +5455,7 @@ function renderWorkUnit() {
     const stat = (k, v, sub, dot) => h("div", { class: "shstat" }, h("div", { class: "k", text: k }),
       h("div", { class: "v num" + (v ? "" : " none") }, v || "\u2013", dot || null), h("div", { class: "s", text: sub || "\u00a0" }));
     p.append(h("div", { class: "shstats glass" },
-      stat("Hours", hrs ? String(Math.round(hrs * 10) / 10) : "", trv ? `+ ${Math.round(trv * 60)} min travel` : "", hrs ? basisDot(d.hours_label, d.hours_from === "usual" ? ["Here, your usual 12 hours for an EDLP shift, since none were typed for it. Type its hours on the shift if they were different."] : undefined) : null),
+      stat("Hours", hrs ? String(Math.round(hrs * 10) / 10) : "", trv ? `+ ${Math.round(trv * 60)} min travel` : "", hrs ? basisDot(d.hours_label, d.hours_from === "usual" ? [`Here, your usual ${String(Math.round(hrs * 10) / 10)} hours for this kind of shift, since none were typed for it. Type its hours on the shift if they were different.`] : undefined) : null),
       stat("Patients", pts ? String(pts) : "", pts && hrs ? `${(pts / hrs).toFixed(1)} an hour` : pts ? "" : u.entry_id && allShifts().some(z => z.id === u.entry_id) ? "Add on the shift" : ""),
       stat("Per hour", perh ? fmtWhole$(perh) : "", perh ? (commute && trv ? "with the commute" : "") : m.tbc || m.lump ? "once it is priced" : "")));
   }
