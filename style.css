@@ -812,6 +812,22 @@ details.billing > .fields > .foot { padding: 0; }
 .owedlead .fv.orange { color: var(--orange); }
 @media (max-width: 380px) { .owedlead { grid-template-columns: 1fr 1fr; } }
 .shmonth-h { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 12px; padding: 0 4px; }
+.shmonth-h {
+  position: sticky; top: var(--bar-h, calc(max(8px, env(safe-area-inset-top)) + 60px)); z-index: 18;
+  margin: 0 -16px; padding: 8px 20px;
+}
+.shmonth-h::before {
+  content: ""; position: absolute; left: 0; right: 0; top: -12px; bottom: -28px; z-index: -1; pointer-events: none;
+  opacity: 0; transition: opacity .15s;
+  background: linear-gradient(to bottom, var(--ground) 0%, var(--ground) 62%, color-mix(in srgb, var(--ground) 70%, transparent) 76%,
+    color-mix(in srgb, var(--ground) 30%, transparent) 89%, transparent 100%);
+}
+.shmonth-h.stuck::before { opacity: 1; }
+@media (max-width: 599px) {
+  body.toplevel .shmonth-h { top: max(0px, env(safe-area-inset-top)); z-index: 20; }
+  body.toplevel .shmonth-h::before { top: calc(-12px - env(safe-area-inset-top)); }
+  body.toplevel.month-held::after { display: none; }
+}
 .shmonth-h h2 { margin: 0; white-space: nowrap; }
 .shmonth-t { font-size: .8125rem; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
 .shbar { display: flex; gap: 2px; height: 5px; border-radius: 99px; overflow: hidden; background: var(--fill); margin: 0 4px; }
