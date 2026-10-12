@@ -5281,7 +5281,7 @@ function workOwed() {
       const known = its.reduce((a, i) => a + (money(i.expected) || 0), 0);
       const next = its.map(i => i.expected_by).filter(Boolean).sort()[0];
       const unfiled = its.every(i => i.status === "waiting (bank statement not filed)");
-      ul.append(h("button", { class: "row amtrow", type: "button", onclick: () => { save("workpart", "shifts"); SHIFTS_FILTER = "waiting"; ENTER = ""; render(true); window.scrollTo(0, 0); } },
+      ul.append(h("button", { class: "row amtrow", type: "button", onclick: () => { save("workpart", "shifts"); SHIFTS_FILTER = "waiting:" + payer; ENTER = ""; render(true); window.scrollTo(0, 0); } },
         h("span", { class: "main" }, h("span", { class: "title", text: PLACE_NAMES_PAGE[payer] || payer.toUpperCase() }),
           h("span", { class: "meta", text: plural(shifts, "shift") + (next ? ` · next by ${dayName(next, { month: "short", day: "numeric" })}` : "")
             + (unfiled ? " · bank statement not filed yet" : "") })),
@@ -5345,6 +5345,11 @@ function workShifts() {
   units.sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const waiting = units.filter(u => !u.local && unitState(u) === "wait");
   const which = { waiting: waiting, all: units };
+  const owedIds = {};
+  for (const i of (wp.items || []).filter(i => /^waiting|partly|details/.test(i.status))) (owedIds[i.payer] = owedIds[i.payer] || new Set()).add((i.row_ids || "").split(";")[0] || i.date);
+  for (const [p, ids] of Object.entries(owedIds)) which["waiting:" + p] = units.filter(u => !u.local && u.payer === p && ids.has(u.id));
+  const payersWaiting = Object.keys(owedIds).filter(p => which["waiting:" + p].length).sort((a, b) => which["waiting:" + b].length - which["waiting:" + a].length);
+  const words = k => k.startsWith("waiting:") ? `Waiting · ${PLACE_NAMES_PAGE[k.slice(8)] || k.slice(8).toUpperCase()}` : WORDS[k];
   let v = SHIFTS_FILTER; if (!which[v] || !which[v].length) v = "all";
   const holder = h("div", { class: "page" });
   const draw = k => {
@@ -5390,7 +5395,8 @@ function workShifts() {
     if (!which[k].length) holder.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "None." })));
   };
   const WORDS = { all: "All shifts", waiting: "Waiting" };
-  const pulls = () => h("div", { class: "pulls" }, pullDown(WORDS[v], [[["all", "All shifts", units.length], ["waiting", "Waiting", waiting.length]]], v,
+  const byPayer = payersWaiting.length ? [payersWaiting.map(p => ["waiting:" + p, words("waiting:" + p), which["waiting:" + p].length])] : [];
+  const pulls = () => h("div", { class: "pulls" }, pullDown(words(v), [[["all", "All shifts", units.length], ["waiting", "Waiting", waiting.length]]].concat(byPayer), v,
     k => { v = k; SHIFTS_FILTER = k; out.querySelector(".pulls").replaceWith(pulls()); draw(k); }, "Which shifts", { active: v !== "all" }));
   out.append(pulls(), holder);
   draw(v);
