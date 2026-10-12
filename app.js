@@ -177,6 +177,8 @@ const ICONS = {
   trend: [["path", { d: "M4 17l5-5 3.5 3.5L20 8" , "stroke-width": 2.2 }], ["path", { d: "M15 8h5v5" , "stroke-width": 2.2 }]],
   updown: [["path", { d: "M8.5 9.5L12 6l3.5 3.5M8.5 14.5L12 18l3.5-3.5", "stroke-width": 2 }]],
   refresh: [["path", { d: "M19 12a7 7 0 1 1-2.05-4.95", "stroke-width": 2.2 }], ["path", { d: "M19.5 4.5v4h-4", "stroke-width": 2.2 }]],
+  eye: [["path", { d: "M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z" }], ["circle", { cx: 12, cy: 12, r: 3 }]],
+  eyeOff: [["path", { d: "M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z" }], ["circle", { cx: 12, cy: 12, r: 3 }], ["path", { d: "M4 4l16 16", "stroke-width": 2.2 }]],
 };
 function icon(name) {
   const NS = "http://www.w3.org/2000/svg";
@@ -563,7 +565,7 @@ function head(title, sub, withStatus) {
     const pill = h("button", { class: src.className + " head-sync", type: "button", "aria-label": src.getAttribute("aria-label"), onclick: () => openView({ type: "settings" }) },
       h("span", { class: "dot" }), h("span", { class: "sync-t", text: SYNC_SHORT || document.getElementById("sync-text").textContent }));
     const gear = h("button", { class: "icon-btn head-gear", type: "button", "aria-label": "Settings", onclick: () => openView({ type: "settings" }) }, icon("gear"));
-    hd.append(h("div", { class: "head-right" }, pill, gear));
+    hd.append(h("div", { class: "head-right" }, pill, hideButton("head-hide"), gear));
   }
   if (sub) hd.append(h("div", { class: "sub", text: sub }));
   return hd;
@@ -629,6 +631,99 @@ function foldProse(root) {
     run[0].after(show);
   }
 }
+let HIDE = (() => { try { return JSON.parse(rawGet("hideamounts")) === true; } catch (e) { return false; } })();
+let MONEY_RE_ = null;
+function moneyRe() {
+  if (MONEY_RE_) return MONEY_RE_;
+  const codes = Object.keys(CURRENCY_SHORT).join("|"), n = "\\d{1,3}(?:,\\d{3})*(?:\\.\\d+)?|\\d+(?:\\.\\d+)?";
+  MONEY_RE_ = new RegExp(`\\$\\s?[+−-]?\\d[\\d,]*(?:\\.\\d+)?(?:[KkMB](?![A-Za-z]))?|\\b(?:${n})\\s?(?:${codes})\\b|\\b(?:${codes})\\s?\\d[\\d,]*(?:\\.\\d+)?`, "g");
+  return MONEY_RE_;
+}
+const UNITS_RE = /[~]?\d[\d,]*(?:\.\d+)?(?=\s+units?\b)/g;
+const VALUE_RE = /(\bvalue:\s*)[−-]?\d[\d,]*(?:\.\d+)?/g;
+const BARE_RE = /(?<![\d.,§])[−+-]?(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.\d{2,}|\d{3,}\.\d+|\d{5,})(?![\d%])(?!\s?percent\b)/g;
+const BARE_MASK = "•••••";
+const MASK = "$•••••";
+const MASK_ATTRS = ["title", "aria-label"];
+const UNMASKED = new WeakMap();
+const masked = v => {
+  const out = v.replace(moneyRe(), MASK).replace(UNITS_RE, BARE_MASK).replace(VALUE_RE, "$1" + MASK).replace(BARE_RE, BARE_MASK);
+  return out === v ? null : out;
+};
+const outside = el => !el || (el.closest && el.closest("script, style, #lock, [contenteditable]"));
+function maskText(node) {
+  const v = node.nodeValue, kept = UNMASKED.get(node);
+  if (kept !== undefined && v === masked(kept)) return;
+  const m = v && /\d/.test(v) && !outside(node.parentNode) ? masked(v) : null;
+  if (m !== null) { UNMASKED.set(node, v); node.nodeValue = m; }
+  else UNMASKED.delete(node);
+}
+function maskAttrs(el) {
+  if (outside(el)) return;
+  for (const a of MASK_ATTRS) {
+    const v = el.getAttribute(a), o = UNMASKED.get(el) || {};
+    if (o[a] !== undefined && v === masked(o[a])) continue;
+    const m = v && masked(v);
+    if (m) { o[a] = v; UNMASKED.set(el, o); el.setAttribute(a, m); }
+    else if (o[a] !== undefined) delete o[a];
+  }
+  if (el.dataset && el.dataset.hide !== undefined && el.textContent !== el.dataset.hide) {
+    const o = UNMASKED.get(el) || {}; o.__text = el.textContent; UNMASKED.set(el, o); el.textContent = el.dataset.hide;
+  }
+}
+function maskMoney(root) {
+  if (!root) return;
+  if (root.nodeType === 3) { maskText(root); return; }
+  if (root.nodeType !== 1) return;
+  maskAttrs(root);
+  for (const el of root.querySelectorAll("[title], [aria-label], [data-hide]")) maskAttrs(el);
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let n = w.nextNode(); n; n = w.nextNode()) maskText(n);
+}
+function unmaskMoney(root) {
+  for (const el of [root, ...root.querySelectorAll("[title], [aria-label], [data-hide]")]) {
+    const o = UNMASKED.get(el);
+    if (!o) continue;
+    for (const a of MASK_ATTRS) if (o[a] !== undefined) el.setAttribute(a, o[a]);
+    if (o.__text !== undefined) el.textContent = o.__text;
+    UNMASKED.delete(el);
+  }
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let n = w.nextNode(); n; n = w.nextNode()) if (UNMASKED.has(n)) { n.nodeValue = UNMASKED.get(n); UNMASKED.delete(n); }
+}
+new MutationObserver(recs => {
+  if (!HIDE) return;
+  for (const r of recs) {
+    if (r.type === "characterData") {
+      maskText(r.target);
+      const pe = r.target.parentNode;
+      if (pe && pe.dataset && pe.dataset.hide !== undefined) maskAttrs(pe);
+    }
+    else if (r.type === "attributes") maskAttrs(r.target);
+    else {
+      for (const n of r.addedNodes) maskMoney(n);
+      if (r.target.dataset && r.target.dataset.hide !== undefined) maskAttrs(r.target);
+    }
+  }
+}).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: MASK_ATTRS });
+function hideButton(cls) {
+  const b = h("button", { class: "icon-btn hide-btn" + (cls ? " " + cls : ""), type: "button", "aria-pressed": String(HIDE),
+                          "aria-label": "Hide the amounts" }, icon(HIDE ? "eyeOff" : "eye"));
+  b.addEventListener("click", () => setHide(!HIDE));
+  return b;
+}
+function setHide(on) {
+  HIDE = !!on;
+  save("hideamounts", HIDE);
+  for (const b of document.querySelectorAll(".hide-btn")) {
+    clear(b).append(icon(HIDE ? "eyeOff" : "eye"));
+    b.setAttribute("aria-pressed", String(HIDE));
+  }
+  closePop();
+  if (HIDE) maskMoney(document.body);
+  else unmaskMoney(document.body);
+}
+
 let FOLD_RAF = 0;
 new MutationObserver(() => {
   if (FOLD_RAF) return;
@@ -1148,11 +1243,19 @@ function toBuyList() {
   for (const b of rows) {
     const btn = h("button", { class: "btn small tinted", type: "button", text: "Bought" });
     btn.addEventListener("click", () => { submit("invested", { date: todayISO(), account: b.account }, null, "Saved. The reminder goes; Questrade's own reading, or the next statement, checks it."); render(); });
-    const since = b.since ? `Waiting since ${dayName(b.since, { day: "numeric", month: "long" })}.` : "";
-    list.append(h("div", { class: "row veqt" },
-      h("span", { class: "main" }, h("span", { class: "title", text: prettyDates(b.words) }),
-        h("span", { class: "meta", text: [since, "Buy it in Questrade, then tap Bought.", b.said].filter(Boolean).join(" ") })),
-      h("span", { class: "trail" }, basisDot(b.label, [tb.source || ""]), btn)));
+    const amt = money(b.to_invest), units = Number(b.units);
+    const est = b.label === "estimate";
+    const since = b.since ? `waiting since ${dayName(b.since, { day: "numeric", month: "short" }).replace(" ", "\u00a0")}` : "";
+    const what = units > 0 ? h("span", { "data-hide": "VEQT", text: `${est ? "~" : ""}${units.toLocaleString("en-CA")} VEQT` }) : null;
+    const named = amt !== null && amt > 0 && b.name && units > 0;
+    list.append(h("div", { class: "row veqt buyrow" },
+      h("span", { class: "main" },
+        h("span", { class: "title", text: named ? capFirst(b.name) : prettyDates(b.words) }),
+        named ? h("span", { class: "meta" }, what, since ? " · " + since : "") : null,
+        b.said ? h("span", { class: "meta", text: prettyDates(b.said) }) : null,
+        h("span", { class: "buyact" }, btn)),
+      h("span", { class: "trail" }, named ? h("span", { class: "amt num", text: (est ? "~" : "") + fmtWhole$(Math.round(amt)) }) : null,
+        basisDot(b.label, [named ? prettyDates(b.words) + "." : "", "Buy it in Questrade, then tap Bought.", tb.source || ""].filter(Boolean)))));
   }
   for (const x of said) list.append(h("div", { class: "row veqt" },
     h("span", { class: "main" }, h("span", { class: "title", text: `About ${x.name}` }), h("span", { class: "meta", text: prettyDates(x.said) }))));
@@ -1618,7 +1721,7 @@ function summaryOf(e) {
     case "bankvisit": return `Monthly banking ${shortDate(f.date)}`;
     case "income": return `Income ${fmt$(f.amount)}`;
     case "registered": return `${fmt$(f.amount)} ${f.direction === "withdrawal" ? "out of" : "into"} ${(f.account || "").replace(/^qt-/, "").toUpperCase()}`;
-    case "reading": return `Reading: ${f.value || ""}`;
+    case "reading": return f.what === "odometer" ? `Odometer: ${f.value || ""} km` : /-value$/.test(f.what || "") && money(f.value) !== null ? `Reading: ${fmt$(f.value)}` : `Reading: ${f.value || ""}`;
     case "invested": return `Bought VEQT, ${(((toBuy().buy || []).find(b => b.account === f.account) || {}).name || (f.account || "").replace(/^qt-/, "").toUpperCase())}, ${shortDate(f.date)}`;
     case "card": return "Card change";
     case "life": return "Change: " + (f.text || "").slice(0, 60);
@@ -2796,6 +2899,7 @@ function closePop() {
   if (closePop.cleanup) closePop.cleanup();
   closePop.cleanup = null; closePop.anchor = null;
 }
+function capFirst(t) { t = String(t || ""); return t ? t[0].toUpperCase() + t.slice(1) : ""; }
 function sentence(t) { t = String(t || "").trim(); return t ? t[0].toUpperCase() + t.slice(1).replace(/\.?$/, ".") : ""; }
 function whyLines(o) {
   return [o.as_of ? "As of " + (dateOf(o.as_of) ? prettyDates(o.as_of) : o.as_of) + "." : "",
@@ -2820,6 +2924,7 @@ function figCard(o, opts) {
     basisDot(opts.basis || o.basis, opts.why || whyLines(o)),
     tap ? h("span", { class: "chev-go", "aria-hidden": "true" }, icon("chevR")) : null));
   if (!opts.noValue) card.append(h("span", { class: "v rounded" + (opts.hero ? "" : " num") }, opts.about ? h("span", { class: "about", text: "~" }) : null, opts.value || wholeValue(o.value)));
+  if (opts.change && opts.hero) card.append(h("span", { class: "fchange" }, opts.change));
   const ser = opts.series;
   if (opts.body && ser && ser.points.length >= 4) {
     card.append(h("span", { class: "spark" }, chart([sparkOf(ser, o)], { form: ser.form, unit: ser.unit, spark: true, height: 64 })));
@@ -3016,7 +3121,7 @@ function summaryTotal() {
     why: householdWhy(n).concat(n.since ? [n.since > 0 ? `Includes ${fmtWhole$(Math.round(n.since))} you put in since ${prettyDates(n.from)}, which no statement covers yet.`
                                                       : `Includes ${fmtWhole$(Math.round(-n.since))} taken out since ${prettyDates(n.from)}, net, which no statement covers yet.`] : []),
     foot: "The corporation whole and your TFSA, RRSP and FHSA. Not the car, the condo or your personal chequing account.",
-    meta: [up !== null ? h("span", { class: "delta", text: `${upDown(up)} since ${prettyDates(nw.date)}.` }) : null] });
+    change: up !== null ? changeWords(up, nw.date) : null });
   if (tmc) g.append(tmc);
   else {
     g.append(figCard({ label: "Household net worth", basis: n.basis }, { hero: true, label: `Household net worth, ${prettyDates(n.date)}`, value: fmtWhole$(Math.round(n.total)), about: n.est,
@@ -3239,7 +3344,7 @@ function moneyCard(opts) {
     return out;
   };
   const body = chart(sers, { form: "line", unit: "$", height: 128, legend: true, tip: rows });
-  return figCard(o, { hero: true, label: opts.label, value: fmtWhole$(Math.round(head)), body, about: est,
+  return figCard(o, { hero: true, label: opts.label, value: fmtWhole$(Math.round(head)), body, about: est, change: opts.change,
     basis: est ? "estimate" : opts.basis, why: est ? anWhy.concat(opts.why || []) : opts.why,
     onOpen: () => openView({ type: "trend", keys: [opts.all, opts.worth, opts.put].filter(Boolean), title: opts.label }),
     meta: (opts.meta || []).concat([h("span", { class: "asof", text: opts.foot })]) });
@@ -4403,11 +4508,11 @@ function renderTrend() {
   if (rise) big.append(h("div", { class: "fmeta rise" }, rise));
   if (/corp_market|household/.test(keys[0])) big.append(h("div", { class: "fmeta" }, h("span", { class: "asof", text: "Before the tax paid to take money out of the corporation." })));
   p.append(big);
-  const ranges = main.points.length > 14 ? [[12, "1 year"], [36, "3 years"], [0, "All"]] : [];
+  const ranges = main.points.length > 14 ? [...(ytdPoints(main.points) >= 2 ? [["ytd", "This year"]] : []), [12, "1 year"], [36, "3 years"], [0, "All"]] : [];
   const holder = h("div", { class: "card glass chartcard" });
   const draw = n => { clear(holder); holder.append(chart(sers, { form: main.form, unit: main.unit, height: 240, legend: sers.length > 1, axis: true, hover: true, range: n })); };
   if (ranges.length) {
-    const rs = VIEW.range !== undefined ? VIEW.range : keys[0] === "remit" ? 12 : 36;
+    const rs = VIEW.range !== undefined && ranges.some(r => r[0] === VIEW.range) ? VIEW.range : keys[0] === "remit" ? 12 : 36;
     const segs = h("div", { class: "segs range", role: "radiogroup", "aria-label": "How far back" });
     for (const [n, lab] of ranges) {
       const b = h("button", { type: "button", role: "radio", "aria-checked": String(n === rs) }, lab);
@@ -4463,6 +4568,14 @@ function compact(v, unit, full) {
   if (a >= 1e3) return `${sg}$${(a / 1e3).toFixed(a >= 1e4 ? 0 : 1).replace(/\.0$/, "")}K`;
   return `${sg}$${Math.round(a)}`;
 }
+function changeWords(d, since) {
+  const same = compact(Math.abs(d), "$") === compact(0, "$") || Math.abs(d) < 500;
+  return h("span", {}, same ? null : h("span", { class: "arrow", "aria-hidden": "true", text: d >= 0 ? "▲" : "▼" }),
+    h("span", { text: same ? `About the same since ${prettyDates(since)}` : `${compact(Math.abs(d), "$")} since ${prettyDates(since)}` }),
+    same ? null : h("span", { class: "sr", text: d >= 0 ? " (up)" : " (down)" }));
+}
+function ytdKeep(k) { k = String(k); const t = todayISO(); return /^\d{4}-\d{2}/.test(k) && k >= `${Number(t.slice(0, 4)) - 1}-12-31` && k.slice(0, 10) <= t; }
+function ytdPoints(points) { return (points || []).filter(p => ytdKeep(p[0])).length; }
 function upDown(d) { return compact(Math.abs(d), "$") === compact(0, "$") || Math.abs(d) < 500 ? "About the same" : `${d >= 0 ? "Up" : "Down"} ${compact(Math.abs(d), "$")}`; }
 function niceTicks(lo, hi, n) {
   if (!(hi > lo)) [lo, hi] = [Math.min(lo, hi), Math.max(lo, hi) > Math.min(lo, hi) ? Math.max(lo, hi) : Math.min(lo, hi) + 1];
@@ -4497,8 +4610,8 @@ function chart(sers, o) {
     const old = box.querySelector("svg"); if (old) old.remove();
     const bars = o.form === "bars";
     const lastT = Math.max(...sers.map(s2 => tOf(s2.points[s2.points.length - 1][0])));
-    const fromT = o.range ? lastT - o.range * 30.44 * 864e5 - 15 * 864e5 : -Infinity;
-    const S2 = sers.map(s2 => ({ ...s2, points: s2.points.filter(p2 => tOf(p2[0]) >= fromT) })).filter(s2 => s2.points.length);
+    const fromT = o.range === "ytd" ? -Infinity : o.range ? lastT - o.range * 30.44 * 864e5 - 15 * 864e5 : -Infinity;
+    const S2 = sers.map(s2 => ({ ...s2, points: s2.points.filter(p2 => (o.range !== "ytd" || ytdKeep(p2[0])) && tOf(p2[0]) >= fromT) })).filter(s2 => s2.points.length);
     if (!S2.length) return;
     const keys = bars || S2.length === 1 ? S2[0].points.map(p2 => p2[0])
       : [...new Set(S2.flatMap(s2 => s2.points.map(p2 => p2[0])))].sort((a1, b1) => tOf(a1) - tOf(b1));
@@ -5434,6 +5547,7 @@ async function boot() {
   }
   document.getElementById("gear").append(icon("gear"));
   document.getElementById("gear").addEventListener("click", () => openView({ type: "settings" }));
+  document.getElementById("gear").before(hideButton("bar-hide"));
   document.getElementById("bar-done").addEventListener("click", () => closeView());
   document.getElementById("sync").addEventListener("click", () => openView({ type: "settings" }));
   window.addEventListener("scroll", onScroll, { passive: true });
