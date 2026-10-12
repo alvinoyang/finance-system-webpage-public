@@ -5197,7 +5197,8 @@ function unitDid(u) {
 }
 function workedWords(us) {
   const lists = us.filter(u => u.payer === "bochner" || u.payer === "endoscopy").length, calls = us.filter(u => /call/.test(u.type || "")).length;
-  const shifts = us.length - lists - calls;
+  const extra = us.reduce((a, u) => a + Math.max(0, (Number((u.done || {}).shifts) || 1) - 1), 0);
+  const shifts = us.length - lists - calls + extra;
   return [shifts ? plural(shifts, "shift") : "", calls ? plural(calls, "call") : "", lists ? plural(lists, "sedation") : ""].filter(Boolean).join(" · ") || plural(0, "shift");
 }
 function unitHead(u) {
