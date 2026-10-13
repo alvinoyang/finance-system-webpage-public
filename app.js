@@ -1565,7 +1565,7 @@ function renderSitting() {
   const searched = ((SNAP.transfer_offers || {}).searched) || "";
   const s7 = stepState(pd, 7) === "done" ? "done" : sittingStep(pd) === 7 || ((SNAP.transfer_offers || {}).search_due) ? "now" : null;
   p.append(step(7, "Check transfer bonus promos", s7,
-    `On the MacBook, in Claude in VS Code, type /transfer-promos. Claude searches the web for big transfer bonuses, reads each bank's own terms, and updates Transfer bonus on Today with the most you can get. A few minutes; nothing else to type.${searched ? ` Last searched ${dayName(searched, { day: "numeric", month: "long" })}.` : ""}`));
+    `Claude does this when you close the banking day's session on the MacBook: once the day is logged, it searches the web for big transfer bonuses, reads each bank's own terms, and updates Transfer bonus on Today with the most you can get. To do it at another time, type /transfer-promos in Claude in VS Code.${searched ? ` Last searched ${dayName(searched, { day: "numeric", month: "long" })}.` : ""}`));
   if ((pd.year_end || []).length) {
     const ye = h("div", { class: "list glass" });
     for (const r of pd.year_end) ye.append(h("div", { class: "row" },
