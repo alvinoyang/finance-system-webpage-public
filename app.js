@@ -1301,7 +1301,7 @@ function planCard() {
   for (const p of plan)
     list.append(h("div", { class: "planline" },
       h("span", { class: "title", text: `${p.client === "you" ? "Your " + p.account_names : "The corporation"} → ${p.name}` }),
-      h("span", { class: "meta", text: p.status === "holding" ? `holding${p.hold_end ? " until " + dayName(p.hold_end, { day: "numeric", month: "short", year: "numeric" }) : ""}` : startedSent(p) ? "started" : p.act_by ? `by ${dayName(p.act_by, { day: "numeric", month: "short" }).replace(" ", "\u00a0")}` : "no end date" })));
+      h("span", { class: "meta", text: p.status === "holding" ? `holding${p.hold_end ? " until " + dayName(p.hold_end, { day: "numeric", month: "short", year: "numeric" }) : ""}` : startedSent(p) ? (p.status === "started" && p.act_by ? `started · move by ${dayName(p.act_by, { day: "numeric", month: "short" }).replace(" ", "\u00a0")}` : "started") : p.act_by ? `by ${dayName(p.act_by, { day: "numeric", month: "short" }).replace(" ", "\u00a0")}` : "no end date" })));
   card.append(list);
   return tapArea(card, "The most you can get: every step", () => openView({ type: "plan" }));
 }
@@ -1311,7 +1311,7 @@ function renderPlan() {
   if (!plan.length) { p.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "No offer is worth moving for now." }))); return p; }
   for (const x of plan) {
     const sec = h("section", { class: "card glass" },
-      h("h3", { text: x.name + (x.status === "holding" ? " · holding" : startedSent(x) ? " · started" : x.act_by ? ` · by ${dayName(x.act_by, { day: "numeric", month: "short" })}` : "") }),
+      h("h3", { text: x.name + (x.status === "holding" ? " · holding" : startedSent(x) ? (x.status === "started" && x.act_by ? ` · started, move by ${dayName(x.act_by, { day: "numeric", month: "short" })}` : " · started") : x.act_by ? ` · by ${dayName(x.act_by, { day: "numeric", month: "short" })}` : "") }),
       h("p", { text: prettyDates(x.words) }),
       h("p", { class: "small", text: prettyDates(x.steps) }));
     if (startedSent(x) && x.landed !== "yes" && (x.status === "started" || x.status === "holding") && !sentEntries("offer-started").some(e => e.fields.offer === x.offer && e.fields.accounts === x.accounts && e.fields.landed === "yes")) {
