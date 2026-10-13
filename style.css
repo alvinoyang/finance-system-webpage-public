@@ -358,17 +358,6 @@ body.in-form main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 .buyrow .trail { padding-top: 1px; }
 .buyrow .trail .amt { color: var(--ink); }
 .buyrow .buyact { margin-top: 8px; }
-.offerrow { grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
-.offerrow .trail { padding-top: 1px; }
-.offerrow .trail .amt { color: var(--ink); }
-.offerrow .buyact { margin-top: 8px; position: relative; z-index: 2; }
-.offernote { margin: 8px 16px 0; }
-.plancard { margin-bottom: 12px; }
-.plancard .v { font-size: 2.3rem; font-weight: 700; letter-spacing: -.035em; margin: 6px 0 2px; }
-.plancard .plancorp { margin-top: 8px; font-weight: 600; }
-.plancard .planlist { margin-top: 10px; border-top: 1px solid var(--sep); }
-.plancard .planline { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0 0; }
-.plancard .planline .meta { flex: none; color: var(--ink-3); }
 .row .chiprow { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .row.open .clamp { -webkit-line-clamp: unset; display: block; }
