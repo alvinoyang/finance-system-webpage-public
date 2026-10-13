@@ -1332,7 +1332,7 @@ function renderPlan() {
     }
     p.append(sec);
   }
-  p.append(h("p", { class: "small muted", text: "Estimates on what your accounts hold today. Before moving anything, tell a session: it checks the move is in kind, and gets the Finance System ready for the new statements." }));
+  p.append(h("p", { class: "small muted", text: "Estimates on what your accounts hold today. Before moving or putting in anything, tell a session: it checks a move is in kind and new money fits this year's room, and gets the Finance System ready for the new statements." }));
   return p;
 }
 function offersList() {
