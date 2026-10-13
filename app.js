@@ -447,7 +447,7 @@ const KINDS = {
   income: { name: "Income", desc: "Pay, OHIP, a refund", icon: "income", color: "purple", group: "often",
             help: "Money that reached the corporation." },
   bankvisit: { name: "Monthly banking", desc: "The day's sweep", icon: "bank", color: "orange", group: "often",
-               help: "Step 4 of your one day a month. Once the two payments are sent (nothing to tick), type what each card still owes and the chequing balance you see, and the amount to send to Questrade is worked out below. Steps 1 to 3 are on Today." },
+               help: "Step 4 of the day; steps 1 to 3 are on Today. Once step 3 is sent, type the cards and the chequing balance." },
   registered: { name: "TFSA, RRSP or FHSA", desc: "Money in or out", icon: "vault", color: "blue", group: "sometimes",
                 help: "Contribution room is counted from these." },
   reading: { name: "Reading", desc: "Odometer, an account's value", icon: "gauge", color: "gray", group: "sometimes", help: "" },
@@ -1277,13 +1277,15 @@ function landingList() {
   const list = h("div", { class: "list glass" });
   for (const d of deps) {
     const when = d.status === "landed" ? d.landed_on : d.lands_by;
-    const what = d.kind === "distribution" ? `VEQT's distribution, into ${d.name}` : d.kind === "withdrawal" ? `Taken out of ${d.name}` : `Sent ${dayName(d.sent, { day: "numeric", month: "short" })}, into ${d.name}`;
+    const day = x => dayName(x, { day: "numeric", month: "short" });
+    const what = d.kind === "distribution" ? "VEQT's distribution" : d.kind === "withdrawal" ? "Taken out" : `Sent ${day(d.sent)}`;
     const state = d.status === "reversed" ? "taken back by Questrade"
-      : d.kind === "withdrawal" ? (d.status === "landed" ? `taken out ${dayName(d.landed_on, { day: "numeric", month: "short" })}` : `asked for ${dayName(d.sent, { day: "numeric", month: "short" })}, not yet seen gone`)
-      : `${word[d.status] || d.status} ${dayName(when, { day: "numeric", month: "short" })}` + (d.status === "due" ? " (not yet confirmed)" : "");
+      : d.kind === "withdrawal" ? (d.status === "landed" ? `taken out ${day(d.landed_on)}` : `asked for ${day(d.sent)}, not yet seen gone`)
+      : d.status === "due" ? `due ${day(when)}, not yet confirmed` : `${word[d.status] || d.status} ${day(when)}`;
+    const warn = d.status === "not-seen" || d.status === "late" || d.status === "reversed";
     list.append(h("div", { class: "row veqt" },
-      h("span", { class: "main" }, h("span", { class: "title", text: what }),
-        h("span", { class: "meta" + (d.status === "not-seen" || d.status === "late" || d.status === "reversed" ? " warnline" : ""), text: state })),
+      h("span", { class: "main" }, h("span", { class: "title", text: capFirst(d.name) }),
+        h("span", { class: "meta" }, `${what} · `, h("span", { class: warn ? "warnline" : "", text: state }))),
       h("span", { class: "trail" }, basisDot(d.label, [prettyDates(d.how)]), h("span", { class: "amt num", text: fmt$(Math.abs(money(d.amount))) }))));
   }
   return list;
@@ -1316,32 +1318,39 @@ function visitItemsEl(pd, how) {
 }
 function renderSitting() {
   const pd = SNAP && SNAP.payday;
-  const p = h("div", { class: "page narrow" });
+  const p = h("div", { class: "page narrow sitting" });
   if (!pd || !visitDate(pd)) { p.append(head("Monthly banking", "Your one day a month.")); p.append(h("p", { class: "muted", text: "Nothing planned yet." })); return p; }
   const iso = visitDate(pd), mon = pd.month || dayName(iso, { month: "long" });
-  const now = sittingStep(pd);
   p.append(head("Monthly banking", dayName(iso, { weekday: "long", day: "numeric", month: "long" })));
-  p.append(h("p", { class: "foot", text: "Start steps 1 and 2 together: the MacBook files your downloads while the calculator runs. The one wait is step 2 (a minute or so, longer if the MacBook is still filing); then steps 3 and 4 straight through." }));
+  p.append(h("p", { class: "foot", text: "Start steps 1 and 2 together. The one wait is step 2's, about a minute; then steps 3 and 4 straight through." }));
   const asleep = SNAP && hoursSince(SNAP.checked_at) > STALE_HOURS;
   if (asleep) p.append(h("div", { class: "alert orange" }, h("span", { class: "ico orange" }, icon("moon")),
     h("div", { class: "t", text: "Open the MacBook first" }), h("div", { class: "d", text: "Steps 1 to 3 need it awake: it files what you download, runs CRA's calculator, and sends this page the amounts." })));
+  const steps = [];
   const step = (n, title, state, note, body) => {
-    const chip = state ? h("span", { class: "chip " + (state === "done" ? "green" : state === "now" ? "orange" : ""), text: state === "done" ? "done" : state === "now" ? "next" : "later" }) : null;
+    const word = state === "done" ? "done" : state === "now" ? "next" : state === "later" ? "later" : "";
+    const chip = word ? h("span", { class: "chip " + (state === "done" ? "green sr" : state === "now" ? "orange" : "sr"), text: word }) : null;
+    const num = h("span", { class: "stepnum" + (state === "done" ? " done" : state === "now" ? " now" : ""), "aria-hidden": "true", "data-n": state === "done" ? "" : String(n) },
+      state === "done" ? icon("check") : null);
+    const steph = h("span", { class: "steph" }, h("span", { class: "sr", text: `${n}.` }), ` ${title}`);
+    const s = h("section", { class: "section step" + (state === "done" ? " stepdone" : "") });
+    if (state) steps.push(state);
+    const inner = h("div", { class: "stepbody" });
+    if (note) inner.append(h("p", { class: "foot", text: note }));
+    if (body) inner.append(body);
     if (state === "done") {
-      const inner = h("div", { class: "stepbody", hidden: true });
-      if (note) inner.append(h("p", { class: "foot", text: note }));
-      if (body) inner.append(body);
-      const btn = h("button", { class: "link steptoggle", type: "button", "aria-expanded": "false", text: "Show" });
-      btn.addEventListener("click", () => { const open = inner.hidden; inner.hidden = !open; btn.textContent = open ? "Hide" : "Show"; btn.setAttribute("aria-expanded", String(open)); });
-      return h("section", { class: "section stepdone" }, h("h2", {}, h("span", { class: "steph", text: `${n}. ${title}` }), h("span", { class: "steptrail" }, chip, btn)), inner);
-    }
-    const s = h("section", { class: "section" }, h("h2", {}, `${n}. ${title}`, chip));
-    if (note) s.append(h("p", { class: "foot", text: note }));
-    if (body) s.append(body);
+      inner.hidden = true;
+      const btn = h("button", { class: "steptoggle", type: "button", "aria-expanded": "false", "aria-label": `Show step ${n}` }, icon("chevD"));
+      const flip = () => { const open = inner.hidden; inner.hidden = !open; btn.setAttribute("aria-expanded", String(open)); btn.setAttribute("aria-label", `${open ? "Hide" : "Show"} step ${n}`); };
+      btn.addEventListener("click", ev => { ev.stopPropagation(); flip(); });
+      const h2 = h("h2", { class: "steprow" }, num, steph, h("span", { class: "steptrail" }, chip, btn));
+      h2.addEventListener("click", flip);
+      s.append(h2, inner);
+    } else s.append(h("h2", { class: "steprow" }, num, steph, chip ? h("span", { class: "steptrail" }, chip) : null), inner);
     return s;
   };
   const stateOf = n => stepState(pd, n);
-  const docs = h("div", {});
+  const docs = h("div", { class: "docsites" });
   const sites = [...new Set((pd.documents || []).map(d => d.site))];
   const mark = d => d.state === "filed" ? h("span", { class: "ico green" }, icon("check")) : d.state === "inbox" ? h("span", { class: "ico orange" }, icon("tray")) : d.state === "none" ? h("span", { class: "ico gray" }, icon("moon")) : h("span", { class: "ico gray" }, icon("receipt"));
   const monthOf = d => /^\d{4}-\d\d$/.test(d.period || "") ? dayName(d.period + "-01", { month: "long" }) + "'s" : "";
@@ -1362,34 +1371,40 @@ function renderSitting() {
         meta ? h("span", { class: "meta", text: meta.replace(/^./, c => c.toUpperCase()) }) : null),
         h("span", { class: "chip " + (d.state === "filed" ? "green" : d.state === "inbox" ? "orange" : ""), text: d.state === "filed" ? "in" : d.state === "inbox" ? "arrived" : d.state === "none" ? "none yet" : "to get" })));
     }
-    docs.append(h("div", { class: "section-h" }, h("span", { text: site })), ul);
+    docs.append(h("div", { class: "section-h sitehead" }, h("span", { text: site })), ul);
   }
   for (const w of (pd.inbox || [])) docs.append(h("p", { class: "foot warnline", text: `In the Inbox, waiting for a session: ${w.what || w.name} (${w.why}).` }));
+  docs.append(h("p", { class: "foot", text: `The Inbox: Files › iCloud Drive on the phone; Finance System › Documents › Inbox on the MacBook. A tick means the MacBook has filed it, ${roundWords()}. If a tick has not come, the reason shows under the list.` }));
   const todo = (pd.documents || []).filter(d => d.state === "todo").length;
   p.append(step(1, "Download the documents", stateOf(1),
-    `${todo ? `${todo} to get.` : "All in."} Save each to the Finance System Inbox (Files › iCloud Drive on the phone; Finance System › Documents › Inbox on the MacBook); a tick means the MacBook has it (${roundWords()}). If a tick has not come, the reason shows under the list.`, docs));
+    `${todo ? `${todo} to get` : "All in"}. Save each to the Finance System Inbox.`, docs));
   const calc = pd.calculation || {};
-  const s2 = h("div", { class: "card glass" },
-    h("p", { text: "On the MacBook: Finance System › tools › double-click Monthly Banking. It types this month's figures into CRA's calculator (~1 minute)." }),
-    h("p", { text: `Done when it says "Done: the PDF is in the Inbox"; ${mon}'s amounts then show under step 3 (pull down to refresh). If it says "Stopped" or "did not finish", read it: it says what to do, and the amounts it printed are right either way.` }));
-  p.append(step(2, "CRA's payroll calculator", stateOf(2), pd.ready ? `${mon}'s calculation has been read: the amounts under step 3 are its own.`
+  const how2 = (ic, t) => h("div", { class: "howrow" }, h("span", { class: "ico gray" }, icon(ic)), h("span", { text: t }));
+  const s2 = h("div", { class: "card glass howto" },
+    how2("gauge", "On the MacBook: Finance System › tools › double-click Monthly Banking. It fills in CRA's calculator (~1 minute)."),
+    how2("check", `Done when it says "Done: the PDF is in the Inbox". ${mon}'s amounts then show in step 3 (pull down to refresh).`),
+    how2("warn", `If it says "Stopped" or "did not finish", do what it says. The amounts it printed are right either way.`));
+  p.append(step(2, "CRA's payroll calculator", stateOf(2), pd.ready ? `${mon}'s calculation has been read: step 3's amounts are its own.`
     : calc.state === "inbox" ? `Not read yet: ${calc.detail}. Step 3's amounts are last month's until it is read.`
     : `Not done yet: step 3's amounts are last month's until it runs.`, s2));
   const own = `your personal chequing account${pd.net_pay_to ? ` (ending ${pd.net_pay_to})` : ""}`;
   const how = { netpay: `Transfer to ${own}`, cra: "Government Tax Payment: Federal payroll deductions" };
-  const pay = h("div", { class: "visit glass" }, visitItemsEl(pd, it => how[(it.id || "").split("-")[0]]));
+  const corp = h("div", { class: "visit glass" }, visitItemsEl(pd, it => how[(it.id || "").split("-")[0]]));
   for (const c of (pd.cards || []).filter(c => !c.pays_itself)) {
     const st = c.statement && c.statement.balance ? c.statement : null;
-    pay.querySelector(".items").append(h("div", { class: "item", title: c.note || "" },
+    corp.querySelector(".items").append(h("div", { class: "item", title: c.note || "" },
       h("span", { class: "what" }, h("span", { text: c.name }),
         h("span", { class: "how" + (st && st.due && st.due <= iso ? " late" : ""), text: st ? `Pay the statement of ${dayName(st.date, { day: "numeric", month: "long" })} in full, unless you already have` + dueWords(st.due) : "Pay its latest statement in full (not read yet: download it in step 1)" })),
       st ? h("span", { class: "amt num" }, h("span", { text: fmt$(st.balance) })) : h("span", { class: "onscreen", text: "statement" })));
   }
-  if (pd.savings_plan && pd.savings_plan.amount) pay.querySelector(".items").append((h("div", { class: "item" },
+  const mine = h("div", { class: "visit glass" }, h("div", { class: "items" }));
+  if (pd.savings_plan && pd.savings_plan.amount) mine.querySelector(".items").append((h("div", { class: "item" },
     h("span", { class: "what" }, h("span", { text: "To savings with Gloria" }),
-      h("span", { class: "how", text: pd.savings_plan.skip ? `Skip this month: ${pd.savings_plan.skip.replace(/^./, c => c.toLowerCase())} (your calendar); the form starts it at nothing` : "From your own chequing; clear it on the form if not sent" })),
-    h("span", { class: "amt num" }, h("span", { text: fmt$(pd.savings_plan.amount) })))));
-  investRows(pd, pay.querySelector(".items"), pay);
+      h("span", { class: "how", text: pd.savings_plan.skip ? `Not this month: ${pd.savings_plan.skip.replace(/^./, c => c.toLowerCase())} (your calendar); the form starts it at nothing` : "A transfer; clear it on the form if not sent" })),
+    pd.savings_plan.skip ? h("span", { class: "onscreen", text: "skip" }) : h("span", { class: "amt num" }, h("span", { text: fmt$(pd.savings_plan.amount) })))));
+  investRows(pd, mine.querySelector(".items"), mine);
+  const s3 = h("div", { class: "paygroups" }, h("div", { class: "gh", text: "From corporate chequing, in this order" }), corp);
+  if (mine.querySelector(".item") || mine.querySelector("p")) s3.append(h("div", { class: "gh", text: "From your own chequing" }), mine);
   function dueWords(due) {
     if (!due) return "";
     const d = dayName(due, { weekday: "short", day: "numeric", month: "long" }), now = todayISO();
@@ -1399,34 +1414,41 @@ function renderSitting() {
     if (due === iso) return `. Due ${d}, the banking day itself: pay it first thing that day, as a bill payment can take a day to arrive, or set it to pay itself`;
     return `. Due ${d}`;
   }
-  const selfPaying = (pd.cards || []).filter(c => c.pays_itself).map(c => c.fill === "owing-now" ? `what the ${c.name} owes now (it pays itself on its due day)` : `the ${c.name} (it pays itself next month)`);
   const cardWord = c => c.short || c.name;   // the form register's short name (since 2026-10-11; typed here before)
   const toPay = (pd.cards || []).filter(c => !c.pays_itself).map(cardWord);
   p.append(step(3, toPay.length ? "Pay yourself, CRA and " + toPay.join(" and ") : "Pay yourself and CRA", stateOf(3), pd.ready
-    ? `From corporate chequing, in this order; then, from your own, the savings and what to invest.`
-    : `Not yet: do step 2 first. These are last month's figures; pay only what ${mon}'s own calculation says, from corporate chequing, in this order.`, pay));
-  const s4 = h("div", {},
+    ? ""
+    : `Not yet: do step 2 first. Until then these are last month's figures.`, s3));
+  const kept = ["CRA's remittance"].concat((pd.cards || []).map(c => c.pays_itself ? c.name : `what the ${cardWord(c).replace(/^the /, "")} owes now`),
+    [pd.next_visit ? `bills to ${dayName(pd.next_visit, { day: "numeric", month: "short" })}` : "bills to the next banking day", "a cushion"]);
+  const s4 = h("div", { class: "sendbox" },
+    h("div", { class: "keeps" }, h("span", { class: "kl", text: "Keeps back" }), ...kept.map(k => h("span", { class: "tag", text: k }))),
     pd.logged ? h("p", { class: "foot", text: `Logged ${dayName(pd.logged.date, { day: "numeric", month: "long" })}` + (money(pd.logged.sweep) ? `: ${fmt$(pd.logged.sweep)} sent to Questrade.` : ".") })
               : h("button", { class: "btn primary wide", type: "button", onclick: () => startForm("bankvisit", null, "today") }, "Work out the amount"));
   p.append(step(4, "Send the rest to Questrade", stateOf(4),
-    `The form works out what is left once what is still to leave is kept back: the remittance, ${selfPaying.length ? selfPaying.join(", ") + ", " : ""}${toPay.length ? `what ${toPay.join(" and ")} owes now, ` : ""}the bills due by the next banking day and a cushion. Send that from corporate chequing to Questrade, the corporation's cash account, as a bill payment; then type it in the form and record the day.`, s4));
+    "From corporate chequing to Questrade, the corporation's cash account, as a bill payment.", s4));
   const lastSent = pd.logged && money(pd.logged.sweep) ? pd.logged
     : pd.last_logged && money(pd.last_logged.sweep) && pd.last_logged.lands_by && todayISO() <= plusDays(pd.last_logged.lands_by, 2) ? pd.last_logged : null;
   const sentOn = lastSent ? lastSent.date : null;
   const lands = pd.lands || {}, within = n => n != null ? `within ${plural(n, "business day", "business days")}` : "in a few business days";
   const ownToo = (pd.invest && (pd.invest.sent || []).length) ? ` Buy VEQT in your own account too, with what you sent from your own pay, once it lands (${within(lands.registered)}).` : "";
-  const s5 = [landingList(), toBuyList()].filter(Boolean);
-  p.append(step(5, "Buy VEQT when it lands", null, (sentOn && lastSent.lands_by
-    ? `The ${fmt$(lastSent.sweep)} sent ${dayName(sentOn, { day: "numeric", month: "long" })} lands in the corporation's Questrade account by ${dayName(lastSent.lands_by, { weekday: "long", day: "numeric", month: "long" })}. Then, in Questrade, buy VEQT with the cash there.` + ownToo
-    : `The money lands in the corporation's Questrade account ${within(lands.questrade)}. Then, in Questrade, buy VEQT with the cash there.` + ownToo)
-    + " Once you have bought, tap Bought beside it; Questrade's own reading, or the next statement, checks it.", s5.length ? h("div", {}, ...s5) : null));
+  const land = landingList(), buy = toBuyList();
+  const s5 = h("div", {}, land ? h("div", { class: "gh", text: "On the way" }) : null, land, buy ? h("div", { class: "gh", text: "To buy" }) : null, buy);
+  const tb = toBuy(), buying = (tb.buy || []).some(b => !boughtSent(b.account));
+  const onWay = (tb.deposits || []).some(d => d.status !== "landed");
+  const amiss = (tb.deposits || []).some(d => ["late", "not-seen", "reversed"].includes(d.status));
+  const st5 = buying || amiss ? "now" : pd.logged && !onWay ? "done" : "later";
+  p.append(step(5, "Buy VEQT when it lands", st5, (sentOn && lastSent.lands_by
+    ? `The ${fmt$(lastSent.sweep)} sent ${dayName(sentOn, { day: "numeric", month: "long" })} lands by ${dayName(lastSent.lands_by, { weekday: "short", day: "numeric", month: "long" })}.`
+    : `Money lands in Questrade ${within(lands.questrade)}.`)
+    + " Then buy VEQT and tap Bought." + ownToo, land || buy ? s5 : null));
   const qn = openQuestions().length;
   p.append(step(6, "Answer the questions", qn ? "now" : "done", qn
-    ? `${qn} open: what an expense was for, or something the statements could not say. New ones from this month's statements come within a few hours of step 1.`
-    : "Nothing to answer. New ones from this month's statements come within a few hours of step 1.",
-    qn ? h("button", { class: "btn wide", type: "button", onclick: () => openView({ type: "questions" }) }, qn === 1 ? "Open the question" : "Open the questions") : null));
+    ? `${qn} open. New ones come a few hours after step 1.`
+    : "Nothing to answer. New ones come a few hours after step 1.",
+    qn ? h("button", { class: "btn tinted wide", type: "button", onclick: () => openView({ type: "questions" }) }, qn === 1 ? "Open the question" : "Open the questions") : null));
   p.append(step(7, "Check transfer bonus promos", null,
-    "Claude does this when you close the banking day's session on the MacBook: it searches the web for big transfer bonuses, reads each bank's own terms, and tells you there which are worth taking and what to do. To do it at another time, type /transfer-promos in Claude in VS Code."));
+    "Claude does it as you close the session. Any time: type /transfer-promos in Claude in VS Code."));
   if ((pd.year_end || []).length) {
     const ye = h("div", { class: "list glass" });
     for (const r of pd.year_end) ye.append(h("div", { class: "row" },
@@ -1434,6 +1456,10 @@ function renderSitting() {
       money(r.amount) ? h("span", { class: "amt", text: "$" + Math.round(money(r.amount)).toLocaleString("en-CA") }) : h("span", {})));
     p.append(step(8, "Before the 31st, look once more", null, "December only: what falls between this day and the year end, so that it and both pay legs clear inside the year.", ye));
   }
+  const doneN = steps.filter(s => s === "done").length;
+  const bar = h("div", { class: "stepbar", role: "img", "aria-label": `${doneN} of ${steps.length} steps done` },
+    h("div", { class: "stepbar-segs" }, ...steps.map(s => h("span", { class: "stepbar-seg " + s }))), h("span", { class: "small muted", text: `${doneN} of ${steps.length} done` }));
+  (p.querySelector(".head + .foot") || p.querySelector(".head")).after(bar);
   return p;
 }
 
@@ -1465,7 +1491,7 @@ function investRows(pd, items, box) {
     log.addEventListener("click", () => startForm("registered", { account: s.account, direction: "contribution", amount: Number(s.amount).toFixed(2), date: todayISO() }, "sitting"));
     items.append(h("div", { class: "item", title: `Room left this year: ${fmt$(s.room_left)} (${s.basis})` },
       h("span", { class: "what" }, h("span", { text: `${sent.length ? "Also into" : "Into"} your ${s.name}` }),
-        h("span", { class: "how", text: `From your own chequing to Questrade, as a bill payment; then log it` }), log),
+        h("span", { class: "how", text: "To Questrade, as a bill payment; then tap Log it" }), log),
       h("span", { class: "amt num" }, inv.pay_estimate || s.basis === "estimate" ? ring() : null, h("span", { text: fmt$(s.amount) }))));
   }
   if (inv.left_over > 0) note(`Every account's room for the year is full, and ${fmt$(inv.left_over)} is left over after the ${inv.savings_target ? fmtWhole$(inv.savings_target) + " " : ""}transfer to savings. What should happen to it? Tell a session; nothing is sent anywhere by itself.`, true);
@@ -1762,16 +1788,13 @@ function summaryOf(e) {
 
 function cardsFoot() {
   const cards = (SNAP && SNAP.payday && SNAP.payday.cards) || [];
-  const each = cards.map(c => `${c.name}: ${c.note}.`).join(" ");
-  const filled = cards.filter(c => c.pays_itself && c.fill !== "owing-now" && c.statement && c.statement.balance).map(c => c.name);
-  const paid = cards.filter(c => !c.pays_itself).map(c => c.name);
-  const now = cards.filter(c => c.pays_itself && c.fill === "owing-now").map(c => c.name);
+  const paid = cards.filter(c => !c.pays_itself);
+  const filled = cards.filter(c => c.pays_itself && c.fill !== "owing-now" && c.statement && c.statement.balance);
+  const now = cards.filter(c => c.pays_itself && c.fill === "owing-now");
   const rest = cards.length - filled.length - paid.length - now.length;
-  return (filled.length ? `${filled.join(" and ")}: filled in from ${filled.length > 1 ? "their" : "its"} latest statement, and kept back in chequing. ` : "")
-    + (paid.length ? `${paid.join(" and ")}: ${paid.length > 1 ? "their statements are" : "its statement is"} paid in step 3; type what ${paid.length > 1 ? "each" : "it"} owes now, its charges since, kept back in chequing. ` : "")
-    + (now.length ? `${now.join(" and ")}: ${now.length > 1 ? "they pay themselves" : "it pays itself"} on the due day; type what ${now.length > 1 ? "each" : "its"} app shows owing now, all kept back in chequing. ` : "")
-    + (rest ? "Type what each other card's screen says it still owes; that is kept back in chequing. " : "")
-    + (each || "The summary lists no corporate card, so no card's balance is kept back.");
+  if (!cards.length) return "The summary lists no corporate card, so no card's balance is kept back.";
+  return [paid.map(c => `${c.name}: ${c.note}.`).join(" "), rest ? "Type what each other card's screen says it still owes; that is kept back in chequing." : "",
+  ].filter(Boolean).join(" ");
 }
 const LAYOUT = {
   shift: [
@@ -1789,7 +1812,7 @@ const LAYOUT = {
   ],
   bankvisit: [
     { keys: [["date"]] },
-    { h: "What you paid", foot: "Taken as paid once you have sent them in the bank: nothing to tick. Your pay leaves chequing at once; CRA's payment leaves the next business day, so the chequing balance you see today still holds it, and it is kept back below.", keys: [["paid"]] },
+    { h: "Paid in step 3", foot: "Taken as paid once sent. CRA's leaves chequing a business day later, so it is kept back below.", keys: [["paid"]] },
     { h: "The cards, kept back", foot: cardsFoot, cardBoxes: true },
     { h: "Then", keys: [["balance"]] },
     { sweep: true },
@@ -1904,7 +1927,7 @@ function buildForm(f) {
   const pdS = (SNAP && SNAP.payday) || {};
   const sittingDay = !pdS.logged && (!pdS.visit || todayISO() >= pdS.visit);
   const autoOf = fld => !fld ? ""
-    : f.kind === "bankvisit" && fld.key === "savings" && !VIEW.corrects && plan.amount && sittingDay ? Number(plan.amount).toFixed(2)
+    : f.kind === "bankvisit" && fld.key === "savings" && !VIEW.corrects && plan.amount && sittingDay ? Number(plan.amount).toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     : fld.type === "date" ? todayISO() : (f.kind === "bankvisit" && fromStatement(fld.key)
         ? Number(fromStatement(fld.key).balance).toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "");
   const initial = fld => (pre._cleared || []).includes(fld.key) ? "" : pre[fld.key] !== undefined ? pre[fld.key] : autoOf(fld);
@@ -1923,7 +1946,7 @@ function buildForm(f) {
         const isEst = (it.basis || "").startsWith("estimate");
         const b = h("button", { class: "tick", type: "button", role: "checkbox", "aria-checked": "true", "aria-disabled": "true", disabled: true, "data-id": it.id,
                                 title: it.leaves && it.leaves.at_once ? "Taken as paid: it leaves chequing at once" : "Taken as paid: it leaves chequing later, so it is kept back from the sweep" },
-          h("span", { class: "title" }, it.what, isEst ? h("span", { class: "chip orange tick-chip", text: "estimate" }) : null), h("span", { class: "amt num muted", text: it.amount ? (isEst ? "~" + fmtWhole$(Math.round(money(it.amount))) : fmt$(it.amount)) : "full balance" }), h("span", { class: "box" }, icon("check")));
+          h("span", { class: "title" }, visitName(it.what) + ((/ for (\w+)$/.exec(it.what) || [])[1] ? ", " + / for (\w+)$/.exec(it.what)[1] : "")), h("span", { class: "amt num muted" }, isEst ? h("span", { class: "bd estimate", "aria-hidden": "true" }) : null, h("span", { text: it.amount ? (isEst ? "~" + fmtWhole$(Math.round(money(it.amount))) : fmt$(it.amount)) : "full balance" }), isEst ? h("span", { class: "sr", text: " (an estimate)" }) : null), h("span", { class: "box" }, icon("check")));
         inp.append(b);
       }
       inputs[fld.key] = inp; wraps[fld.key] = inp;
@@ -2060,10 +2083,10 @@ function buildForm(f) {
         inp.addEventListener("input", () => { updateSweep(form); });
     }
     const st = f.kind === "bankvisit" ? fromStatement(fld.key) : null;
-    if (st) wrap.append(h("span", { class: "small muted", text: `From the statement of ${dayName(st.date, { day: "numeric", month: "long" })}. Change it if the card says otherwise.` }));
+    if (st) wrap.append(h("span", { class: "small muted", text: `From the statement of ${dayName(st.date, { day: "numeric", month: "long" })}; change it if the card differs.` }));
     else if (f.kind === "bankvisit" && paidInStep3(fld.key)) wrap.append(h("span", { class: "small muted", text: "What the card's app shows owing now, after you paid its statement in step 3: its charges since, which fall due before or at the next banking day." }));
     else if (f.kind === "bankvisit" && owingNow(fld.key)) {
-      wrap.append(h("span", { class: "small muted", text: "The Total balance its app shows now. It pays itself on its due day, about the banking day, so all of it is kept back." }));
+      wrap.append(h("span", { class: "small muted", text: "It pays itself on its due day, about the banking day, so all of it is kept back." }));
       const c = cardOf(fld.key), st = c && c.statement;
       if (st && st.due && st.due >= plusDays(todayISO(), -1) && st.due <= plusDays(todayISO(), 1))
         wrap.append(h("span", { class: "small warnline", text: `Its ${fmt$(st.balance)} statement is due ${dayName(st.due, { weekday: "short", day: "numeric", month: "long" })}: if the app already shows it paid but your chequing balance still holds it, add ${fmt$(st.balance)} to this box.` }));
@@ -2111,8 +2134,9 @@ function buildForm(f) {
         h("summary", {}, h("span", {}, g.more, " ", h("span", { class: "hint", text: g.hint || "" })), icon("chevR")),
         h("div", { class: "fields" }, rows)));
     } else {
+      const footText = g.foot ? prettyDates(typeof g.foot === "function" ? g.foot() : g.foot) : "";
       form.append(h("div", { class: "group" }, g.h ? h("div", { class: "gh", text: g.h }) : null,
-        isQuestion ? rows : cards(rows), g.foot ? h("div", { class: "gf", text: prettyDates(typeof g.foot === "function" ? g.foot() : g.foot) }) : null));
+        isQuestion ? rows : cards(rows), footText ? h("div", { class: "gf", text: footText }) : null));
     }
   }
   const wpRes = f.kind === "answer" ? String((pre || {}).resolution || "") : "";
@@ -2207,7 +2231,7 @@ function buildForm(f) {
   form.addEventListener("change", syncMeal); syncMeal();
 
   if (f.kind === "bankvisit")
-    form.append(h("p", { class: "small muted", text: "This only records the day. It moves no money: make the transfer to Questrade yourself, from corporate chequing, as a bill payment." }));
+    form.append(h("p", { class: "small muted", text: "This only records the day. It moves no money: send the amount yourself from corporate chequing to Questrade, as a bill payment, then record the day." }));
   const sendBtn = h("button", { class: "btn primary", type: "submit" },
     VIEW.corrects ? "Send the correction" : f.kind === "bankvisit" ? "Record the day" : "Send");
   form.append(h("div", { class: "formbar" }, sendBtn));
@@ -2819,13 +2843,13 @@ function updateSweep(form) {
   const billWords = w => { const t = shortly(dropIds(w)).replace(/\s+of\s*$/, "").trim(); return t.replace(/^The /, "the "); };
   const itemName = w => { const m = /^Pay [^:]+: (?:the )?(.*)$/.exec(w); return m ? m[1].replace(/^./, c => c.toUpperCase()) : shortly(w); };
   const words = l => {
-    if (l.kind === "item") return itemName(l.it.what) + (beforeDay ? `, due at the sitting on ${shortDate(pd.visit)}` : ", sent but still in the balance (it leaves chequing the next business day)");
+    if (l.kind === "item") return itemName(l.it.what) + (beforeDay ? `, due at the sitting on ${shortDate(pd.visit)}` : ", sent; it leaves chequing the next business day");
     if (l.kind === "card") return `${l.c.name} balance, ${!l.c.pays_itself ? "still owing" : l.c.fill === "owing-now" ? "pays itself on its due day" : "pays itself next month"}`;
     if (l.kind === "bill") {
       const r = l.r, nm = billWords(r.what).replace(/\s+due$/, "").replace(/^./, c => c.toUpperCase()), saysDue = /\bdue\b/i.test(nm);
       const when = r.due === todayISO() ? (saysDue ? " today" : ", a bill due today") + " (kept back unless you see it has already left)"
         : (saysDue ? " on " : ", a bill due ") + shortDate(r.due);
-      return nm + when + " (on Today's Coming up)";
+      return nm + when;
     }
     return "The cushion, always left in chequing";
   };
@@ -2843,9 +2867,11 @@ function updateSweep(form) {
   const anyEstLine = S.lines.some(l => l.est);
   for (const l of S.lines) {
     const a = l.amount, e = l.est, round = l.kind === "cushion";
-    box.append(h("div", { class: "line muted" }, h("span", {}, words(l), e ? h("span", { class: "chip orange tick-chip", text: "estimate" }) : null),
-      h("span", { class: "amt", text: (e ? "~−" + fmtWhole$(Math.round(a)) : "−" + (round && anyEstLine ? fmtWhole$(Math.round(a)) : fmt$(a)).replace("−", "")) })));
+    box.append(h("div", { class: "line muted" }, h("span", { text: words(l) }),
+      h("span", { class: "amt" }, e ? h("span", { class: "bd estimate", "aria-hidden": "true" }) : null,
+        h("span", { text: "−" + (e || (round && anyEstLine) ? fmtWhole$(Math.round(a)) : fmt$(a)).replace("−", "") }), e ? h("span", { class: "sr", text: " (an estimate)" }) : null)));
   }
+  if (S.lines.some(l => l.kind === "bill")) box.append(h("p", { class: "small muted", text: "The bills are the ones on Today's Coming up." }));
   if (cardsOpen.length) box.append(h("div", { class: "line muted" }, h("span", { text: cardNames.replace(/^./, c => c.toUpperCase()) + ", not typed yet" }), h("span", { class: "amt", text: "not counted" })));
   const v = S.amount, wait = S.wait, approx = S.approx, shown = S.shown;
   box.append(h("div", { class: "res" + (wait ? " wait" : "") }, h("span", { text: "Amount to send" }),
@@ -2853,7 +2879,7 @@ function updateSweep(form) {
          : h("span", { class: "est-wrap" }, h("span", { class: "v num rounded" + (approx ? " approx" : ""), text: (approx ? "~" + fmtWhole$(shown) : fmt$(v)) }))));
   if (approx) {
     const unpaidEst = pd.items.filter(it => !gone(it) && money(it.amount) && isEst(it));
-    box.append(h("p", { class: "small muted", text: "Some amounts kept back are estimates, so this is approximate and rounded down." +
+    box.append(h("p", { class: "small muted", text: "Approximate, rounded down: the ringed amounts are estimates." +
       (unpaidEst.length ? ` ${unpaidEst.map(it => "The " + itemName(it.what).toLowerCase()).join(" and ")} becomes exact once this month's calculation is read (step 2).` : "") }));
   }
   if (S.unreadable.length) box.append(h("p", { class: "small warnline", text: `Can't work it out: ${S.unreadable.map(w => shortly(dropIds(w))).join(" and ")} ${S.unreadable.length > 1 ? "have amounts" : "has an amount"} this page cannot read. Send nothing to Questrade until the MacBook's next round puts it right.` }));
