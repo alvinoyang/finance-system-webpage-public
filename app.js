@@ -457,8 +457,6 @@ const KINDS = {
   answer: { name: "Answer a question", desc: "", icon: "bubble", color: "purple", group: "any", help: "" },
   note: { name: "Note", desc: "Anything else for the record", icon: "pencil", color: "gray", group: "any", help: "" },
   invested: { name: "Bought VEQT", desc: "", icon: "vault", color: "blue", group: "button", help: "" },
-  "offer-declined": { name: "Not for me", desc: "", icon: "pencil", color: "gray", group: "button", help: "" },
-  "offer-started": { name: "Started", desc: "", icon: "pencil", color: "blue", group: "button", help: "" },
 };
 function kindOf(k) {
   const o = KINDS[k] || { name: k, desc: "", icon: "pencil", color: "gray" };
@@ -750,8 +748,6 @@ function pageFor() {
   else if (VIEW && VIEW.type === "vehicle") page = renderVehicle();
   else if (VIEW && VIEW.type === "card") page = renderCard();
   else if (VIEW && VIEW.type === "workunit") page = renderWorkUnit();
-  else if (VIEW && VIEW.type === "offer") page = renderOffer();
-  else if (VIEW && VIEW.type === "plan") page = renderPlan();
   else if (TAB === "add") page = renderAdd();
   else if (TAB === "work") page = renderWorkTab();
   else if (TAB === "numbers") page = renderSummary();
@@ -827,7 +823,7 @@ function viewTitle(v) {
   if (!v) return TAB_NAME[TAB];
   return ({ form: kindOf(v.kind).name, settings: "Settings", questions: "Questions", shifts: "Your shifts", income: "Income",
             work: v.metric === "rate" ? "Pay per hour" : "Hours", workunit: v.title || "A shift", account: ({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[v.account] || "Account",
-            card: v.title || "Card", trend: v.title || "History", sitting: "Monthly banking", offer: "Transfer bonus", plan: "The most you can get",
+            card: v.title || "Card", trend: v.title || "History", sitting: "Monthly banking",
             saving: "What you invest", ytd: ytdTitle(v.measure), returns: "What it is worth", spending: "What you spend", vehicle: (SNAP && SNAP.vehicle && SNAP.vehicle.name) || "Your car" })[v.type] || "Back";
 }
 function onScroll() {
@@ -1113,8 +1109,6 @@ function renderToday() {
   colA.append(h("section", { class: "section" }, h("h2", { text: "Monthly banking" }), visitCard()));
   const buy = toBuyList();
   if (buy) colA.append(h("section", { class: "section" }, h("h2", { text: "To invest" }), buy));
-  const plan = planCard(), offers = offersList();
-  if (plan || offers) colA.append(h("section", { class: "section" }, h("h2", { text: "Transfer bonus" }), plan, offers));
   colA.append(questionsSection());
   colB.append(upcoming());
   p.append(h("div", { class: "cols" }, colA, colB));
@@ -1182,8 +1176,6 @@ function visitName(what) {
 }
 function stepState(pd, n) {
   if (!pd) return "later";
-  if (n === 7) { const s = ((SNAP && SNAP.transfer_offers) || {}).searched || "", iso = visitDate(pd) || "";
-    return s && iso && s >= iso.slice(0, 8) + "01" ? "done" : "now"; }
   if (n === 1) return (pd.documents || []).some(d => d.state === "todo") ? "now" : "done";
   if (n === 2) return pd.ready ? "done" : "now";
   if (pd.logged) return "done";
@@ -1192,7 +1184,6 @@ function stepState(pd, n) {
 function sittingStep(pd) {
   if (!pd) return 1;
   for (const n of [1, 2, 3]) if (stepState(pd, n) === "now") return n;
-  if (stepState(pd, 3) === "done" && stepState(pd, 7) !== "done") return 7;
   return 5;
 }
 const STEP_WORDS = {
@@ -1200,7 +1191,6 @@ const STEP_WORDS = {
   2: "Next: step 2, run CRA's calculator on the MacBook",
   3: "Next: step 3, the payments, then step 4, send the rest to Questrade",
   5: "Done for this month",
-  7: "Next: step 7, check transfer bonus promos",
 };
 function visitCard() {
   const pd = SNAP.payday;
@@ -1240,141 +1230,14 @@ function visitCard() {
   const nextWords = pd.logged ? `Logged ${dayName(pd.logged.date, { day: "numeric", month: "long" })}` + (money(pd.logged.sweep) ? `: ${fmt$(pd.logged.sweep)} sent to Questrade.` : ".")
     + (!pd.ready ? ` ${STEP_WORDS[2]}.`
        : money(pd.logged.sweep) && pd.logged.lands_by && todayISO() <= plusDays(pd.logged.lands_by, 2) ? ` Next: buy VEQT once it lands, by ${dayName(pd.logged.lands_by, { weekday: "short", day: "numeric", month: "long" })}.`
-         + (stepState(pd, 7) !== "done" ? " Then step 7, check transfer bonus promos." : "")
-       : stepState(pd, 7) !== "done" ? ` ${STEP_WORDS[7]}.`
        : pd.next_visit ? ` Next: ${dayName(pd.next_visit, { weekday: "short", day: "numeric", month: "long" })}.` : "") : STEP_WORDS[step] + ".";
   const ll = !pd.logged && !pd.late && pd.last_logged && money(pd.last_logged.sweep) ? pd.last_logged : null;
   const veqt = ll && ll.lands_by && todayISO() <= plusDays(ll.lands_by, 2) ? `Next: buy VEQT once the ${fmt$(ll.sweep)} sent ${dayName(ll.date, { day: "numeric", month: "long" })} lands, by ${dayName(ll.lands_by, { weekday: "short", day: "numeric", month: "long" })}.` : "";
   c.append(h("p", { class: "visit-foot" + (pd.late && !pd.logged ? " late" : "") }, h("span", { text: veqt || nextWords })));
-  const sDue = ((SNAP.transfer_offers || {}).search_due) || "";
-  if (sDue) c.append(h("p", { class: "foot warnline", text: `Step 7 is still to do for ${dayName(sDue + "-01", { month: "long" })}: check transfer bonus promos (on the MacBook, type /transfer-promos in Claude).` }));
   const svT = pd.invest && pd.invest.savings;
   if (svT && svT.balance < svT.low_below) c.append(h("p", { class: "foot", text: `Savings is at ${fmt$(svT.balance)}, under a month's ${fmtWhole$(svT.low_below)}.` }));
   if ((pd.year_end || []).length) c.append(h("p", { class: "foot", text: `December: look once more before the 31st (${pd.year_end.length} thing${pd.year_end.length === 1 ? "" : "s"}, on the steps page).` }));
   return tapArea(c, `Monthly banking, ${sittingName().toLowerCase()}: every step of the day`, () => openView({ type: "sitting" }));
-}
-function transferOffers() { return ((SNAP && SNAP.transfer_offers) || {}).offers || []; }
-function declinedSent(o) {
-  return sentEntries("offer-declined").some(e => e.fields.offer === o.key && e.fields.terms === o.signature && (!e.fields.client || e.fields.client === (o.whose || "you")));
-}
-function declineOffer(o) {
-  submit("offer-declined", { date: todayISO(), offer: o.key, terms: o.signature, name: o.name, client: o.whose || "you" }, null,
-    "Saved. It stays hidden unless its rate or cap changes.");
-}
-function sentEntries(kind) {
-  const local = load("outbox", []).concat(load("sent", []).map(x => x.entry)).filter(Boolean);
-  const gone = new Set(local.filter(e => e.kind === "withdraw").map(e => e.corrects));
-  for (const r of (SNAP && SNAP.recent) || []) if (r.status === "withdrawn" || r.status === "superseded" || r.status === "held") gone.add(r.id);
-  return local.filter(e => e.kind === kind && e.fields && !gone.has(e.id));
-}
-function transferPlan() {
-  const declined = sentEntries("offer-declined");
-  return (((SNAP && SNAP.transfer_offers) || {}).plan || [])
-    .filter(p => p.status === "holding" || p.status === "started" || startedSent(p) || !declined.some(e => e.fields.offer === p.offer && (!e.fields.client || e.fields.client === p.client)
-                                  && (!p.signature || e.fields.terms === p.signature))
-              && (p.status === "started" || p.status === "holding" || !(p.act_by && p.act_by < todayISO())));
-}
-function startedSent(p) {
-  const mine = (p.accounts || "").split(";");
-  if (p.started_accounts) return true;
-  return p.status === "started" || p.status === "holding" || sentEntries("offer-started").some(e => e.fields.offer === p.offer
-    && (e.fields.accounts || "").split(";").some(a => mine.includes(a)));
-}
-function wholeStartedSent(p) {
-  const mine = (p.accounts || "").split(";");
-  const got = new Set(sentEntries("offer-started").filter(e => e.fields.offer === p.offer).flatMap(e => (e.fields.accounts || "").split(";"))
-    .concat((p.started_accounts || "").split(";").filter(Boolean)));
-  return p.status === "started" || p.status === "holding" || mine.every(a => got.has(a));
-}
-function planCard() {
-  const plan = transferPlan();
-  if (!plan.length) return null;
-  const sum = who => plan.filter(p => p.client === who).reduce((a, p) => a + (money(p.bonus) || 0), 0);
-  const yours = sum("you"), corp = sum("the corporation");
-  const card = h("div", { class: "card glass plancard" },
-    h("div", { class: "ftop" }, h("span", { class: "l", text: "The most you can get" }),
-      basisDot("estimate", ["Each account to the offer that pays it most, after the fee its bank charges to move it out and, for the corporation, its tax. How the bonus is taxed is asked of the accountant.", "models/transfer-bonuses/plan.csv"])),
-    yours > 0 ? h("div", { class: "v rounded", text: "~" + fmtWhole$(Math.round(yours)) }) : null,
-    yours > 0 ? h("p", { class: "small muted", text: "into your accounts, before any tax on it" }) : null,
-    corp > 0 ? h("p", { class: yours > 0 ? "plancorp" : "v rounded", text: (yours > 0 ? "and " : "") + `~${fmtWhole$(Math.round(corp))} to the corporation, after its tax` }) : null);
-  const list = h("div", { class: "planlist" });
-  for (const p of plan)
-    list.append(h("div", { class: "planline" },
-      h("span", { class: "title", text: `${p.client === "you" ? "Your " + p.account_names : "The corporation"} → ${p.name}` }),
-      h("span", { class: "meta", text: p.status === "holding" ? `holding${p.hold_end ? " until " + dayName(p.hold_end, { day: "numeric", month: "short", year: "numeric" }) : ""}` : startedSent(p) ? (p.status === "started" && p.act_by ? `started · move by ${dayName(p.act_by, { day: "numeric", month: "short" }).replace(" ", "\u00a0")}` : "started") : p.act_by ? `by ${dayName(p.act_by, { day: "numeric", month: "short" }).replace(" ", "\u00a0")}` : "no end date" })));
-  card.append(list);
-  return tapArea(card, "The most you can get: every step", () => openView({ type: "plan" }));
-}
-function renderPlan() {
-  const plan = transferPlan(), p = h("div", { class: "page narrow" });
-  p.append(head("The most you can get", "What to do, offer by offer, soonest first."));
-  if (!plan.length) { p.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "No offer is worth moving for now." }))); return p; }
-  for (const x of plan) {
-    const sec = h("section", { class: "card glass" },
-      h("h3", { text: x.name + (x.status === "holding" ? " · holding" : startedSent(x) ? (x.status === "started" && x.act_by ? ` · started, move by ${dayName(x.act_by, { day: "numeric", month: "short" })}` : " · started") : x.act_by ? ` · by ${dayName(x.act_by, { day: "numeric", month: "short" })}` : "") }),
-      h("p", { text: prettyDates(x.words) }),
-      h("p", { class: "small", text: prettyDates(x.steps) }));
-    if (startedSent(x) && x.landed !== "yes" && (x.status === "started" || x.status === "holding") && !sentEntries("offer-started").some(e => e.fields.offer === x.offer && e.fields.accounts === x.accounts && e.fields.landed === "yes")) {
-      const l = h("button", { class: "btn tinted", type: "button", text: "It landed" });
-      l.addEventListener("click", () => { submit("offer-started", { date: todayISO(), offer: x.offer, accounts: x.accounts, name: x.name, landed: "yes" }, null,
-        "Saved. Tell a session too, so it can read the new statements."); render(); });
-      sec.append(h("div", { class: "acts" }, l));
-    }
-    if (!wholeStartedSent(x)) {
-      const nf = h("button", { class: "btn gray", type: "button", text: "Not for me" });
-      nf.addEventListener("click", () => { submit("offer-declined", { date: todayISO(), offer: x.offer, terms: x.signature || "",
-        name: x.name, client: x.client }, null, "Saved. The plan works out the rest without it."); render(); });
-      const b = h("button", { class: "btn tinted", type: "button", text: "Started" });
-      b.addEventListener("click", () => { submit("offer-started", { date: todayISO(), offer: x.offer, accounts: x.accounts, name: x.name,
-        moved: x.moved || "", bonus: x.bonus || "", bonus_before_tax: x.bonus_before_tax || x.bonus || "", gross: x.gross || "", terms: x.signature || "", moved_by: x.moved_by || "" }, null,
-        "Saved. These accounts go to no other offer now."); render(); });
-      sec.append(h("div", { class: "acts" }, b, startedSent(x) ? null : nf));
-    }
-    p.append(sec);
-  }
-  p.append(h("p", { class: "small muted", text: "Estimates on what your accounts hold today. Before moving or putting in anything, tell a session: it checks a move is in kind and new money fits this year's room, and gets the Finance System ready for the new statements." }));
-  return p;
-}
-function offersList() {
-  const rows = transferOffers().filter(o => !declinedSent(o));
-  if (!rows.length) return null;
-  const list = h("div", { class: "list glass" });
-  for (const o of rows) {
-    const amt = money(o.worth), est = o.label === "estimate";
-    const mine = transferPlan().some(p => p.offer === o.key && p.client === (o.whose || "you") && startedSent(p));
-    const btn = mine ? null : h("button", { class: "btn small gray", type: "button", text: "Not for me" });
-    if (btn) btn.addEventListener("click", ev => { ev.stopPropagation(); declineOffer(o); render(); });
-    const row = h("div", { class: "row offerrow" },
-      h("span", { class: "main" },
-        h("span", { class: "title", text: o.name }),
-        h("span", { class: "meta", text: [o.whose === "the corporation" ? "the corporation's, after its tax" : "",
-          o.deadline ? `ends ${dayName(o.deadline, { day: "numeric", month: "short" }).replace(" ", "\u00a0")}` : ""].filter(Boolean).join(" · ") }),
-        btn ? h("span", { class: "buyact" }, btn) : null),
-      h("span", { class: "trail" }, amt !== null ? h("span", { class: "amt num", text: (est ? "~" : "") + fmtWhole$(Math.round(amt)) }) : null,
-        basisDot(o.label, [prettyDates(o.words), plainSource((SNAP.transfer_offers || {}).source || "")].filter(Boolean))));
-    list.append(tapArea(row, `${o.name}: the transfer bonus`, () => openView({ type: "offer", key: o.key })));
-  }
-  const note = (SNAP.transfer_offers || {}).note;
-  return rows.length > 1 && note ? h("div", {}, list, h("p", { class: "small muted offernote", text: note })) : list;
-}
-function renderOffer() {
-  const o = transferOffers().find(x => x.key === VIEW.key), p = h("div", { class: "page narrow" });
-  if (!o) { p.append(head("Transfer bonus", ""), h("div", { class: "card glass" }, h("p", { class: "muted", text: "This offer is no longer shown: it ended, its figures changed, or you turned it down." }))); return p; }
-  p.append(head(o.name, "Read from its own terms."));
-  const amt = money(o.worth);
-  p.append(h("div", { class: "trend-top" },
-    h("div", { class: "ftop" }, h("span", { class: "l", text: o.whose === "the corporation" ? "Worth to the corporation, after its tax" : "Worth to you" }), basisDot(o.label, [plainSource((SNAP.transfer_offers || {}).source || "")])),
-    h("div", { class: "v rounded", text: amt !== null ? (o.label === "estimate" ? "~" : "") + fmtWhole$(Math.round(amt)) : "—" })));
-  const card = h("section", { class: "card glass" }, h("p", { text: prettyDates(o.words) }));
-  if (o.detail) card.append(h("p", { class: "small muted", text: prettyDates(o.detail) }));
-  if (/^https:\/\//.test(o.terms || "")) card.append(h("p", { class: "small" }, h("a", { href: o.terms, target: "_blank", rel: "noopener", text: "Its terms" })));
-  if (!transferPlan().some(p => p.offer === o.key && p.client === (o.whose || "you") && startedSent(p))) {
-    const btn = h("button", { class: "btn tinted", type: "button", text: "Not for me" });
-    btn.addEventListener("click", () => { declineOffer(o); closeView(); });
-    card.append(h("div", { class: "acts" }, btn));
-  }
-  p.append(card);
-  return p;
 }
 function toBuy() { return (SNAP && SNAP.payday && SNAP.payday.to_buy) || {}; }
 function boughtSent(acct) {
@@ -1562,10 +1425,8 @@ function renderSitting() {
     ? `${qn} open: what an expense was for, or something the statements could not say. New ones from this month's statements come within a few hours of step 1.`
     : "Nothing to answer. New ones from this month's statements come within a few hours of step 1.",
     qn ? h("button", { class: "btn wide", type: "button", onclick: () => openView({ type: "questions" }) }, qn === 1 ? "Open the question" : "Open the questions") : null));
-  const searched = ((SNAP.transfer_offers || {}).searched) || "";
-  const s7 = stepState(pd, 7) === "done" ? "done" : sittingStep(pd) === 7 || ((SNAP.transfer_offers || {}).search_due) ? "now" : null;
-  p.append(step(7, "Check transfer bonus promos", s7,
-    `Claude does this when you close the banking day's session on the MacBook: once the day is logged, it searches the web for big transfer bonuses, reads each bank's own terms, and updates Transfer bonus on Today with the most you can get. To do it at another time, type /transfer-promos in Claude in VS Code.${searched ? ` Last searched ${dayName(searched, { day: "numeric", month: "long" })}.` : ""}`));
+  p.append(step(7, "Check transfer bonus promos", null,
+    "Claude does this when you close the banking day's session on the MacBook: it searches the web for big transfer bonuses, reads each bank's own terms, and tells you there which are worth taking and what to do. To do it at another time, type /transfer-promos in Claude in VS Code."));
   if ((pd.year_end || []).length) {
     const ye = h("div", { class: "list glass" });
     for (const r of pd.year_end) ye.append(h("div", { class: "row" },
@@ -1884,8 +1745,6 @@ function summaryOf(e) {
     case "income": return `Income ${fmt$(f.amount)}`;
     case "registered": return `${fmt$(f.amount)} ${f.direction === "withdrawal" ? "out of" : "into"} ${(f.account || "").replace(/^qt-/, "").toUpperCase()}`;
     case "reading": return f.what === "odometer" ? `Odometer: ${f.value || ""} km` : /-value$/.test(f.what || "") && money(f.value) !== null ? `Reading: ${fmt$(f.value)}` : `Reading: ${f.value || ""}`;
-    case "offer-declined": return `Not for me: ${f.name || f.offer || "a transfer bonus"}`;
-    case "offer-started": return `${f.landed === "yes" ? "It landed" : "Started"}: ${f.name || f.offer || "a transfer bonus"}`;
     case "invested": return `Bought VEQT, ${(((toBuy().buy || []).find(b => b.account === f.account) || {}).name || (f.account || "").replace(/^qt-/, "").toUpperCase())}, ${shortDate(f.date)}`;
     case "card": return "Card change";
     case "life": return "Change: " + (f.text || "").slice(0, 60);
