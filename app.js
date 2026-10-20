@@ -3788,6 +3788,7 @@ const CARD_STATE = {
 };
 const CARD_ITEM = {
   "minimum-spend": "Spending for its welcome bonus", "spend-record": "What it has been charged",
+  "ynab-link": "YNAB's link to the bank",
   "annual-fee": "Its yearly fee", "close-by": "Whether to keep it", points: "Points", gap: "Something to settle",
   "you-told-us": "Something you sent", nothing: "Nothing to watch",
   "next-card": "Worth opening",
