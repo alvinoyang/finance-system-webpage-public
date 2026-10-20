@@ -2308,7 +2308,7 @@ function apartOf(pl, type) { return ((pl && pl.activities) || []).find(a => a.ty
 function apartOfFields(fields) {
   if (!fields) return null;
   const pl = placeInfo(placeOfShift(fields)), d = String(fields.description || "").toLowerCase();
-  return apartOf(pl, String(fields.type || "")) || ((pl && pl.activities) || []).find(a => !fields.type && new RegExp("\\b" + a.name.toLowerCase()).test(d)) || null;
+  return apartOf(pl, String(fields.type || "")) || ((pl && pl.activities) || []).find(a => !fields.type && a.word && new RegExp("\\b" + a.word).test(d)) || null;
 }
 function shiftTitle(fields) {
   const pl = placeInfo(placeOfShift(fields));
