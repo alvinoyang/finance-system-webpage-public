@@ -736,6 +736,7 @@ function pageFor() {
   else if (VIEW && VIEW.type === "settings") page = renderSettings();
   else if (VIEW && VIEW.type === "questions") page = renderQuestions();
   else if (VIEW && VIEW.type === "trend") page = renderTrend();
+  else if (VIEW && VIEW.type === "cra") page = renderCra();
   else if (VIEW && VIEW.type === "shifts") page = renderShifts();
   else if (VIEW && VIEW.type === "income") page = renderIncome();
   else if (VIEW && VIEW.type === "work") page = renderWork();
@@ -3445,31 +3446,38 @@ function summaryCorp() {
   const exp = ((SNAP && SNAP.income) || {}).expected;
   if (inc) g2.append(figCard(inc, { label: inc.label.replace("Income into the corporation", "Income").replace(/ so far$/, ""), series: S.income, onOpen: () => openView({ type: "income" }),
     meta: [h("span", { class: "asof" }, exp ? h("span", { class: "expect" }, h("span", { class: "bd estimate", "aria-hidden": "true" }), `~${compact(money(exp.total), "$")} expected by Jan 31`) : (incomeVsLastYear() || "Every year, by month"))] }));
-  const rm = ov("remit");
-  if (rm) g2.append(figCard(rm, { label: String(rm.label || "").replace(/^Sent to CRA for payroll/, "Payroll to CRA").replace(/ so far$/, ""), series: S.remit, onOpen: () => openTrendOf("remit"), meta: [h("span", { class: "asof", text: "Due by the 15th of the next month" })] }));
-  const tx = ov("tax_left");
-  if (tx) g2.append(figCard(tx, { label: "Tax instalments left this year", meta: [h("span", { class: "asof", text: tx.note || "As planned" })] }));
+  const { hours: whc, rate: pphc } = workRateCards();
+  if (whc) g2.append(whc);
+  const cs = ov("cra_sent");
+  if (cs) {
+    const C = (SNAP && SNAP.cra_sent) || {};
+    const card = figCard(cs, { label: String(cs.label || "").replace(/ so far$/, ""), series: S.cra_sent, onOpen: () => openView({ type: "cra" }),
+      meta: [h("span", { class: "asof", text: `Payroll and tax · CRA to ${monthDay(C.through || cs.as_of)}` })] });
+    card.classList.add("cra");
+    g2.append(card);
+  }
+  if (pphc) g2.append(pphc);
+  if (g2.children.length === 4 && cs) g2.classList.add("cra-last");
   out.append(balance(g2));
-  { const mv = bankingDaySection(); if (mv) out.append(mv); }
   return out;
 }
 function workRateCards() {
-  const out = [], S = (SNAP && SNAP.series) || {};
+  const out = {}, S = (SNAP && SNAP.series) || {};
   const wh = ov("work_hours"), pph = ov("pay_per_hour");
   const lagNote = o => daysFrom(o.mgh_through || o.as_of) < -35 ? `MGH counted to ${monthDay(o.mgh_through || o.as_of)}` : "";
-  if (wh) out.push(figCard(wh, { label: wh.label.replace(/ · .*/, ""), value: wholeValue(wh.value) + " h", series: S.work_hours, onOpen: () => openView({ type: "work", metric: "hours" }),
-    meta: [h("span", { class: "asof", text: lagNote(wh) || "By year, by place" })] }));
+  if (wh) out.hours = figCard(wh, { label: wh.label.replace(/ · .*/, ""), value: wholeValue(wh.value) + " h", series: S.work_hours, onOpen: () => openView({ type: "work", metric: "hours" }),
+    meta: [h("span", { class: "asof", text: lagNote(wh) || "By year, by place" })] });
   if (pph) {
     const wc = withCommute() && pph.value_incl_travel;
     const from = commuteFrom(pph.travel_source);
-    out.push(figCard(pph, { label: pph.label.replace(/ · .*/, ""), value: wholeValue(wc ? pph.value_incl_travel : pph.value) + "/h",
+    out.rate = figCard(pph, { label: pph.label.replace(/ · .*/, ""), value: wholeValue(wc ? pph.value_incl_travel : pph.value) + "/h",
       basis: wc ? pph.basis_incl_travel : pph.basis, series: wc && S.pay_per_hour_incl_travel ? S.pay_per_hour_incl_travel : S.pay_per_hour,
       why: whyLines(wc ? Object.assign({}, pph, { note: pph.note_incl_travel || pph.note }) : pph).concat(wc ? [`With the commute: the round trip to each shift counts as time worked. The commute part is ${from || "not known"}.`,
                                       `Without it, ${wholeValue(pph.value)}/h.`]
                                    : [`Without the commute. With it, ${wholeValue(pph.value_incl_travel || pph.value)}/h.`]),
       onOpen: () => openView({ type: "work", metric: "rate" }),
       meta: [h("span", { class: "asof" }, h("span", { class: "which", text: wc ? "With the commute" : "Without the commute" }),
-               lagNote(pph) ? " · " + lagNote(pph) : "")] }));
+               lagNote(pph) ? " · " + lagNote(pph) : "")] });
   }
   return out;
 }
@@ -3525,21 +3533,6 @@ function movesSection(accts, title, nowName, rowName) {
   return sec;
 }
 
-const BANKING_KINDS = { sweep: "to Questrade", netpay: "to you, net pay", remittance: "to CRA, payroll", savings: "to savings, from your chequing" };
-function bankingDaySection() {
-  const M = (SNAP && SNAP.moves) || {};
-  const mine = (M.moves || []).filter(m => BANKING_KINDS[m.kind]);
-  if (!mine.length) return null;
-  const shown = mine.slice().reverse().sort((x, y) => (MOVE_ORDER[x.status] ?? 4) - (MOVE_ORDER[y.status] ?? 4)).slice(0, 9);
-  const rows = shown.map(m => moveRow(m, `${fmtWhole$(Math.round(money(m.amount)))} ${BANKING_KINDS[m.kind]}`, true));
-  const weakest = shown.every(m => m.label === "verified") ? "verified" : shown.some(m => m.label === "estimate") ? "estimate" : "recorded";
-  const sec = h("section", { class: "card glass" },
-    h("div", { class: "ftop" }, h("h3", { text: "Sent on the banking day" }),
-      basisDot(weakest, ["What you sent on each banking day, as logged that day, matched to what later shows it: the Questrade statement for the sweep, CRA's payroll account for its payment, your chequing statement for your pay, and the corporation's chequing for each leaving. A row not yet shown rests on the log alone.",
-                          `Worked out on the MacBook: ${plainSource(M.source || "")}.`])),
-    h("div", { class: "list flat" }, rows));
-  return sec;
-}
 function nowLine(nowRow, nowName, withPrice) {
   return h("div", { class: "list flat" }, h("div", { class: "row plain" },
     h("span", { class: "main" }, h("span", { class: "title", text: `${nowName}, about now` }),
@@ -4562,7 +4555,7 @@ function renderTrend() {
   const holder = h("div", { class: "card glass chartcard" });
   const draw = n => { clear(holder); holder.append(chart(sers, { form: main.form, unit: main.unit, height: 240, legend: sers.length > 1, axis: true, hover: true, range: n })); };
   if (ranges.length) {
-    const rs = VIEW.range !== undefined && ranges.some(r => r[0] === VIEW.range) ? VIEW.range : keys[0] === "remit" ? 12 : 36;
+    const rs = VIEW.range !== undefined && ranges.some(r => r[0] === VIEW.range) ? VIEW.range : 36;
     const segs = h("div", { class: "segs range", role: "radiogroup", "aria-label": "How far back" });
     for (const [n, lab] of ranges) {
       const b = h("button", { type: "button", role: "radio", "aria-checked": String(n === rs) }, lab);
@@ -4591,6 +4584,56 @@ function renderTrend() {
   const gap = main.form === "line" && stepsD.some(d => d > Math.max(40, usualD * 1.6));
   p.append(h("p", { class: "foot", text: [gap ? "A break in the line marks months whose bank statement is not filed yet." : "", plainSource(main.source) + ".",
     main.form === "bars" && /^\d{4}-\d{2}$/.test(last[0]) ? "The month in progress is left out until it is over." : ""].filter(Boolean).join(" ") }));
+  return p;
+}
+
+function renderCra() {
+  const C = (SNAP && SNAP.cra_sent) || {}, o = ov("cra_sent"), p = h("div", { class: "page narrow" });
+  if (!C.year || !o) { p.append(head("Not available", "What was sent to CRA has not arrived yet.")); return p; }
+  const P = C.payroll || {}, A = C.arrears || {}, T = C.tax || {};
+  p.append(head(`Sent to CRA, ${C.year}`, ""));
+  p.append(h("div", { class: "trend-top" },
+    h("div", { class: "ftop" }, h("span", { class: "l", text: "At " + prettyDates(C.through || o.as_of) }), basisDot(o.basis, whyLines(o))),
+    h("div", { class: "v rounded", text: fmtWhole$(Math.round(money(C.total))) }),
+    h("div", { class: "fmeta" }, h("span", { class: "asof", text: `Everything CRA's accounts show arriving in ${C.year}: payroll, and payments to the corporation's tax account.` }))));
+  const months = C.months || [];
+  if (months.length) {
+    const ser = (label, i) => ({ label, unit: "$", form: "bars", basis: C.basis, points: months.map(m => [m[0], money(m[i])]) });
+    p.append(h("div", { class: "card glass chartcard" },
+      chart([ser("Payroll", 1), ser("Corporate tax", 2)], { form: "bars", unit: "$", height: 220, legend: true, axis: true, hover: true, stack: true })));
+  }
+  const row = (title, meta, amt, basis, why) => {
+    const a = h("span", { class: "amt", text: (money(amt) < 0 ? "−" : "") + fmtWhole$(Math.abs(Math.round(money(amt)))) });
+    return h("div", { class: "row amtrow" }, h("span", { class: "main" }, h("span", { class: "title", text: title }),
+      meta ? h("span", { class: "meta", text: meta }) : null), basis ? h("span", { class: "est-wrap" }, a, basisDot(basis, why || [])) : a);
+  };
+  const prow = [row("Income tax taken from your pay", "Federal and Ontario", P.income_tax), row("CPP", "Your half and the corporation's", P.cpp)];
+  if (money(P.ei)) prow.push(row("EI", "Your share and the corporation's", P.ei));
+  if (money(P.adjusted)) prow.push(row(money(P.adjusted) < 0 ? "Sent less on purpose" : "Sent more on purpose", dropIds(P.adjusted_why), P.adjusted,
+    P.adjusted_basis || "recorded", ["Written down when it was decided, on the word it rests on; CRA's account shows the payment."]));
+  if (money(P.not_split)) prow.push(row("Not matched to a month's calculation", "CRA's check at each close explains any difference", P.not_split));
+  const mon = k => new Date(+k.slice(0, 4), +k.slice(5, 7) - 1, 1).toLocaleDateString("en-CA", { month: "long" });
+  const runs = [];
+  for (const k of P.months || []) {
+    const r = runs[runs.length - 1], next = r && (() => { const [yy, mm] = r[1].split("-").map(Number); return mm === 12 ? `${yy + 1}-01` : `${yy}-${pad(mm + 1)}`; })();
+    if (r && k === next) r[1] = k; else runs.push([k, k]);
+  }
+  const span = runs.map(([a, b]) => a === b ? keyLabel(a, true) : a.slice(0, 4) === b.slice(0, 4) ? `${mon(a)} to ${keyLabel(b, true)}` : `${keyLabel(a, true)} to ${keyLabel(b, true)}`)
+    .join(", and ");
+  p.append(h("section", { class: "section" }, h("h2", { text: "Payroll" }), h("div", { class: "list glass" }, prow),
+    h("p", { class: "foot", text: `${fmtWhole$(Math.round(money(P.total)))}${span ? ` for your pay of ${span}` : ""}, split by its calculations.` })));
+  if (money(A.total)) p.append(h("section", { class: "section" }, h("h2", { text: "Payroll interest and penalties" }),
+    h("div", { class: "list glass" }, row("Paid to CRA's payroll arrears account", "", A.total))));
+  const pays = (T.payments || []).slice().reverse();
+  if (pays.length) p.append(h("section", { class: "section" }, h("h2", { text: "Corporate tax" }),
+    h("div", { class: "list glass" }, pays.map(x => row(monthDay(x.date), x.for_year ? `For ${x.for_year}'s tax` : "Not put to a year's tax", x.amount))),
+    h("p", { class: "foot", text: `${fmtWhole$(Math.round(money(T.total)))} into the corporation's tax account. A payment that came back is left out.` })));
+  const M = (SNAP && SNAP.moves) || {};
+  const due = (M.moves || []).filter(m => m.kind === "remittance" && ["left", "waiting", "late"].includes(m.status));
+  const tx = ov("tax_left");
+  const later = due.map(m => moveRow(m, `${fmtWhole$(Math.round(money(m.amount)))} for payroll`, true));
+  if (tx) later.push(row("Tax instalments left this year", tx.note || "", money(tx.value), tx.basis, whyLines(tx)));
+  if (later.length) p.append(h("section", { class: "section" }, h("h2", { text: "Still to come" }), h("div", { class: "list glass" }, later)));
   return p;
 }
 
@@ -4666,7 +4709,10 @@ function chart(sers, o) {
     const keys = bars || S2.length === 1 ? S2[0].points.map(p2 => p2[0])
       : [...new Set(S2.flatMap(s2 => s2.points.map(p2 => p2[0])))].sort((a1, b1) => tOf(a1) - tOf(b1));
     const vals = S2.flatMap(s2 => s2.points.map(p2 => p2[1]));
-    let lo = bars ? Math.min(0, ...vals) : Math.min(...vals), hi = bars ? Math.max(0, ...vals) : Math.max(...vals);
+    const valAt = (s2, k) => { const q = s2.points.find(p2 => p2[0] === k); return q ? q[1] : 0; };
+    const under = (j, k) => o.stack && bars ? S2.slice(0, j).reduce((a, s3) => a + Math.max(0, valAt(s3, k)), 0) : 0;
+    const stackHi = o.stack && bars ? Math.max(0, ...keys.map(k => under(S2.length, k))) : -Infinity;
+    let lo = bars ? Math.min(0, ...vals) : Math.min(...vals), hi = bars ? Math.max(0, stackHi, ...vals) : Math.max(...vals);
     if (!bars) { const pad2 = (hi - lo) * .08 || Math.abs(hi) * .05 || 1; lo -= pad2; hi += pad2; }
     const ticks = o.axis ? niceTicks(Math.min(lo, bars ? 0 : lo), hi, 3) : [lo, hi];
     if (o.axis) { lo = bars ? Math.min(0, ticks[0]) : ticks[0]; hi = ticks[ticks.length - 1]; }
@@ -4715,9 +4761,11 @@ function chart(sers, o) {
       if (bars) {
         const bw = Math.max(2, Math.min(24, band - Math.max(2, band * .32)));
         s2.points.forEach((p2, i) => {
-          const x0 = x(i, p2[0]) - bw / 2, y0 = y(p2[1]), hh = Math.abs(y(0) - y0), r = Math.min(4, bw / 2, hh);
-          if (hh <= .5) { svg.append(sv("line", { class: "zero", x1: x0 + 1, x2: x0 + bw - 1, y1: y(0) - .5, y2: y(0) - .5 })); return; }
-          const d = p2[1] >= 0 ? `M${x0},${y(0)} V${y0 + r} Q${x0},${y0} ${x0 + r},${y0} H${x0 + bw - r} Q${x0 + bw},${y0} ${x0 + bw},${y0 + r} V${y(0)} Z`
+          const b0 = p2[1] > 0 ? under(j, p2[0]) : 0, yb = y(b0);
+          const covered = o.stack && p2[1] > 0 && S2.slice(j + 1).some(s3 => valAt(s3, p2[0]) > 0);
+          const x0 = x(i, p2[0]) - bw / 2, y0 = y(b0 + p2[1]), hh = Math.abs(yb - y0), r = covered ? 0 : Math.min(4, bw / 2, hh);
+          if (hh <= .5) { if (!b0 && !(o.stack && j)) svg.append(sv("line", { class: "zero", x1: x0 + 1, x2: x0 + bw - 1, y1: y(0) - .5, y2: y(0) - .5 })); return; }
+          const d = p2[1] >= 0 ? `M${x0},${yb} V${y0 + r} Q${x0},${y0} ${x0 + r},${y0} H${x0 + bw - r} Q${x0 + bw},${y0} ${x0 + bw},${y0 + r} V${yb} Z`
                                : `M${x0},${y(0)} V${y0 - r} Q${x0},${y0} ${x0 + r},${y0} H${x0 + bw - r} Q${x0 + bw},${y0} ${x0 + bw},${y0 - r} V${y(0)} Z`;
           const bar = sv("path", { class: "col s" + j + (anim ? " grow" : "") + (estAt(s2, p2[0]) ? " est" : "") + (p2[1] < 0 ? " below" : ""), d });
           if (anim) bar.style.setProperty("--d", `${Math.min(i * 12, 400)}ms`);
@@ -4761,7 +4809,7 @@ function chart(sers, o) {
         let i = 0, best = Infinity;
         xs.forEach((xx, j) => { const d = Math.abs(xx - px); if (d < best) { best = d; i = j; } });
         cross.removeAttribute("hidden"); cross.setAttribute("x1", xs[i]); cross.setAttribute("x2", xs[i]);
-        S2.forEach((s2, j) => { const pt = s2.points.find(q => q[0] === keys[i]); if (!pt) { dots[j].setAttribute("hidden", ""); return; } dots[j].removeAttribute("hidden"); dots[j].setAttribute("cx", xs[i]); dots[j].setAttribute("cy", y(pt[1])); });
+        S2.forEach((s2, j) => { const pt = s2.points.find(q => q[0] === keys[i]); if (!pt) { dots[j].setAttribute("hidden", ""); return; } dots[j].removeAttribute("hidden"); dots[j].setAttribute("cx", xs[i]); dots[j].setAttribute("cy", y((pt[1] > 0 ? under(j, keys[i]) : 0) + pt[1])); });
         clear(tip);
         tip.append(h("div", { class: "tk", text: keyLabel(keys[i], true) }));
         if (o.tip) {
@@ -5373,13 +5421,7 @@ function workEarnings() {
     out.append(hero, h("section", { class: "section" }, h("h2", { text: "By who paid" }), ul,
       h("p", { class: "foot", text: `Every deposit from February ${wy}${yr.so_far ? ` to ${keyLabel(yr.through, true)}` : ` to January ${Number(wy) + 1}`}, by the first payer its line in your tab names.` })));
   }
-  const cards = workRateCards();
-  if (cards.length) {
-    const g = h("div", { class: "figs" });
-    for (const c of cards) g.append(c);
-    out.append(h("section", { class: "section" }, h("h2", { text: "Hours and pay per hour" }), balance(g)));
-  }
-  if (!(yr && bp.length) && !cards.length) out.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "These figures have not arrived yet." })));
+  if (!(yr && bp.length)) out.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "These figures have not arrived yet." })));
   return out;
 }
 
