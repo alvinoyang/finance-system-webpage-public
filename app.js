@@ -2738,13 +2738,13 @@ function buildShiftForm(f) {
     }
     if (!problems.length && !VIEW.corrects && form._dupOk !== askedFor && !/stipend/i.test(fields.description || "") && fields.place !== "abp") {
       const norm = x => String(x || "").toLowerCase().replace(/\s*\b(we|covered)\b/g, "").replace(/\s+/g, " ").trim();
-      const kindOf = f => { const ap = apartOfFields(f); return ap ? ap.type : ""; };
+      const kindOf = f => { const ap = apartOfFields(f); return ap ? [ap.type, Number(String(f.hours || "").replace(/,/g, "")) || "", String(f.note || "").toLowerCase().split(/\s+/).filter(Boolean).join(" ")].join("|") : ""; };
       const twin = allShifts().find(x => x.fields.place === fields.place && x.fields.date === fields.date
         && norm(x.fields.site) === norm(fields.site) && norm(x.fields.description) === norm(fields.description) && kindOf(x.fields) === kindOf(fields));
       if (twin) {
         form._dupOk = askedFor;
         bad(date.closest(".field"), apNow
-          ? `You already sent ${fields.description} for ${shortDate(fields.date)}. An activity is one entry a day: open it under Your shifts and make its hours the day's whole. Tap Send again to send this anyway: the MacBook will hold it for a check`
+          ? `You already sent ${fields.description} for ${shortDate(fields.date)} with these hours. A second session of the same length? Add a note that tells it apart ("afternoon"), and send. Tap Send again to send this as it is: the MacBook will hold it for a check`
           : `You already sent this ${fields.description} shift for ${shortDate(fields.date)}. To change it, open it under Your shifts. Tap Send again to send it anyway: the MacBook will hold it for a check`);
       }
     }
@@ -3843,6 +3843,7 @@ const CARD_ITEM = {
   "ynab-link": "YNAB's link to the bank",
   "annual-fee": "Its yearly fee", "close-by": "Whether to keep it", points: "Points", gap: "Something to settle",
   "you-told-us": "Something you sent", nothing: "Nothing to watch",
+  "stale-note": "A note that closes nothing",
   "next-card": "Worth opening",
   "keep-until": "The day it is safe to close", "first-fee-refund": "Asking the first year's fee back",
   "fee-while-kept": "A fee worth paying to keep it",
@@ -4479,6 +4480,12 @@ function renderWork(embedded) {
         h("div", {}, h("span", { class: "k", text: "Without EDLP's stipend" }), h("span", { class: "fv num", text: `${fmtWhole$(Math.round(rate(sh)))}/h` })),
         h("div", {}, h("span", { class: "k", text: `EDLP's stipend, ${plural(Number(st.units), "month")}` }), h("span", { class: "fv num", text: fmtWhole$(Math.round(money(st.pay))) })),
         ppH ? h("div", {}, h("span", { class: "k", text: "Not shift work, left out" }), h("span", { class: "fv num", text: `${Math.round(ppH)} h` })) : null));
+      const fees = (W.paid_apart || []).filter(a => (pl === "all" || a.place === pl) && (W.fee_rates || {})[`${y}|${a.type}`] && money((W.fee_rates || {})[`${y}|${a.type}`].hours));
+      if (fees.length) holder.append(h("section", { class: "section" }, h("h2", { text: "A role paid by its fee" }), h("div", { class: "facts glass card" },
+        ...fees.map(a => { const fr = W.fee_rates[`${y}|${a.type}`], mon = k => new Date(+k.slice(0, 4), +k.slice(5, 7) - 1, 1).toLocaleDateString("en-CA", { month: "short" });
+          return h("div", {}, h("span", { class: "k" }, `${a.name}`, h("span", { class: "small muted", text: ` · ${fmtWhole$(Math.round(money(fr.pay)))} of its fee over ${Math.round(money(fr.hours))} h, ${mon(fr.from)} to ${mon(fr.to)}${fr.from.slice(0, 4) !== fr.to.slice(0, 4) ? " " + fr.to.slice(0, 4) : ""}` })),
+            h("span", { class: "fv num" }, fr.basis === "estimate" ? h("span", { class: "about", text: "~" }) : null, `${fmtWhole$(Math.round(money(fr.pay_per_hour)))}/h`)); })),
+        h("p", { class: "foot", text: "Its fee is the contract's, a month at a time; its hours are the ones you logged for it, and hours typed for a whole cycle are spread evenly over its months, so the figure is an estimate until each is logged on its day." })));
       if (pl === "all") {
         const rows = (W.places || []).map(x => {
           const alone = K[`${y}|${x.value}:shifts`], mixed = K[`${y}|edlp-stipend`] && x.value === "edlp" || apartHere(x.value).length > 0;
