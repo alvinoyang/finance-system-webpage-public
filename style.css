@@ -935,6 +935,7 @@ details.billing > .fields > .foot { padding: 0; }
 @keyframes ptrSpin { to { transform: rotate(360deg); } }
 main.settle, .ptr.settle .ptr-i { transition: transform .3s cubic-bezier(.2, .9, .25, 1), opacity .3s; }
 main.peek { position: fixed; left: 0; right: 0; z-index: 5; pointer-events: none; will-change: transform; }
+html.sliding, html.sliding body { overflow-x: hidden; }
 .peek-part { position: fixed; z-index: 5; pointer-events: none; margin: 0; will-change: transform; }
 @media (max-width: 599px) {
   main.peek.peek-top { padding-top: calc(max(10px, env(safe-area-inset-top)) + 8px); }
