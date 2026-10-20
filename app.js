@@ -2738,7 +2738,7 @@ function buildShiftForm(f) {
     }
     if (!problems.length && !VIEW.corrects && form._dupOk !== askedFor && !/stipend/i.test(fields.description || "") && fields.place !== "abp") {
       const norm = x => String(x || "").toLowerCase().replace(/\s*\b(we|covered)\b/g, "").replace(/\s+/g, " ").trim();
-      const kindOf = f => { const ap = apartOfFields(f); return ap ? ap.type : ""; };
+      const kindOf = f => { const ap = apartOfFields(f); return ap ? `${ap.type}|${Number(String(f.hours || "").replace(/,/g, "")) || ""}` : ""; };
       const twin = allShifts().find(x => x.fields.place === fields.place && x.fields.date === fields.date
         && norm(x.fields.site) === norm(fields.site) && norm(x.fields.description) === norm(fields.description) && kindOf(x.fields) === kindOf(fields));
       if (twin) {
