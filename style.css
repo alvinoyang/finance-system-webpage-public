@@ -1082,6 +1082,7 @@ main.peek { position: fixed; left: 0; right: 0; z-index: 5; pointer-events: none
   .cols > div { display: grid; gap: 22px; }
   .cols > div > .section:first-child > h2, .cols > div > .section:first-child > .section-h { margin-top: 0; }
   .figs { grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .figs.cra-last > .fig.cra { order: 1; }
   .tiles { grid-template-columns: repeat(4, 1fr); }
   .tile, .tile.wide { grid-column: auto; grid-template-columns: 1fr; align-items: start; min-height: 132px; }
 }
