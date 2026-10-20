@@ -4322,12 +4322,20 @@ function renderWork(embedded) {
     const y = V.year, pl = V.place, c = cell(y, pl);
     const cur = y === String(new Date().getFullYear()) || (W.default_year === y && y === String(new Date().getFullYear() - 1));
     let lagText = "";
-    if ((cur || y === "all") && W.last) {
+    const last = W.last && metric === "hours" && W.mgh_hours_to ? Object.assign({}, W.last, { mgh: (() => {
+      const [hy, hm] = W.mgh_hours_to.split("-").map(Number), end = `${W.mgh_hours_to}-${pad(new Date(hy, hm, 0).getDate())}`;
+      return end > (W.last.mgh || "") ? end : W.last.mgh; })() }) : W.last;
+    if ((cur || y === "all") && last) {
       const countedWord = p => ({ abp: "month invoiced", bochner: "list typed", endoscopy: "list typed" })[p] || "shift typed";
-      if (pl !== "all") lagText = W.last[pl] ? `Counted to your last ${countedWord(pl)} there, ${shortDate(W.last[pl])}.` : "";
+      if (pl !== "all") lagText = !last[pl] ? "" : pl === "mgh" && last.mgh !== W.last.mgh
+        ? `Counted to ${shortDate(last.mgh)}: every shift MGH booked you for to then is logged.`
+        : `Counted to your last ${countedWord(pl)} there, ${shortDate(last[pl])}.`;
       else {
-        const at = (W.places || []).filter(x => W.last[x.value] && cell(y, x.value)).map(x => `${x.label.replace(" consulting", "")} ${monthDay(W.last[x.value])}`);
-        lagText = at.length ? `Counted to the last one typed at each place: ${at.join(", ")}.` : "";
+        const byBooking = last.mgh && last.mgh !== (W.last || {}).mgh && cell(y, "mgh");
+        const at = (W.places || []).filter(x => last[x.value] && cell(y, x.value) && !(byBooking && x.value === "mgh"))
+          .map(x => `${x.label.replace(" consulting", "")} ${monthDay(last[x.value])}`);
+        lagText = [at.length ? `Counted to the last one typed at each place: ${at.join(", ")}` : "",
+                   byBooking ? `MGH to ${monthDay(last.mgh)}, every shift it booked you for logged` : ""].filter(Boolean).join("; ") + (at.length || byBooking ? "." : "");
       }
     }
     const K = W.kinds || {};
@@ -4352,9 +4360,18 @@ function renderWork(embedded) {
     const label = `${y === "all" ? "All years" : cur ? y + " so far" : y}, ${nameOf(pl)}` + (metric === "rate" && pl === "edlp" && kind("edlp-stipend") ? " with its stipend"
                   : metric === "rate" && pl === "all" && kind("all:shifts") ? ", all work" : "") + (metric === "rate" ? (wc ? ", with the commute" : ", without the commute") : "");
     if (metric === "hours") {
+      const wk = y !== "all" ? (W.weekly || {})[`${y}|${pl}`] : null;
+      const mon = k => new Date(+k.slice(0, 4), +k.slice(5, 7) - 1, 1).toLocaleDateString("en-CA", { month: "short" });
+      const wkSpan = wk ? (wk.from.endsWith("-01") && wk.to.endsWith("-12") ? "" : `, ${mon(wk.from)} to ${mon(wk.to)}`) : "";
+      const total = h("div", { class: "v rounded", text: `${Math.round(hrs).toLocaleString("en-CA")} h` });
       holder.append(h("div", { class: "trend-top" },
-        h("div", { class: "ftop" }, h("span", { class: "l", text: label }), basisDot(c.basis || "recorded", why())),
-        h("div", { class: "v rounded", text: `${Math.round(hrs).toLocaleString("en-CA")} h` }),
+        h("div", { class: "ftop" }, h("span", { class: "l", text: label }), basisDot(c.basis || "recorded", why().concat(wk ? [
+          `Hours a week: ${Math.round(money(wk.hours)).toLocaleString("en-CA")} h over ${money(wk.weeks).toFixed(1)} weeks, ${mon(wk.from)} to ${mon(wk.to)} ${y}.` +
+          (wk.to < `${y}-12` ? " Only the months fully counted: a month MGH's shifts have not reached yet would read as a quiet one." : "")] : []))),
+        wk ? h("div", { class: "twofig" },
+          h("div", {}, total, h("div", { class: "twosub", text: "in all" })),
+          h("div", {}, h("div", { class: "v rounded", text: `${money(wk.per_week).toFixed(1)} h` }), h("div", { class: "twosub", text: `a week${wkSpan}` })))
+          : total,
         h("div", { class: "fmeta" }, h("span", { class: "asof", text: [unitsText(), tr ? `${Math.round(tr)} h of travel besides` : "",
           est ? `${Math.round(est / hrs * 100)}% of the hours are the usual length of that kind of shift, not typed or measured` : ""].filter(Boolean).join(" · ") })),
         ppHours ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: ppNote })) : null,
@@ -4363,8 +4380,8 @@ function renderWork(embedded) {
       let ser;
       if (y === "all") ser = { label: "Hours", unit: "h", form: "bars", points: years.slice().reverse().map(k => [k, cell(k, pl) ? money(cell(k, pl).hours) : 0]) };
       else ser = { label: "Hours", unit: "h", form: "bars", points: ((W.monthly || {})[pl] || []).filter(m => m[0].startsWith(y)).map(m => [m[0], m[1]]) };
-      if (y !== "all" && (pl === "all" || pl === "mgh") && (W.last || {}).mgh) {
-        const [ly, lm] = W.last.mgh.slice(0, 7).split("-").map(Number);
+      if (y !== "all" && (pl === "all" || pl === "mgh") && (W.mgh_hours_to || (W.last || {}).mgh)) {
+        const [ly, lm] = (W.mgh_hours_to || W.last.mgh).slice(0, 7).split("-").map(Number);
         ser.est_from = lm === 12 ? `${ly + 1}-01` : `${ly}-${String(lm + 1).padStart(2, "0")}`;
         ser.est_word = "so far: MGH's shifts not yet typed";
       }
