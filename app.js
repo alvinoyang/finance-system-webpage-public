@@ -2304,21 +2304,33 @@ function placeOfShift(fields) {
   const hit = placeList().find(pl => t.startsWith(pl.value + "-"));
   return hit ? hit.value : "";
 }
+function apartOf(pl, type) { return ((pl && pl.activities) || []).find(a => a.type === type) || null; }
+function apartOfFields(fields) {
+  if (!fields) return null;
+  const pl = placeInfo(placeOfShift(fields)), d = String(fields.description || "").toLowerCase();
+  return apartOf(pl, String(fields.type || "")) || ((pl && pl.activities) || []).find(a => !fields.type && d.startsWith(a.name.toLowerCase())) || null;
+}
 function shiftTitle(fields) {
   const pl = placeInfo(placeOfShift(fields));
   const site = pl && !pl.site ? fields.site : "";
   const name = pl ? pl.label.replace(" consulting", "") : "Shift";
+  const ap = apartOfFields(fields);
+  if (ap) return [name, ap.name, fields.type ? fields.description : ""].filter(Boolean).join(" · ");
   let d = fields.description || "";
   for (const w of [site, name]) if (w && d.toLowerCase().startsWith(w.toLowerCase() + " ")) d = d.slice(w.length + 1).replace(/^./, c => c.toUpperCase());
   d = d.replace(/,\s*[^,]+$/, m => site && m.toLowerCase().includes(site.toLowerCase()) ? "" : m);
   return [name, site, d].filter(Boolean).join(" · ");
 }
 function mineFor(place) {
-  const out = { sites: [], shifts: [] };
+  const out = { sites: [], shifts: [], items: {} };
   for (const e of load("outbox", []).concat(load("sent", []).map(x => x.entry))) {
     if (!e || e.kind !== "shift" || !e.fields || placeOfShift(e.fields) !== place) continue;
     if (e.fields.site && !out.sites.includes(e.fields.site)) out.sites.push(e.fields.site);
-    if (e.fields.description && !out.shifts.includes(e.fields.description)) out.shifts.push(e.fields.description);
+    const ap = apartOfFields(e.fields);
+    if (ap) {
+      const its = out.items[ap.type] = out.items[ap.type] || [];
+      if (e.fields.type && e.fields.description && !its.includes(e.fields.description)) its.push(e.fields.description);
+    } else if (e.fields.description && !out.shifts.includes(e.fields.description)) out.shifts.push(e.fields.description);
   }
   return out;
 }
@@ -2397,6 +2409,7 @@ function buildShiftForm(f) {
   const known = new Set(f.fields.map(x => x.key));
   const vals = Object.assign({}, pre);
   if (!vals.place) vals.place = placeOfShift(pre);
+  { const ap = apartOfFields(pre); vals.kind = ap ? ap.type : ""; if (ap && !pre.type) vals.description = ""; }
   if (!vals.date) vals.date = todayISO();
   const origPlace = vals.place, origDesc = pre.description || "";
   const errors = h("div", { class: "errors", role: "alert", hidden: true });
@@ -2460,8 +2473,9 @@ function buildShiftForm(f) {
       h("summary", {}, h("span", {}, "Date, place and shift", " ", h("span", { class: "hint", text: "Change them only if they were wrong" })), icon("chevR")),
       h("div", { class: "identity-in" }, identity)));
   } else form.append(identity, moreBox);
-  let site = null, shift = null, stipendMonth = null;
+  let site = null, shift = null, stipendMonth = null, act = null;
   const inputs = {};
+  const actBox = h("div");
   function syncStipend() {
     if (!stipendMonth) return;
     const on = /stipend/i.test(shift ? shift.value : vals.description || "");
@@ -2471,7 +2485,7 @@ function buildShiftForm(f) {
   function drawRest(focus) {
     clear(rest); clear(moreBox);
     const pl = placeInfo(vals.place);
-    site = null; shift = null;
+    site = null; shift = null; act = null;
     for (const k of Object.keys(inputs)) delete inputs[k];
     if (!pl) return;
     const mine = mineFor(pl.value);
@@ -2482,8 +2496,10 @@ function buildShiftForm(f) {
                      onChange: v => { setVal("site", v); if (shift) { const cur = shift.value; shift.el.replaceWith((shift = shiftCombo(pl, mine, cur)).el); } } });
       box.append(site.el);
     }
-    shift = shiftCombo(pl, mine, vals.description || "");
+    shift = shiftCombo(pl, mine, vals.kind ? (apartOf(pl, vals.kind) || {}).name || "" : vals.description || "");
     box.append(shift.el);
+    clear(actBox);
+    box.append(actBox);
     stipendMonth = null;
     if (pl.value === "edlp") {
       stipendMonth = numField("period", vals.period, setVal, "The month the stipend is for");
@@ -2491,6 +2507,26 @@ function buildShiftForm(f) {
       syncStipend();
     }
     rest.append(h("div", { class: "group" }, box, pl.site ? null : h("div", { class: "gf", text: "A site not listed? Send a note saying where, and it appears here once the MacBook has it." })));
+    drawMore(pl, mine, focus);
+  }
+  function drawMore(pl, mine, focus) {
+    clear(moreBox); clear(actBox); act = null;
+    for (const k of Object.keys(inputs)) if (k !== "period") delete inputs[k];
+    const ap = vals.kind ? apartOf(pl, vals.kind) : null;
+    if (ap) {
+      const items = ap.items.concat(((mine.items || {})[ap.type] || []).filter(x => !ap.items.includes(x)));
+      act = combo({ id: "f-shift-activity", name: "activity", label: `Which ${ap.item}`, groups: [[null, items]], value: vals.description || "",
+                    newLabel: `A new ${ap.item}…`, placeholder: ap.item === "grant" ? "The grant's name" : "Its name",
+                    onChange: v => setVal("description", v) });
+      actBox.append(act.el);
+      const nf = numField("hours", vals.hours, setVal, "Hours");
+      inputs.hours = nf.input;
+      nf.el.querySelector(".small") && nf.el.querySelector(".small").remove();     // no phone's record: it is not a shift
+      moreBox.append(h("div", { class: "fields glass" }, nf.el));
+      moreBox.append(noteBox());
+      if (focus && motionOK()) { rest.classList.add("fadein"); moreBox.classList.add("fadein"); }
+      return;
+    }
     const asks = pl.asks || ["hours"];
     const section = (title, hint, keys, open) => {
       const rows = keys.map(k => { const nf = numField(k, vals[k], setVal, payLabel(k, pl.value)); inputs[k] = nf.input; return nf.el; });
@@ -2504,12 +2540,15 @@ function buildShiftForm(f) {
     moreBox.append(section(hk.includes("patients") ? "What you did" : "Hours", hk.includes("patients") ? "Hours, and how many you saw" : (later || "Optional"), hk, !!VIEW.details));
     moreBox.append(billingSection(pl, asks));
     moreBox.append(section("What it paid", later || "Optional", pk, !!VIEW.details));
+    moreBox.append(noteBox());
+    if (focus && motionOK()) { rest.classList.add("fadein"); moreBox.classList.add("fadein"); }
+  }
+  function noteBox() {
     const note = h("textarea", { id: "f-shift-note", name: "note", maxlength: 500, rows: 1, placeholder: "Note", "aria-label": "Note" });
     note.value = vals.note || "";
     const grow = () => { note.rows = 1; while (note.scrollHeight > note.clientHeight + 2 && note.rows < 14) note.rows += 1; };
     note.addEventListener("input", () => { setVal("note", note.value); grow(); }); setTimeout(grow, 0);
-    moreBox.append(h("div", { class: "fields glass" }, h("div", { class: "field bare noteline" }, h("label", { for: "f-shift-note" }, "Note"), note)));
-    if (focus && motionOK()) { rest.classList.add("fadein"); moreBox.classList.add("fadein"); }
+    return h("div", { class: "fields glass" }, h("div", { class: "field bare noteline" }, h("label", { for: "f-shift-note" }, "Note"), note));
   }
   function billingSection(pl, asks) {
     const payers = billingPayers().filter(p => (!p.places.length || p.places.includes(pl.value))
@@ -2582,11 +2621,18 @@ function buildShiftForm(f) {
     const groups = [[here.length ? `Usual at ${s2}` : usual.length && pl.shifts.length > 6 ? "Most used" : null, usual],
                     [usual.length ? "All" : null, pl.shifts.concat(extra)]];
     if (usual.length && pl.shifts.length <= 6) groups.splice(0, 2, [null, pl.shifts.concat(extra)]);
-    if (!value && pl.shifts.length === 1 && !extra.length) value = pl.shifts[0];
+    const aparts = (pl.activities || []).map(a => a.name);
+    if (aparts.length) groups.push(["Not a shift", aparts]);
+    if (!value && pl.shifts.length === 1 && !extra.length && !aparts.length) value = pl.shifts[0];
     const c = combo({ id: "f-shift-description", name: "description", label: "Which shift", groups, value,
                       newLabel: "A new shift…", placeholder: pl.value === "mgh" ? "0630, 1st Call, 1600 Flex…" : "Its name",
-                      onChange: v => { setVal("description", v); syncStipend(); } });
-    if (value) vals.description = value;
+                      onChange: v => {
+                        const ap = (pl.activities || []).find(a => a.name === v), was = vals.kind;
+                        vals.kind = ap ? ap.type : "";
+                        if (ap || was) setVal("description", ap ? "" : v); else setVal("description", v);
+                        if ((ap ? ap.type : "") !== was) drawMore(pl, mine, true);
+                        syncStipend(); } });
+    if (value && !vals.kind) vals.description = value;
     return c;
   }
   drawRest(false);
@@ -2598,7 +2644,8 @@ function buildShiftForm(f) {
     put("place", vals.place);
     const pl = placeInfo(vals.place);
     if (site) put("site", site.value);
-    if (shift) put("description", shift.value);
+    if (shift && vals.kind) { put("type", vals.kind); put("description", act ? act.value : vals.description); }
+    else if (shift) put("description", shift.value);
     for (const [k, inp] of Object.entries(inputs)) put(k, inp.value);
     put("note", vals.note);
     for (const [k, v] of Object.entries(pre)) {
@@ -2617,7 +2664,7 @@ function buildShiftForm(f) {
   const syncReady = () => {
     const c = collect(), stipend = /stipend/i.test(c.description || "");
     const missing = !c.place || !c.description || (site && !c.site && !stipend)
-      || ((c.place === "abp" || (c.place === "edlp" && stipend)) && !c.period);
+      || ((c.place === "abp" || (c.place === "edlp" && stipend)) && !c.period) || (vals.kind && !c.hours);
     sendBtn.classList.toggle("notready", !!missing);
   };
   for (const ev of ["input", "change"]) form.addEventListener(ev, syncReady);
@@ -2641,7 +2688,11 @@ function buildShiftForm(f) {
     if (!fields.date) bad(dateWrap, "The date is missing");
     if (!fields.place) bad(pills, "Choose where you worked");
     else if (site && !fields.site && !/stipend/i.test(fields.description || "")) bad(site.el, "Choose the site");
-    if (fields.place && !fields.description) bad(shift && shift.el, "Choose which shift");
+    const apNow = vals.kind ? apartOf(placeInfo(fields.place), vals.kind) : null;
+    if (fields.place && !fields.description) {
+      if (apNow && act) bad(act.el, `Choose which ${apNow.item}, or type a new one`); else bad(shift && shift.el, "Choose which shift");
+    }
+    if (apNow && !fields.hours) bad(inputs.hours && inputs.hours.closest(".field"), "Type the hours it took");
     if ((fields.place === "abp" || (fields.place === "edlp" && /stipend/i.test(fields.description || ""))) && !fields.period)
       bad(inputs.period && inputs.period.closest(".field"), "Choose the month it is for");
     for (const k of PAY_KEYS.concat(["hours", "travel_hours", "patients"])) {
@@ -2662,7 +2713,7 @@ function buildShiftForm(f) {
       bad(inputs.amount && inputs.amount.closest(".field"), `Total pay is ${fmt$(fields.amount)} but the parts add up to ${fmt$(partsSum)}: leave the total blank, or make them agree`);
     const priv = privateIn(fields, (shiftForm() || {}).fields);
     if (priv) bad(inputs[priv] && inputs[priv].closest && inputs[priv].closest(".field"), PRIVATE_MSG);
-    const hasStart = fields.place !== "abp" && !/stipend/i.test(fields.description || "");
+    const hasStart = fields.place !== "abp" && !/stipend/i.test(fields.description || "") && !apNow;   // "2026 forms drive" starts at no time
     const st = hasStart ? /\b(\d{2})(\d{2})\b/.exec(fields.description || "") : null;
     if (!problems.length && fields.date > todayISO() && !VIEW.corrects)
       bad(date.closest(".field"), "This shift is dated after today, so the MacBook would hold it. Check the date, or send it once it has started");
@@ -2672,7 +2723,7 @@ function buildShiftForm(f) {
       const startMin = st ? +st[1] * 60 + +st[2] : null;
       if (startMin !== null && startMin < 24 * 60 && startMin > nowMin + 60) {
         bad(date.closest(".field"), `This ${st[0]} shift starts more than an hour from now, so the MacBook would hold it. If you worked it last night, tap Yesterday; otherwise send it after it starts`);
-      } else if (startMin === null && /\bcall\b/i.test(fields.description || "") && now.getHours() < 12 && form._callOk !== askedFor) {
+      } else if (startMin === null && !apNow && /\bcall\b/i.test(fields.description || "") && now.getHours() < 12 && form._callOk !== askedFor) {
         form._callOk = askedFor;
         bad(date.closest(".field"), "A call sent this morning is usually last night's: tap Yesterday if so; tap Send again to keep today");
       }
@@ -2730,7 +2781,8 @@ function allShifts() {
 function missingOf(x) {
   const pl = placeInfo(placeOfShift(x.fields)), asks = (pl && pl.asks) || [];
   const out = [];
-  if (!PAID_KEYS.some(k => String(x.fields[k] || "").trim() !== "") && !/practice plan/i.test(x.fields.description || "")) out.push("pay");
+  if (apartOfFields(x.fields)) return x.fields.hours ? [] : ["hours"];
+  if (!PAID_KEYS.some(k => String(x.fields[k] || "").trim() !== "")) out.push("pay");
   if (asks.includes("patients") && !((pl && pl.optional) || []).includes("patients") && !x.fields.patients) out.push("patients");
   if (!x.fields.hours) out.push("hours");
   return out;
@@ -2763,7 +2815,8 @@ function renderShifts() {
       const word = held ? (x.changeHeld ? "A change is held: see Today" : "Held: see Today") : x.state === "unsent" ? "Not sent yet" : x.state === "sent" ? "Sent, waiting for the MacBook" : "";
       const tone = held ? "prob" : x.state === "unsent" ? "local hollow" : x.state === "sent" ? "local" : "";
       const toAdd = [miss.includes("pay") ? "pay" : "", miss.includes("patients") ? "patients" : ""].filter(Boolean);
-      const u = { payer: placeOfShift(f), site: f.site || "", description: f.description || "" };
+      const ap = apartOfFields(f);
+      const u = { payer: placeOfShift(f), site: f.site || "", description: ap ? [ap.name, f.type ? f.description : ""].filter(Boolean).join(" \u00b7 ") : f.description || "" };
       const sub = [unitWhat(u), have].filter(Boolean).join(" · ");
       const dt = dateOf(f.date);
       ul.append(h("button", { class: "row shrow", type: "button", onclick: () => openView({ type: "form", kind: "shift", corrects: x.id, prefill: load("drafts", {})[draftKeyOf("shift", x.id)] || f, original: f, restored: !!load("drafts", {})[draftKeyOf("shift", x.id)], details: true,
@@ -4340,14 +4393,17 @@ function renderWork(embedded) {
     }
     const K = W.kinds || {};
     const kind = t => K[`${y}|${t}`];
+    const apartHere = p => (W.paid_apart || []).filter(a => p === "all" || a.place === p).map(a => ({ name: a.name, k: kind(a.type) }))
+      .filter(x => x.k && money(x.k.hours));
+    const apartWords = p => apartHere(p).map(x => `${x.name} ${Math.round(money(x.k.hours)).toLocaleString("en-CA")} h`).join(", ");
     const unitWord = (place, n) => plural(n, ({ mgh: "shift or call", edlp: "shift", bochner: "sedation", endoscopy: "sedation", abp: "month" })[place] || "entry",
                                           ({ mgh: "shifts and calls", edlp: "shifts", bochner: "sedations", endoscopy: "sedations", abp: "months" })[place] || "entries");
     const unitsText = () => {
       if (pl === "edlp") { const sh = kind("edlp-shift"); return sh ? plural(Number(sh.units), "shift") : ""; }
-      const ppk = (pl === "mgh" || pl === "all") && kind("mgh-practice-plan");   // its activities are not shifts
+      const ppn = apartHere(pl).reduce((a1, x) => a1 + Number(x.k.units || 0), 0);   // their activities are not shifts
       const stk = pl === "all" && kind("edlp-stipend");                          // nor is a month's stipend (since 2026-09-15)
       const abk = pl === "all" && kind("abp-consulting");                        // ABP's months are named apart (since 2026-09-15)
-      const n = units - (ppk ? Number(ppk.units) : 0) - (stk ? Number(stk.units) : 0) - (abk ? Number(abk.units) : 0);
+      const n = units - ppn - (stk ? Number(stk.units) : 0) - (abk ? Number(abk.units) : 0);
       if (abk && Number(abk.units)) return plural(n, "shift or sedation", "shifts and sedations") + ` and ${plural(Number(abk.units), "month", "months")} of ABP`;
       return plural(n, ({ mgh: "shift or call", bochner: "sedation", endoscopy: "sedation", abp: "month's entry", all: "shift or sedation" })[pl] || "entry",
                     ({ mgh: "shifts and calls", bochner: "sedations", endoscopy: "sedations", abp: "months' entries", all: "shifts and sedations" })[pl] || "entries");
@@ -4356,7 +4412,7 @@ function renderWork(embedded) {
     const hrs = money(c.hours), units = Number(c.units), tr = money(c.travel_hours);
     const est = money(c.assumed_hours !== undefined && c.assumed_hours !== "" ? c.assumed_hours : c.estimated_hours);
     const ppHours = money(c.hours_no_pay_per_activity) || 0;
-    const ppNote = `${Math.round(ppHours)} h of it is the practice plan, typed once a year and shared evenly over the months of its cycle`;
+    const ppNote = `${Math.round(ppHours).toLocaleString("en-CA")} h of it is not shift work${apartWords(pl) ? ": " + apartWords(pl) : ""}. Hours typed for a whole cycle are spread evenly over its months`;
     const label = `${y === "all" ? "All years" : cur ? y + " so far" : y}, ${nameOf(pl)}` + (metric === "rate" && pl === "edlp" && kind("edlp-stipend") ? " with its stipend"
                   : metric === "rate" && pl === "all" && kind("all:shifts") ? ", all work" : "") + (metric === "rate" ? (wc ? ", with the commute" : ", without the commute") : "");
     if (metric === "hours") {
@@ -4389,9 +4445,9 @@ function renderWork(embedded) {
       if (pl === "all") {
         const rows = (W.places || []).map(x => ({ key: x.value, label: x.label.replace(" consulting", ""), value: cell(y, x.value) ? money(cell(y, x.value).hours) : 0,
                                                  sub: cell(y, x.value) ? unitWord(x.value, Number(cell(y, x.value).units)
-                                                        - (x.value === "mgh" && kind("mgh-practice-plan") ? Number(kind("mgh-practice-plan").units) : 0)
+                                                        - apartHere(x.value).reduce((a1, z) => a1 + Number(z.k.units || 0), 0)
                                                         - (x.value === "edlp" && kind("edlp-stipend") ? Number(kind("edlp-stipend").units) : 0))
-                                                      + (x.value === "mgh" && kind("mgh-practice-plan") ? " + practice plan" : "") : "" })).filter(r => r.value > 0).sort((a1, b1) => b1.value - a1.value);
+                                                      + (apartHere(x.value).length ? " + other work" : "") : "" })).filter(r => r.value > 0).sort((a1, b1) => b1.value - a1.value);
         if (rows.length > 1) holder.append(h("section", { class: "section" }, h("h2", { text: "By place" }),
           h("div", { class: "card glass" }, hbars(rows, v => `${Math.round(v).toLocaleString("en-CA")} h`, k => pickPlace(k)))));
       }
@@ -4410,18 +4466,18 @@ function renderWork(embedded) {
         wc && pl === "mgh" && ((W.commute || {}).mgh || {}).median_round_trip_hours && (y === "all" || y >= String(W.commute.mgh.from).slice(0, 4)) ? h("div", { class: "fmeta" }, h("span", { class: "asof",
           text: `MGH's round trip, as your phone measured it: ${Math.round(Number(W.commute.mgh.median_round_trip_hours) * 60)} minutes, the middle of ${W.commute.mgh.round_trips_measured} trips since the move, from ${keyLabel(W.commute.mgh.from, true)} to ${keyLabel(W.commute.mgh.to, true)}` })) : null,
         money(c.hours_awaiting_pay) || ppHours ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: sentence([money(c.hours_awaiting_pay) ? `${Math.round(money(c.hours_awaiting_pay))} h of shifts still waiting for their pay are left out` : "",
-          ppHours ? `the practice plan's ${Math.round(ppHours)} h are left out, since it is paid as points once a year, not per activity` : ""].filter(Boolean).join("; ")) })) : null,
+          ppHours ? `${Math.round(ppHours).toLocaleString("en-CA")} h of work that is not a shift are left out${apartWords(pl) ? " (" + apartWords(pl) + ")" : ""}, since it is paid as points, a contract's fee or a grant, not by the hour` : ""].filter(Boolean).join("; ")) })) : null,
         lagText ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: lagText })) : null,
         caveats(c, true)];
       const sh = kind(pl + ":shifts");
-      const st = pl === "edlp" || pl === "all" ? kind("edlp-stipend") : null, pp = pl === "mgh" || pl === "all" ? kind("mgh-practice-plan") : null;
+      const st = pl === "edlp" || pl === "all" ? kind("edlp-stipend") : null, ppH = apartHere(pl).reduce((a1, x) => a1 + money(x.k.hours), 0);
       if (sh && st) holder.append(h("div", { class: "facts glass card" },
         h("div", {}, h("span", { class: "k", text: "Without EDLP's stipend" }), h("span", { class: "fv num", text: `${fmtWhole$(Math.round(rate(sh)))}/h` })),
         h("div", {}, h("span", { class: "k", text: `EDLP's stipend, ${plural(Number(st.units), "month")}` }), h("span", { class: "fv num", text: fmtWhole$(Math.round(money(st.pay))) })),
-        pp ? h("div", {}, h("span", { class: "k", text: "Practice plan, left out" }), h("span", { class: "fv num", text: `${Math.round(money(pp.hours))} h` })) : null));
+        ppH ? h("div", {}, h("span", { class: "k", text: "Not shift work, left out" }), h("span", { class: "fv num", text: `${Math.round(ppH)} h` })) : null));
       if (pl === "all") {
         const rows = (W.places || []).map(x => {
-          const alone = K[`${y}|${x.value}:shifts`], mixed = K[`${y}|edlp-stipend`] && x.value === "edlp" || K[`${y}|mgh-practice-plan`] && x.value === "mgh";
+          const alone = K[`${y}|${x.value}:shifts`], mixed = K[`${y}|edlp-stipend`] && x.value === "edlp" || apartHere(x.value).length > 0;
           const c2 = mixed && alone ? alone : cell(y, x.value);
           return { key: x.value, label: x.label.replace(" consulting", ""), value: c2 ? rate(c2) : 0, est: c2 ? estRow(c2) : false,
                    sub: c2 ? `${Math.round(paidHours(c2))} h` + (mixed && alone ? ", shifts alone" : "") + thin(c2) : "" };
