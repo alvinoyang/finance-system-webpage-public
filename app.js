@@ -2693,7 +2693,7 @@ function buildShiftForm(f) {
     if (fields.place && !fields.description) {
       if (apNow && act) bad(act.el, `Choose which ${apNow.item}, or type a new one`); else bad(shift && shift.el, "Choose which shift");
     }
-    if (apNow && !fields.hours) bad(inputs.hours && inputs.hours.closest(".field"), "Type the hours it took");
+    if (apNow && !(Number(String(fields.hours || "").replace(/[,\s]/g, "")) > 0)) bad(inputs.hours && inputs.hours.closest(".field"), "Type the hours it took");
     if ((fields.place === "abp" || (fields.place === "edlp" && /stipend/i.test(fields.description || ""))) && !fields.period)
       bad(inputs.period && inputs.period.closest(".field"), "Choose the month it is for");
     for (const k of PAY_KEYS.concat(["hours", "travel_hours", "patients"])) {
@@ -2738,12 +2738,14 @@ function buildShiftForm(f) {
     }
     if (!problems.length && !VIEW.corrects && form._dupOk !== askedFor && !/stipend/i.test(fields.description || "") && fields.place !== "abp") {
       const norm = x => String(x || "").toLowerCase().replace(/\s*\b(we|covered)\b/g, "").replace(/\s+/g, " ").trim();
-      const kindOf = f => { const ap = apartOfFields(f); return ap ? `${ap.type}|${Number(String(f.hours || "").replace(/,/g, "")) || ""}` : ""; };
+      const kindOf = f => { const ap = apartOfFields(f); return ap ? ap.type : ""; };
       const twin = allShifts().find(x => x.fields.place === fields.place && x.fields.date === fields.date
         && norm(x.fields.site) === norm(fields.site) && norm(x.fields.description) === norm(fields.description) && kindOf(x.fields) === kindOf(fields));
       if (twin) {
         form._dupOk = askedFor;
-        bad(date.closest(".field"), `You already sent this ${fields.description} shift for ${shortDate(fields.date)}. To change it, open it under Your shifts. Tap Send again to send it anyway: the MacBook will hold it for a check`);
+        bad(date.closest(".field"), apNow
+          ? `You already sent ${fields.description} for ${shortDate(fields.date)}. An activity is one entry a day: open it under Your shifts and make its hours the day's whole. Tap Send again to send this anyway: the MacBook will hold it for a check`
+          : `You already sent this ${fields.description} shift for ${shortDate(fields.date)}. To change it, open it under Your shifts. Tap Send again to send it anyway: the MacBook will hold it for a check`);
       }
     }
     if (problems.length) {
