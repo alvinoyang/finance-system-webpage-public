@@ -2308,7 +2308,7 @@ function apartOf(pl, type) { return ((pl && pl.activities) || []).find(a => a.ty
 function apartOfFields(fields) {
   if (!fields) return null;
   const pl = placeInfo(placeOfShift(fields)), d = String(fields.description || "").toLowerCase();
-  return apartOf(pl, String(fields.type || "")) || ((pl && pl.activities) || []).find(a => !fields.type && d.startsWith(a.name.toLowerCase())) || null;
+  return apartOf(pl, String(fields.type || "")) || ((pl && pl.activities) || []).find(a => !fields.type && new RegExp("\\b" + a.name.toLowerCase()).test(d)) || null;
 }
 function shiftTitle(fields) {
   const pl = placeInfo(placeOfShift(fields));
@@ -2451,7 +2451,7 @@ function buildShiftForm(f) {
       vals.place = pl.value;
       for (const x of pills.children) x.setAttribute("aria-checked", String(x === b));
       if (wraps.place) wraps.place.classList.remove("bad");
-      vals.site = ""; vals.description = "";
+      vals.site = ""; vals.description = ""; vals.kind = "";
       const fromLedger = ((SNAP && SNAP.defaults && SNAP.defaults.shift_by_place) || {})[pl.value];
       const mineLast = load("outbox", []).concat(load("sent", []).map(x => x.entry), ((SNAP && SNAP.shifts) || []).map(x => ({ kind: "shift", fields: x.fields })))
         .filter(e => e && e.kind === "shift" && e.fields && placeOfShift(e.fields) === pl.value && e.fields.site && !/stipend/i.test(e.fields.description || ""))
@@ -2650,6 +2650,7 @@ function buildShiftForm(f) {
     put("note", vals.note);
     for (const [k, v] of Object.entries(pre)) {
       if (!known.has(k) || k in out || k === "place" || k === "note" || k === "date" || k === "description" || inputs[k] || (site && k === "site")) continue;
+      if (vals.kind) continue;
       if (k === "type" && (vals.place !== origPlace || (out.description || "") !== origDesc)) continue;   // the MacBook works it out again
       if (k === "site" && vals.place !== origPlace) continue;
       if ((k === "shift_start" || k === "shift_end") && (vals.place !== origPlace || (out.description || "") !== origDesc)) continue;
@@ -2737,8 +2738,9 @@ function buildShiftForm(f) {
     }
     if (!problems.length && !VIEW.corrects && form._dupOk !== askedFor && !/stipend/i.test(fields.description || "") && fields.place !== "abp") {
       const norm = x => String(x || "").toLowerCase().replace(/\s*\b(we|covered)\b/g, "").replace(/\s+/g, " ").trim();
+      const kindOf = f => { const ap = apartOfFields(f); return ap ? ap.type : ""; };
       const twin = allShifts().find(x => x.fields.place === fields.place && x.fields.date === fields.date
-        && norm(x.fields.site) === norm(fields.site) && norm(x.fields.description) === norm(fields.description));
+        && norm(x.fields.site) === norm(fields.site) && norm(x.fields.description) === norm(fields.description) && kindOf(x.fields) === kindOf(fields));
       if (twin) {
         form._dupOk = askedFor;
         bad(date.closest(".field"), `You already sent this ${fields.description} shift for ${shortDate(fields.date)}. To change it, open it under Your shifts. Tap Send again to send it anyway: the MacBook will hold it for a check`);
