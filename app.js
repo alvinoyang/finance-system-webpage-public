@@ -1047,6 +1047,7 @@ function sideTo(dx) {
     S.layer = nb ? sideLayer(nb, S.el) : null;
     S.W = window.innerWidth;
     document.body.classList.add("swiping");
+    document.documentElement.classList.add("sliding");
   }
   const x = S.nb ? dx : rubber(dx, S.W);
   S.x = x;
@@ -1065,7 +1066,7 @@ function sideRelease(g, cancel) {
   const S = g.side;
   document.body.classList.remove("swiping");
   NO_CLICK_UNTIL = Date.now() + 400;
-  if (!S || !S.el) return;
+  if (!S || !S.el) { document.documentElement.classList.remove("sliding"); return; }
   const W = S.W, x = S.x || 0, sign = x > 0 ? 1 : -1, v = speedOf(g);
   const going = !cancel && S.nb && x !== 0 && (Math.abs(x) > W * 0.5 ? v * sign > -0.2 : v * sign > 0.3 && Math.abs(x) > 16);
   const to = going ? sign * W : 0;
@@ -1082,6 +1083,7 @@ function sideRelease(g, cancel) {
       }
     }
     if (S.layer) S.layer.remove();
+    document.documentElement.classList.remove("sliding");
   };
   if (!motionOK() || Math.abs(to - x) < 1) { finish(); return; }
   const rest = Math.abs(to - x), speed = Math.abs(v);
@@ -4697,7 +4699,7 @@ function chart(sers, o) {
   let lastW = 0, first = true;
   const draw = () => {
     if (!box.isConnected && !first) return;
-    const W = Math.round(box.clientWidth || 300), H = o.height || 160;
+    const W = Math.round(box.clientWidth), H = o.height || 160;
     if (!W || W === lastW) return;
     lastW = W;
     const old = box.querySelector("svg"); if (old) old.remove();
@@ -4756,7 +4758,7 @@ function chart(sers, o) {
       for (const [xi, lab] of labs) svg.append(sv("text", { class: "ax", x: xi, y: H - 6, "text-anchor": xi <= L + 1 ? "start" : "middle" }, document.createTextNode(lab)));
       void monthly;
     }
-    const anim = first && motionOK() && !o.spark;
+    const anim = first && motionOK() && !o.spark && !box.closest("main.peek, .peek-part");
     S2.forEach((s2, j) => {
       if (bars) {
         const bw = Math.max(2, Math.min(24, band - Math.max(2, band * .32)));
