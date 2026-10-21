@@ -226,7 +226,7 @@ function shortDate(iso) {
   if (d && d.getFullYear() !== new Date().getFullYear()) { delete opts.weekday; opts.year = "numeric"; }
   return dayName(iso, opts).replace(/^(\w+),/, "$1");
 }
-function prettyDates(text) { return String(text || "").replace(/(?<![QDA]-)\b(\d{4}-\d{2}-\d{2})\b(?!-\d)/g, (m, iso) => dayName(iso, { day: "numeric", month: "short", year: "numeric" })); }
+function prettyDates(text) { return String(text || "").split(/("[^"]*"|“[^”]*”)/).map((seg, i) => i % 2 ? seg : seg.replace(/(?<![QDA]-|\d-)\b(\d{4}-\d{2}-\d{2})\b(?!-\d)/g, (m, iso) => dayName(iso, { day: "numeric", month: "short", year: "numeric" }))).join(""); }
 function daysFrom(iso) {
   const d = dateOf(iso); if (!d) return null;
   const t = new Date(); t.setHours(0, 0, 0, 0);
@@ -1518,7 +1518,7 @@ function titleCut(title) {
     const c = title[i];
     if (c === "(") depth++;
     else if (c === ")") depth = Math.max(0, depth - 1);
-    else if (c === "," && title[i + 1] === " " && depth === 0 && i >= 10) return [title.slice(0, i), title.slice(i + 2)];
+    else if (c === "," && title[i + 1] === " " && depth === 0 && i >= 10 && !/^ \d{4}\b/.test(title.slice(i + 1))) return [title.slice(0, i), title.slice(i + 2)];
   }
   return [title, ""];
 }
@@ -3635,8 +3635,8 @@ function owedByCorpCard() {
   const rows = shown.map(m => {
     const base = MOVE_STATE[m.status] || { cls: "ok" };
     const cur = (String(m.source || "").match(/\(in ([A-Z]{3})\)$/) || [])[1];
-    const what = String(m.source || "").replace(/^ledger\/corp-expenses\.csv: /, "").replace(/^the year tab's \d{4}-\d{2}: /, "")
-      .replace(/^the web page: /, "").replace(/ \(in [A-Z]{3}\)$/, "");
+    const what = prettyDates(String(m.source || "").replace(/^ledger\/corp-expenses\.csv: /, "").replace(/^the year tab's \d{4}-\d{2}: /, "")
+      .replace(/^the web page: /, "").replace(/ \(in [A-Z]{3}\)$/, ""));
     const amt = cur ? `${money(m.amount).toFixed(2)} ${cur}` : fmt$(money(m.amount));
     return h("div", { class: "row plain" },
       h("span", { class: "main" }, h("span", { class: "title", text: `${amt} ${what}` }),
@@ -3974,7 +3974,7 @@ function summaryCards() {
           chip ? h("span", { class: "meta" }, chip) : null),
         h("span", { class: "amt", text: a.figure ? (a.unit === "CAD" ? fmtWhole$(Math.round(Number(String(a.figure).replace(/[$,]/g, "")))) : a.figure) : "" }),
         h("span", { class: "chev" }, icon("chevR")));
-      const why = h("p", { class: "small muted detail", text: a.note, hidden: true });
+      const why = h("p", { class: "small muted detail", text: plainWords(a.note), hidden: true });
       r.addEventListener("click", () => { why.hidden = !why.hidden; r.classList.toggle("open", !why.hidden); });
       list.append(h("div", { class: "rowpair" }, r, why));
     }
