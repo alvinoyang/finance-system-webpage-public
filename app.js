@@ -3733,11 +3733,12 @@ function salaryCard(sal, S) {
   const dYears = Object.keys(dp).filter(k => k < yr && money(dp[k])).sort().reverse().slice(0, 2);
   const dThis = money(dp[yr]) || 0, dn = D.next;
   const divLine = (Object.keys(dp).length || dn) ? h("div", { class: "salnote" }, h("b", { text: "Dividends: " }),
+
     [dThis ? `${fmtWhole$(Math.round(dThis))} paid in ${yr}` : `none paid yet in ${yr}`,
      dn && dn.date.slice(0, 4) === yr ? `one due ${monthDay(dn.date)}${dn.set ? `, ${fmtWhole$(Math.round(money(dn.amount)))}` : ", its amount not yet set"}` : "",
      dYears.map(k => `${k}: ${fmtWhole$(Math.round(money(dp[k])))}`).join(" · ")].filter(Boolean).join("; ") + ".") : null;
   const card = h("div", { class: "fig hero glass tappable salcard" },
-    h("div", { class: "ftop" }, h("span", { class: "l", text: `Your pay, ${yr}` }), basisDot(sal.basis, why),
+    h("div", { class: "ftop" }, h("span", { class: "l", text: `Your pay, ${yr}` }), basisDot(sal.basis, divLine && D.source ? why.concat([`Dividends: ${plainSource(D.source).replace(/^From /, "from ")}; an amount still to be set is not counted.`]) : why),
       h("span", { class: "chev-go", "aria-hidden": "true" }, icon("chevR"))),
     h("div", { class: "salhead" }, h("span", { class: "v rounded", text: fmtWhole$(Math.round(paid)) }),
       h("span", { class: "salof" }, sal.last_pay > todayISO() ? "salary of " : "salary paid of ", h("b", { text: fmtWhole$(Math.round(target)) }))),
@@ -4373,7 +4374,7 @@ function renderWork(embedded) {
       C[`${yy}|${a.type}|`] = { units: kd.units || "0", hours: String(logged), hours_awaiting_pay: String(logged - counted),
         hours_no_pay_per_activity: "0", travel_hours: "0", pay: fr ? fr.pay : "0", pay_per_hour: fr ? fr.pay_per_hour : "0",
         pay_per_hour_incl_travel: fr ? fr.pay_per_hour : "0", basis: kd.basis || "recorded", basis_incl_travel: kd.basis || "recorded",
-        assumed_hours: "0", fee: fr, feeKind: true };
+        assumed_hours: "0", fee: fr, feeKind: true, kindType: a.type, provisional: kd.provisional || "" };
     }
   }
   const p = h("div", { class: "page narrow" });
@@ -4411,7 +4412,9 @@ function renderWork(embedded) {
     return t.length ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: t.join(" ") })) : null;
   };
   const thin = c => c && c.too_few_shifts ? "; too few to rest a rate on" : "";
-  const HOURS_SAID = c => c && c.feeKind ? "Its hours are the ones you logged for it, typed in your Work tab or sent from this page."
+  const before = c => { const a = (W.paid_apart || []).find(x => x.type === c.kindType), o = a && (W.paid_apart || []).find(x => x.type === a.before_counts_as);
+    return a && a.starts_from && o ? ` What you logged for it before ${keyLabel(a.starts_from.slice(0, 7), true)} counts as the ${o.name.toLowerCase()}.` : ""; };
+  const HOURS_SAID = c => c && c.feeKind ? "Its hours are the ones you logged for it, typed in your Work tab or sent from this page." + before(c)
                                          : "Hours are ones you typed, measured by your phone, or the usual length of that kind of shift.";
   const why = c => [(metric === "hours" ? "" : c && c.feeKind ? "Paid by its contract's fee, not by the shift. " : "Your pay for each shift over its hours. ") + HOURS_SAID(c),
                     plainSource(W.source) + "."];
@@ -4420,19 +4423,21 @@ function renderWork(embedded) {
     const y = V.year, pl = V.place, c = cell(y, pl);
     const cur = y === String(new Date().getFullYear()) || (W.default_year === y && y === String(new Date().getFullYear() - 1));
     let lagText = "";
-    const last = W.last && metric === "hours" && W.mgh_hours_to ? Object.assign({}, W.last, { mgh: (() => {
+    const base = metric === "hours" && W.last_typed ? W.last_typed : W.last;
+    const last = base && metric === "hours" && W.mgh_hours_to ? Object.assign({}, base, { mgh: (() => {
       const [hy, hm] = W.mgh_hours_to.split("-").map(Number), end = `${W.mgh_hours_to}-${pad(new Date(hy, hm, 0).getDate())}`;
-      return end > (W.last.mgh || "") ? end : W.last.mgh; })() }) : W.last;
+      return end > (base.mgh || "") ? end : base.mgh; })() }) : base;
     if ((cur || y === "all") && last) {
-      const countedWord = p => ({ abp: "month invoiced", bochner: "list typed", endoscopy: "list typed" })[p] || "shift typed";
-      if (pl !== "all") lagText = !last[pl] ? "" : pl === "mgh" && last.mgh !== W.last.mgh
+      const countedWord = p => (({ abp: "month invoiced", bochner: "sedation typed", endoscopy: "sedation typed" })[p] || "shift typed")
+        + (metric === "rate" ? " with its pay" : "");
+      if (pl !== "all") lagText = !last[pl] ? "" : pl === "mgh" && last.mgh !== (base || {}).mgh
         ? `Counted to ${shortDate(last.mgh)}: every shift MGH booked you for to then is logged.`
         : `Counted to your last ${countedWord(pl)} there, ${shortDate(last[pl])}.`;
       else {
-        const byBooking = last.mgh && last.mgh !== (W.last || {}).mgh && cell(y, "mgh");
+        const byBooking = last.mgh && last.mgh !== (base || {}).mgh && cell(y, "mgh");
         const at = (W.places || []).filter(x => last[x.value] && cell(y, x.value) && !(byBooking && x.value === "mgh"))
           .map(x => `${x.label.replace(" consulting", "")} ${monthDay(last[x.value])}`);
-        lagText = [at.length ? `Counted to the last one typed at each place: ${at.join(", ")}` : "",
+        lagText = [at.length ? `Counted to the last one typed${metric === "rate" ? " with its pay" : ""} at each place: ${at.join(", ")}` : "",
                    byBooking ? `MGH to ${monthDay(last.mgh)}, every shift it booked you for logged` : ""].filter(Boolean).join("; ") + (at.length || byBooking ? "." : "");
       }
     }
@@ -4468,7 +4473,7 @@ function renderWork(embedded) {
       holder.append(h("div", { class: "trend-top" },
         h("div", { class: "ftop" }, h("span", { class: "l", text: label }), basisDot(c.basis || "recorded", why(c).concat(wk ? [
           `Hours a week: ${Math.round(money(wk.hours)).toLocaleString("en-CA")} h over ${money(wk.weeks).toFixed(1)} weeks, ${mon(wk.from)} to ${mon(wk.to)} ${y}.` +
-          (wk.to < `${y}-12` ? " Only the months fully counted: a month MGH's shifts have not reached yet would read as a quiet one." : "")] : []))),
+          (wk.to < `${y}-12` ? ` Only the months fully counted: a month ${pl === "all" || pl === "mgh" ? "MGH's" : "its"} shifts have not reached yet would read as a quiet one.` : "")] : []))),
         wk ? h("div", { class: "twofig" },
           h("div", {}, total, h("div", { class: "twosub", text: "in all" })),
           h("div", {}, h("div", { class: "v rounded", text: `${money(wk.per_week).toFixed(1)} h` }), h("div", { class: "twosub", text: `a week${wkSpan}` })))
@@ -4487,6 +4492,9 @@ function renderWork(embedded) {
         ser.est_word = "so far: MGH's shifts not yet typed";
       }
       if (ser.points.length >= 2) holder.append(h("div", { class: "card glass chartcard" }, chart([ser], { form: "bars", unit: "h", height: 200, axis: true, hover: true })));
+      const onBars = ser.points.reduce((a1, p2) => a1 + money(p2[1]), 0), offBars = money(c.hours) - onBars;
+      if (y !== "all" && ser.points.length >= 2 && offBars >= 1)
+        holder.append(h("p", { class: "foot", text: `The bars run to ${keyLabel(ser.points[ser.points.length - 1][0], true)}, the last whole month: ${Math.round(offBars).toLocaleString("en-CA")} h of the ${Math.round(money(c.hours)).toLocaleString("en-CA")} h above fall after it.` }));
       const cycles = Object.entries(W.plan_cycles || {}).filter(([k, v]) => money(v.hours)).sort();
       const plan = (W.paid_apart || []).find(a => /practice plan/i.test(a.name));
       const cyc = plan && (pl === "all" || pl === plan.place) && y !== "all"
@@ -4520,7 +4528,7 @@ function renderWork(embedded) {
         rate(c) ? h("div", { class: "v rounded" }, estRow(c) ? h("span", { class: "about", text: "~" }) : null, `${fmtWhole$(Math.round(rate(c)))}/h`)
                 : h("div", { class: "v rounded muted", text: c.feeKind ? (c.fee ? "No hours in the months its fee covers" : `No fee in ${y === "all" ? "any year" : y}`) : "No pay in yet" }),
         c.feeKind && !rate(c) ? null : h("div", { class: "fmeta" }, h("span", { class: "asof", text: (other(c) && Math.round(other(c)) !== Math.round(rate(c)) ? `${fmtWhole$(Math.round(other(c)))}/h ${wc ? "without" : "with"} travel time · ` : "") + (c.feeKind && c.fee ? `${fmtWhole$(Math.round(money(c.pay)))} of its fee for ${monShort(c.fee.from)} to ${monShort(c.fee.to)}` : `${fmtWhole$(Math.round(money(c.pay) - (money(c.pay_waiting) || 0)))}`)
-          + ` over ${Math.round(paidHours(c)).toLocaleString("en-CA")} h` + (wc && paidTravel(c) ? ` and ${Math.round(paidTravel(c)).toLocaleString("en-CA")} h of travel` : "")
+          + ` over ${Math.round(paidHours(c)).toLocaleString("en-CA")} h` + (wc && paidTravel(c) ? ` and ${Math.round(paidTravel(c)).toLocaleString("en-CA")} h of travel to them` : "")
           + (paidHours(c) < hrs - 0.5 ? `, of ${Math.round(hrs).toLocaleString("en-CA")} h ${c.feeKind ? "logged" : "worked"}` : "") })),
         null));
       const later = [
@@ -5089,7 +5097,7 @@ function plainWords(t) {
     .replace(/\b(assumptions?) in the assumptions written down/g, "$1 written down").replace(/\.{3}/g, "…").replace(/…\./g, "…").replace(/\.{2,}/g, ".")
     .replace(/\b(\d+) (\w+)\(s\)/g, (x, n, w) => `${n} ${w}${n === "1" ? "" : "s"}`).replace(/([,;:])\s*(?=[,;:.])/g, "")
     .replace(/\s*;\s*(?=[;,.]|$)/g, "").replace(/,\s*(?=[,;.]|$)/g, "").replace(/\s{2,}/g, " ").replace(/\s+([,;.:])/g, "$1")
-    .replace(/\s+(?:from|of|in|to|by|with)\s*(?=[;.]|$)/g, "").replace(/^[,;:\s]+/, "").replace(/[,;:\s]+$/, "").trim();
+    .replace(/\s*\(see the note\)/g, "").replace(/^[,;:\s]+/, "").replace(/[,;:\s]+$/, "").trim();
 }
 function plainSource(src) {
   const m = /^(models|ledger)\/([^/]+?)(?:\/|\.csv)/.exec(src || "");
@@ -5633,7 +5641,7 @@ function workOwed() {
       const unfiled = its.every(i => i.status === "waiting (bank statement not filed)");
       ul.append(h("button", { class: "row amtrow", type: "button", onclick: () => { save("workpart", "shifts"); SHIFTS_FILTER = "waiting:" + payer; ENTER = ""; render(true); window.scrollTo(0, 0); } },
         h("span", { class: "main" }, h("span", { class: "title", text: PLACE_NAMES_PAGE[payer] || payer.toUpperCase() }),
-          h("span", { class: "meta", text: plural(shifts, "shift") + (next ? (next < todayISO() && wp.reach && next > wp.reach
+          h("span", { class: "meta", text: plural(shifts, ({ bochner: "sedation", endoscopy: "sedation", abp: "month" })[payer] || "shift") + (next ? (next < todayISO() && wp.reach && next > wp.reach
               ? ` · first due ${dayName(next, { month: "short", day: "numeric" })}, checked once the bank's statement after ${dayName(wp.reach, { month: "short", day: "numeric" })} is in`
               : ` · next by ${dayName(next, { month: "short", day: "numeric" })}`) : "")
             + (unfiled ? " · bank statement not filed yet" : "") })),
