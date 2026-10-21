@@ -226,7 +226,7 @@ function shortDate(iso) {
   if (d && d.getFullYear() !== new Date().getFullYear()) { delete opts.weekday; opts.year = "numeric"; }
   return dayName(iso, opts).replace(/^(\w+),/, "$1");
 }
-function prettyDates(text) { return String(text || "").replace(/\b(\d{4}-\d{2}-\d{2})\b/g, (m, iso) => dayName(iso, { day: "numeric", month: "short", year: "numeric" })); }
+function prettyDates(text) { return String(text || "").replace(/(?<![QDA]-)\b(\d{4}-\d{2}-\d{2})\b(?!-\d)/g, (m, iso) => dayName(iso, { day: "numeric", month: "short", year: "numeric" })); }
 function daysFrom(iso) {
   const d = dateOf(iso); if (!d) return null;
   const t = new Date(); t.setHours(0, 0, 0, 0);
@@ -5060,6 +5060,7 @@ function toYou(seg, whole) {
   });
   return out.replace(/(^|[.!?]\s+)you(r?)\b/g, "$1You$2");
 }
+const QUOTED = /("[^"]*"|“[^”]*”)/;
 const MONTH_AT = String.raw`\b(for|in|from|since|to|until|by|through|of|before|after|between|and)\s+`;
 function timesInWords(t) {
   const mon = (yy, mm) => new Date(+yy, +mm - 1, 1).toLocaleDateString("en-CA", { month: "short", year: "numeric" });
@@ -5094,7 +5095,7 @@ function plainWords(t) {
       const before = all.slice(0, at), after = all.slice(at + x.length);
       const ref = d > 0 && (/(?:\(|\((?:see|under)\s+|,\s*)$/i.test(before) || /^\s*[,;)]/.test(after));
       return ref ? x : ID_NOUN[x[0]]; })
-    .replace(/\bAlvin(?:'s)? (?=\d{4} )/g, "your ").split(/("[^"]*")/).map((x, i, all) => i % 2 ? x : timesInWords(toYou(x, all.filter((_, j) => j % 2 === 0).join(" ")))).join("")
+    .replace(/\bAlvin(?:'s)? (?=\d{4} )/g, "your ").split(QUOTED).map((x, i, all) => i % 2 ? x : toYou(x, all.filter((_, j) => j % 2 === 0).join(" "))).join("")
     .replace(/\bare OCR\b/g, "were read from a scan by machine").replace(/\bOCR\b/g, "a machine's reading of a scan")
     .replace(/\[(verified|recorded|derived|estimate|measured):\s*([^\]]+)\]/g, (x, b, w) => `(${b === "estimate" ? "an estimate" : b}: ${w})`)
     .replace(/\b[rR]\d-[a-z0-9]+(?:-[a-z0-9]+)*-\d+\b/g, "")
@@ -5104,7 +5105,7 @@ function plainWords(t) {
     .replace(/\b(?:the )?((?:[a-z]+-)+?[a-z]+)-to-([a-z-]+)\b/g, (x, a, b) => `the move from ${acctWords(a) || a} to ${acctWords(b) || capFirst(b)}`)
     .replace(/\b(the |your )?((?:qt|scotia|mbna|amex|rbc|cra|td|cibc|ws)-[a-z-]+)\b(\s?)/g, (x, pre, k, sp) => acctWords(k) ? acctWords(k) + sp : (pre || ""))
     .replace(/,?\s*group [a-z]+-[a-z-]+,?/g, ",");
-  s = dropIds(s);
+  s = dropIds(s).split(QUOTED).map((x, i) => i % 2 ? x : timesInWords(x)).join("");
   let depth = 0;
   s = Array.from(s).filter(ch => ch === "(" ? (depth++, true) : ch === ")" ? (depth > 0 ? (depth--, true) : false) : true).join("");
   while (depth-- > 0) s = s.replace(/\((?![^(]*\))/, "");
