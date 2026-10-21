@@ -1537,10 +1537,10 @@ function upcoming() {
       h("span", { class: "wd", text: dt ? dt.toLocaleDateString("en-CA", { weekday: "short" }) : "" }),
       h("span", { class: "dn", text: dt ? String(dt.getDate()) : "" }),
       h("span", { class: "mo", text: dt ? dt.toLocaleDateString("en-CA", { month: "short" }) : "" }));
-    const what = dropIds(d.what);
+    const what = plainWords(d.what);
     const cut = what.search(/[:;]|\.\s/);
     let title = cut > 0 ? what.slice(0, cut) : what;
-    let rest = cut > 0 ? what.slice(cut + 1).trim() : "";
+    let rest = cut > 0 ? capFirst(what.slice(cut + 1).trim()) : "";
     const via = !!d.paid_via;
     let paid = false, viaNote = "";
     if (via) {
@@ -2900,7 +2900,7 @@ function updateSweep(form) {
   const { beforeDay, billsTo, reserve, gone, isEst } = S;
   const bal = S.balance;
   const shortly = w => w.split(/[:;.]\s|, | about | for the /)[0].split(/[:;]/)[0];
-  const billWords = w => { const t = shortly(dropIds(w)).replace(/\s+of\s*$/, "").trim(); return t.replace(/^The /, "the "); };
+  const billWords = w => { const t = shortly(plainWords(w)).replace(/\s+of\s*$/, "").trim(); return t.replace(/^The /, "the "); };
   const itemName = w => { const m = /^Pay [^:]+: (?:the )?(.*)$/.exec(w); return m ? m[1].replace(/^./, c => c.toUpperCase()) : shortly(w); };
   const words = l => {
     if (l.kind === "item") return itemName(l.it.what) + (beforeDay ? `, due at the sitting on ${shortDate(pd.visit)}` : ", sent; it leaves chequing the next business day");
@@ -2942,7 +2942,7 @@ function updateSweep(form) {
     box.append(h("p", { class: "small muted", text: "Approximate, rounded down: the ringed amounts are estimates." +
       (unpaidEst.length ? ` ${unpaidEst.map(it => "The " + itemName(it.what).toLowerCase()).join(" and ")} becomes exact once this month's calculation is read (step 2).` : "") }));
   }
-  if (S.unreadable.length) box.append(h("p", { class: "small warnline", text: `Can't work it out: ${S.unreadable.map(w => shortly(dropIds(w))).join(" and ")} ${S.unreadable.length > 1 ? "have amounts" : "has an amount"} this page cannot read. Send nothing to Questrade until the MacBook's next round puts it right.` }));
+  if (S.unreadable.length) box.append(h("p", { class: "small warnline", text: `Can't work it out: ${S.unreadable.map(w => shortly(plainWords(w))).join(" and ")} ${S.unreadable.length > 1 ? "have amounts" : "has an amount"} this page cannot read. Send nothing to Questrade until the MacBook's next round puts it right.` }));
   else if (wait) box.append(h("p", { class: "small muted", text: `Type the ${cardNames} above (0 if nothing is owing). The amount to send appears then.` }));
   else if (v > 0 && !pd.ready) box.append(h("p", { class: "small muted", text: "Once step 2 is done and this page has the month's own figures, a button here puts the amount in the box below." }));
   else if (v > 0) {
@@ -2982,7 +2982,7 @@ function explain(anchor, b, extra) {
   const pop = h("div", { class: "pop", role: "dialog", tabindex: "-1", "aria-label": BASIS_NAME[b] },
     h("div", { class: "pop-h" }, h("span", { class: "bd " + b }), h("strong", { text: BASIS_NAME[b] })),
     h("p", { text: MEANS_LONG[b] }),
-    (extra || []).filter(Boolean).map(t => h("p", { class: "pop-x", text: prettyDates(String(t).replace(BASIS_TAG, "")) })),
+    (extra || []).filter(Boolean).map(t => h("p", { class: "pop-x", text: capFirst(prettyDates(String(t).replace(BASIS_TAG, ""))) })),
     h("div", { class: "pop-all", "aria-label": "The five labels" }, Object.keys(BASIS_NAME).map(k => h("span", { class: k === b ? "on" : "" }, h("span", { class: "bd " + k }), BASIS_NAME[k]))));
   document.body.append(pop);
   const r = anchor.getBoundingClientRect(), pw = pop.offsetWidth, ph = pop.offsetHeight;
@@ -4443,6 +4443,7 @@ function renderWork(embedded) {
     const unitWord = (place, n) => plural(n, ({ mgh: "shift or call", edlp: "shift", bochner: "sedation", endoscopy: "sedation", abp: "month" })[place] || "entry",
                                           ({ mgh: "shifts and calls", edlp: "shifts", bochner: "sedations", endoscopy: "sedations", abp: "months" })[place] || "entries");
     const unitsText = () => {
+      if ((W.paid_apart || []).some(a => a.type === pl)) return "";
       if (pl === "edlp") { const sh = kind("edlp-shift"); return sh ? plural(Number(sh.units), "shift") : ""; }
       const ppn = apartHere(pl).reduce((a1, x) => a1 + Number(x.k.units || 0), 0);   // their activities are not shifts
       const stk = pl === "all" && kind("edlp-stipend");                          // nor is a month's stipend (since 2026-09-15)
@@ -4471,7 +4472,7 @@ function renderWork(embedded) {
           h("div", {}, total, h("div", { class: "twosub", text: "in all" })),
           h("div", {}, h("div", { class: "v rounded", text: `${money(wk.per_week).toFixed(1)} h` }), h("div", { class: "twosub", text: `a week${wkSpan}` })))
           : total,
-        hrs && !c.feeKind && paidHours(c) < hrs - 0.5 ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${Math.round(paidHours(c)).toLocaleString("en-CA")} h of them are shifts and lists whose pay is in: Pay per hour divides by those` })) : null,
+        hrs && !c.feeKind && paidHours(c) < hrs - 0.5 ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${Math.round(paidHours(c)).toLocaleString("en-CA")} h of them are ${({ mgh: "shifts and calls", edlp: "shifts", bochner: "sedations", endoscopy: "sedations", abp: "months" })[pl] || "shifts and sedations"} whose pay is in: Pay per hour divides by those` })) : null,
         h("div", { class: "fmeta" }, h("span", { class: "asof", text: [unitsText(), tr ? `${Math.round(tr)} h of travel besides` : "",
           est ? `${Math.round(est / hrs * 100)}% of the hours are the usual length of that kind of shift, not typed or measured` : ""].filter(Boolean).join(" · ") })),
         lagText ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: lagText })) : null,
@@ -4544,7 +4545,7 @@ function renderWork(embedded) {
           return { key: x.value, label: x.label.replace(" consulting", ""), value: c2 ? rate(c2) : 0, est: c2 ? estRow(c2) : false,
                    sub: c2 ? `${Math.round(paidHours(c2))} h` + (mixed && alone ? ", shifts alone" : "") + thin(c2) : "" };
         }).concat(feeKinds.map(a => { const c2 = cell(y, a.type);   // the lead role beside the places, by its fee (2026-10-21)
-          return { key: a.type, label: a.name, value: c2 ? rate(c2) : 0, est: c2 ? estRow(c2) : false, sub: c2 ? `${Math.round(paidHours(c2))} h, by its fee` : "" }; }))
+          return { key: a.type, label: shortName(a.name), value: c2 ? rate(c2) : 0, est: c2 ? estRow(c2) : false, sub: c2 ? `${Math.round(paidHours(c2))} h, by its fee` : "" }; }))
           .filter(r => r.value > 0).sort((a1, b1) => b1.value - a1.value);
         if (rows.length) holder.append(h("section", { class: "section" }, h("h2", { text: "By place" }),
           h("div", { class: "card glass" }, hbars(rows, v => `${fmtWhole$(Math.round(v))}/h`, k => pickPlace(k)))));
@@ -4748,7 +4749,7 @@ function renderCra() {
   };
   const prow = [row("Income tax taken from your pay", "Federal and Ontario", P.income_tax), row("CPP", "Your half and the corporation's", P.cpp)];
   if (money(P.ei)) prow.push(row("EI", "Your share and the corporation's", P.ei));
-  if (money(P.adjusted)) prow.push(row(money(P.adjusted) < 0 ? "Sent less on purpose" : "Sent more on purpose", dropIds(P.adjusted_why), P.adjusted,
+  if (money(P.adjusted)) prow.push(row(money(P.adjusted) < 0 ? "Sent less on purpose" : "Sent more on purpose", plainWords(P.adjusted_why), P.adjusted,
     P.adjusted_basis || "recorded", ["Written down when it was decided, on the word it rests on; CRA's account shows the payment."]));
   if (money(P.not_split)) prow.push(row("Not matched to a month's calculation", "CRA's check at each close explains any difference", P.not_split));
   const mon = k => new Date(+k.slice(0, 4), +k.slice(5, 7) - 1, 1).toLocaleDateString("en-CA", { month: "long" });
@@ -5010,30 +5011,37 @@ const FILE_WORDS = { "profile/calendar.csv": "your calendar", "profile/policies.
   "profile/expected-income-left-out.csv": "a list of its own" };
 function shortName(n) { const w = String(n || "").split(" "); return n && n.length > 16 && w.length > 2 ? `${w[0]} ${w[w.length - 1]}` : n; }
 function monShort(k) { return k ? new Date(+String(k).slice(0, 4), +String(k).slice(5, 7) - 1, 1).toLocaleDateString("en-CA", { month: "short" }) : ""; }
-const BASIS_TAG = /\s*\[(?:verified|recorded|derived|estimate|measured)\b[^\]]*\]/g;
+const BASIS_TAG = /\s*\[(?:verified|recorded|derived|estimate|measured)\b[^\]:]*\]/g;   // "[estimate: the day]" is kept, in words
 const ID_NOUN = { D: "the decision", Q: "the question", A: "the assumption" };
 const FILEISH = String.raw`(?:\b(?:models|ledger|profile|reference|exports|tools|Documents|text|topics|webpage)\/|\.(?:pdf|csv|png|txt|md|json|xlsx)\b|https?:\/\/)`;
 function plainWords(t) {
   const nest = String.raw`(?:[^()]|\([^()]*\))*?`;
   let s = String(t || "")
     .replace(/\btopics\/notes\/[\w.-]+\.md\b/g, "the note written for it").replace(/\b(?:[\w-]+\/)*[\w.-]+\.(?:md|json|csv)\b/g, x => FILE_WORDS[x] || x)
-    .split(/(?<=[.!?])\s+(?=[A-Z])/).filter(x => !/^(?:Corrected|Re-?check(?:ed)?|Moved|Was |Recorded|Until \d{4}|Before \d{4})\b/.test(x)).join(" ")
+    .split(/(?<=[.!?])\s+(?=[A-Z])/).map(x => !/^(?:Corrected|Re-?check(?:ed)?|Moved|Was |Recorded|Until \d{4}|Before \d{4})\b/.test(x) ? x
+      : ((/[;:]\s*(the next (?:is|one)\b.*)$/i.exec(x) || [])[1] || "").replace(/^./, c => c.toUpperCase())).filter(Boolean).join(" ")
     .replace(new RegExp(String.raw`\s*\(` + nest + FILEISH + nest + String.raw`\)`, "g"), x => { const q = /"[^"]{6,}"/.exec(x); return q ? `: ${q[0]}` : ""; })
     .replace(/,?\s*\bentry [a-z0-9]{10,}\b/g, "")
     .replace(/https?:\/\/[^\s)]+/g, "")
-    .replace(/\b(?:models|ledger|profile|reference|exports|tools|Documents|text|topics|webpage)\/[\w./'-]+/g, x => {
+    .replace(/\b(?:models|ledger|profile|reference|exports|tools|Documents|text|topics|webpage)\/[\w./'-]+/g, (x, at, all) => {
       const k = x.replace(/'s$/, "").replace(/\/$/, ""), f = /^(?:models|ledger)\/([^/.]+)/.exec(k);
-      return FILE_WORDS[k] || (f && SOURCE_WORDS[f[1]]) || "";
+      return FILE_WORDS[k] || (f && SOURCE_WORDS[f[1]]) || (/\b(?:in|from|of|to|by)\s$/.test(all.slice(0, at)) ? "the Finance System's records" : "");
     })
     .replace(/\b[\w-]+\.(?:md|json|xlsx)\b/g, x => FILE_WORDS[x] || "").replace(/[\w-]+\.(?:pdf|csv|png|txt)\b/g, "").replace(/\s--[a-z][a-z-]+/g, "")
     .replace(new RegExp(String.raw`\b(assumptions?|decisions?|questions?)\s+` + ID_RE + String.raw`(?:\s*(?:,|and)\s*` + ID_RE + ")*", "g"), "$1")
-    .replace(new RegExp(String.raw`\b(of|by|from|that|If|if|when|with)\s+(` + ID_RE + ")", "g"), (x, w, id) => `${w} ${ID_NOUN[id[0]]}`)
+    .replace(new RegExp(String.raw`\s+of\s+` + ID_RE + String.raw`\b`, "g"), "")
+    .replace(new RegExp(String.raw`\b(by|from|that|If|if|when|with)\s+(` + ID_RE + ")", "g"), (x, w, id) => `${w} ${ID_NOUN[id[0]]}`)
     .replace(new RegExp(String.raw`(?<=[A-Za-z]\s)(` + ID_RE + String.raw`)(?=\s+[a-z])`, "g"), x => ID_NOUN[x[0]])
-    .replace(/\bAlvin(?:'s)? (?=\d{4} )/g, "your ")
+    .replace(/\bAlvin(?:'s)? (?=\d{4} )/g, "your ").replace(/\bAlvin (has|is|was)\b/g, (x, v) => "you " + ({ has: "have", is: "are", was: "were" })[v])
+    .replace(/\bAlvin's\b/g, "your")
+    .replace(/\bAlvin (?=[a-z]+s\b)([a-z]+?)(ies|(?<=ss|sh|ch|x|o)es|s)\b/g, (x, v, e) => `you ${v}${e === "ies" ? "y" : ""}`)
+    .replace(/\bAlvin\b/g, "you").replace(/\bhis\b/g, "your").replace(/(^|[.!?]\s+)you\b/g, "$1You")
+    .replace(/\bare OCR\b/g, "were read from a scan by machine").replace(/\bOCR\b/g, "a machine's reading of a scan")
+    .replace(/\[(verified|recorded|derived|estimate|measured):\s*([^\]]+)\]/g, (x, b, w) => `(${b === "estimate" ? "an estimate" : b}: ${w})`)
     .replace(/\b[rR]\d-[a-z0-9]+(?:-[a-z0-9]+)*-\d+\b/g, "").replace(/\b[a-z]+(?:_[a-z0-9]+)+\b/g, "")
     .replace(/\brule \d+\b/g, "").replace(BASIS_TAG, "")
     .replace(/\s*\(?\b(?:[a-z]+-)+to-[a-z-]+\)?/g, "").replace(/\b(?:qt|scotia|mbna|amex|rbc)-[a-z-]+\s?/g, "")
-    .replace(/,?\s*group [a-z-]+,?/g, ",");
+    .replace(/,?\s*group [a-z]+-[a-z-]+,?/g, ",");
   s = dropIds(s);
   let depth = 0;
   s = Array.from(s).filter(ch => ch === "(" ? (depth++, true) : ch === ")" ? (depth > 0 ? (depth--, true) : false) : true).join("");
@@ -5042,13 +5050,13 @@ function plainWords(t) {
     .replace(/\b([\w' ]{6,}?)\s*\(\s*\1\s*\)/gi, "$1")
     .replace(/\b(assumptions?) in the assumptions written down/g, "$1 written down").replace(/…\./g, "…").replace(/\.{2,}/g, ".").replace(/([,;:])\s*(?=[,;:.])/g, "")
     .replace(/\s*;\s*(?=[;,.]|$)/g, "").replace(/,\s*(?=[,;.]|$)/g, "").replace(/\s{2,}/g, " ").replace(/\s+([,;.:])/g, "$1")
-    .replace(/^[,;:\s]+/, "").trim();
+    .replace(/^[,;:\s]+/, "").replace(/[,;:\s]+$/, "").trim();
 }
 function plainSource(src) {
   const m = /^(models|ledger)\/([^/]+?)(?:\/|\.csv)/.exec(src || "");
   if (!m) { const w = plainWords(src); return w ? "From " + w : ""; }
-  const rest = String(src).slice(m.index + m[0].length), br = /^\s*\(([^()]*)\)/.exec(rest);
-  const what = SOURCE_WORDS[m[2]] || (br ? plainWords(br[1]) : "");
+  const rest = String(src).slice(m.index + m[0].length).replace(/^[\w.-]*(?:\s*(?:,|and)\s*(?:models|ledger)\/[\w./-]+)+/, ""), br = /^\s*\(([^()]*)\)/.exec(rest);
+  const what = (rest !== String(src).slice(m.index + m[0].length) && br ? plainWords(br[1]) : "") || SOURCE_WORDS[m[2]] || (br ? plainWords(br[1]) : "");
   const more = /[;,]\s*(.+)$/.exec(br && !SOURCE_WORDS[m[2]] ? rest.slice(br[0].length) : rest);
   let add = more && (!what || /assum|tab\b/i.test(more[1])) ? plainWords(more[1]).replace(/\.$/, "") : "";
   const longWords = x => x.toLowerCase().match(/[a-z']{4,}/g) || [];
