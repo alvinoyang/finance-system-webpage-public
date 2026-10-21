@@ -1152,7 +1152,7 @@ function attention() {
   for (const c of ((SNAP && SNAP.cards && SNAP.cards.cards) || [])) {
     for (const it of (c.items || [])) {
       if (it.status !== "ACT" && it.status !== "MISSED") continue;
-      out.push(alert("orange", "warn", `${c.name}: ${cardItemName(it.item).toLowerCase()}`, it.note,
+      out.push(alert("orange", "warn", `${c.name}: ${cardItemName(it.item).toLowerCase()}`, plainWords(it.note),
         h("button", { class: "btn small tinted", type: "button", onclick: () => { save("sumpart", "cards"); go("numbers"); } }, "Open the card")));
     }
   }
@@ -1267,7 +1267,7 @@ function toBuyList() {
         b.said ? h("span", { class: "meta", text: prettyDates(b.said) }) : null,
         h("span", { class: "buyact" }, btn)),
       h("span", { class: "trail" }, named ? h("span", { class: "amt num", text: (est ? "~" : "") + fmtWhole$(Math.round(amt)) }) : null,
-        basisDot(b.label, [named ? prettyDates(b.words) + "." : "", "Buy it in Questrade, then tap Bought.", tb.source || ""].filter(Boolean)))));
+        basisDot(b.label, [named ? prettyDates(b.words) + "." : "", "Buy it in Questrade, then tap Bought.", tb.source ? plainSource(tb.source) + "." : ""].filter(Boolean)))));
   }
   for (const x of said) list.append(h("div", { class: "row veqt" },
     h("span", { class: "main" }, h("span", { class: "title", text: `About ${x.name}` }), h("span", { class: "meta", text: prettyDates(x.said) }))));
@@ -3012,7 +3012,7 @@ function capFirst(t) { t = String(t || ""); return t ? t[0].toUpperCase() + t.sl
 function sentence(t) { t = String(t || "").trim(); return t ? t[0].toUpperCase() + t.slice(1).replace(/\.?$/, ".") : ""; }
 function whyLines(o) {
   return [o.as_of ? "As of " + (dateOf(o.as_of) ? prettyDates(o.as_of) : o.as_of) + "." : "",
-          o.source ? plainSource(o.source) + "." : "", o.note ? o.note.replace(/\.?$/, ".") : "",
+          o.source ? plainSource(o.source) + "." : "", o.note ? plainWords(o.note).replace(/\.?$/, ".") : "",
           o.provisional ? sentence(o.provisional) : "",
           ["corp_market", "household"].includes(o.id || o.series) ? "Before the tax paid to take money out of the corporation." : ""];
 }
@@ -3531,11 +3531,11 @@ function workRateCards() {
     const from = commuteFrom(pph.travel_source);
     out.rate = figCard(pph, { label: pph.label.replace(/ · .*/, ""), value: wholeValue(wc ? pph.value_incl_travel : pph.value) + "/h",
       basis: wc ? pph.basis_incl_travel : pph.basis, series: wc && S.pay_per_hour_incl_travel ? S.pay_per_hour_incl_travel : S.pay_per_hour,
-      why: whyLines(wc ? Object.assign({}, pph, { note: pph.note_incl_travel || pph.note }) : pph).concat(wc ? [`With the commute: the round trip to each shift counts as time worked. The commute part is ${from || "not known"}.`,
+      why: whyLines(wc ? Object.assign({}, pph, { note: pph.note_incl_travel || pph.note }) : pph).concat(wc ? [`With travel time: the round trip to each shift counts as time worked. The travel part is ${from || "not known"}.`,
                                       `Without it, ${wholeValue(pph.value)}/h.`]
-                                   : [`Without the commute. With it, ${wholeValue(pph.value_incl_travel || pph.value)}/h.`]),
+                                   : [`Without travel time. With it, ${wholeValue(pph.value_incl_travel || pph.value)}/h.`]),
       onOpen: () => openView({ type: "work", metric: "rate" }),
-      meta: [h("span", { class: "asof" }, h("span", { class: "which", text: wc ? "With the commute" : "Without the commute" }),
+      meta: [h("span", { class: "asof" }, h("span", { class: "which", text: wc ? "With travel time" : "Without travel time" }),
                lagNote(pph) ? " · " + lagNote(pph) : "")] });
   }
   return out;
@@ -3573,7 +3573,7 @@ function moveRow(m, title, short) {
   return h("div", { class: "row plain" },
     h("span", { class: "main" }, h("span", { class: "title", text: title }), h("span", { class: "meta", text: moveMeta(m) })),
     h("span", { class: "est-wrap" }, h("span", { class: "cchip " + s.cls, text: s.word }),
-      basisDot(m.label, [m.note + ".", `Logged in ${m.source}.`])));
+      basisDot(m.label, [plainWords(m.note) + ".", `Logged in ${plainWords(m.source)}.`])));
 }
 function movesSection(accts, title, nowName, rowName) {
   const M = (SNAP && SNAP.moves) || {};
@@ -3691,7 +3691,7 @@ function regOf(a) { return (SNAP && SNAP.registered && SNAP.registered.accounts 
 function leftBasis(acct) { return acct.left_basis || (basisOf(acct.room_basis) === "estimate" ? "estimate" : "recorded"); }
 function roomWhy(acct) {
   return ["The year's room, less what has gone in this year." + (leftBasis(acct) === "estimate" ? " An estimate, because the year's limit is not yet confirmed on CRA's site." : ""),
-          `The room is ${BASIS_NAME[basisOf(acct.room_basis)] ? BASIS_NAME[basisOf(acct.room_basis)].toLowerCase() : acct.room_basis}: ${acct.room_note || ""}`,
+          `The room is ${BASIS_NAME[basisOf(acct.room_basis)] ? BASIS_NAME[basisOf(acct.room_basis)].toLowerCase() : acct.room_basis}: ${plainWords(acct.room_note)}`,
           `What went in is recorded: ${plainSource(SNAP.registered.source).replace(/^From /, "")}.`];
 }
 function lastValue(acct) { const v = (acct && acct.values) || []; return v.length ? v[v.length - 1] : null; }
@@ -3819,7 +3819,7 @@ function summaryPersonal() {
     const per = f => ({ monthly: "a month", quarterly: "a quarter", annual: "a year", yearly: "a year" })[f] || f;
     out.append(h("section", { class: "section" }, h("h2", { text: "Insurance" }), h("div", { class: "list glass" }, ...pols.map(p => {
       const none = /none/i.test(p.status), gap = /gap/i.test(p.status), held = /^in force/i.test(p.status);
-      return h("div", { class: "row" },
+      return h("div", { class: "row plain" },
         h("span", { class: "main" }, h("span", { class: "title", text: String(p.kind || "").replace(/^./, c => c.toUpperCase()) }),
           h("span", { class: "meta", text: [p.insurer, money(p.premium) ? `${fmtWhole$(Math.round(money(p.premium)))} ${per(p.premium_frequency)}` : "",
             p.payer === "maypc" ? "the corporation pays" : p.payer === "alvin" ? "you pay" : ""].filter(Boolean).join(" · ") })),
@@ -3949,7 +3949,7 @@ function summaryCards() {
     const sec = h("section", { class: "card glass cardcard" },
       h("div", { class: "ftop" },
         h("span", { class: "l" }, h("span", { class: "cname", text: c.name }), h("span", { class: "cwhose", text: c.whose })),
-        basisDot(it ? it.basis : "recorded", [it ? cardItemName(it.item) : "", it ? it.note : "",
+        basisDot(it ? it.basis : "recorded", [it ? cardItemName(it.item) : "", it ? plainWords(it.note) : "",
                                               "Worked out on the MacBook, from what you have typed and the issuers' own pages."]),
         h("span", { class: "chev-go", "aria-hidden": "true" }, icon("chevR"))),
       h("div", { class: "cardline" }, cardChip(it ? it.status : c.status, it ? it.item : ""), h("span", { class: "clead", text: cardLead(it) })));
@@ -3990,7 +3990,7 @@ function summaryCards() {
             / does NOT fit/.test(o.note || "") ? h("span", { class: "cchip off", text: "More than you spend" }) : null)),
         h("span", { class: "amt", text: o.figure ? fmtWhole$(Math.round(Number(String(o.figure).replace(/[$,]/g, "")))) : "Not known" }),
         h("span", { class: "chev" }, icon("chevR")));
-      const why = h("p", { class: "small muted detail", text: o.note, hidden: true });
+      const why = h("p", { class: "small muted detail", text: plainWords(o.note), hidden: true });
       r.addEventListener("click", () => { why.hidden = !why.hidden; r.classList.toggle("open", !why.hidden); });
       list.append(h("div", { class: "rowpair" }, r, why));
     }
@@ -4048,7 +4048,7 @@ function renderAccount() {
       h("div", { class: "legend3" },
         h("span", {}, h("span", { class: "sw2 s0" }), "Put in ", h("b", { text: fmtWhole$(Math.round(put)) }), ` of ${fmtWhole$(Math.round(room))}`),
         h("span", {}, h("span", { class: "sw2 rest" }), "Left ", h("b", { text: fmtWhole$(Math.round(left)) }))));
-    if (tfsa) card.append(h("p", { class: "small muted", text: basisOf(acct.room_basis) === "verified" ? acct.room_note
+    if (tfsa) card.append(h("p", { class: "small muted", text: basisOf(acct.room_basis) === "verified" ? plainWords(acct.room_note)
       : `The room is what CRA's rule leaves at January 1: each year's limit since ${acct.room_since}, plus what came out before this year, less what went in before this year.` }));
     if (acct.waiting && acct.waiting.length) card.append(h("p", { class: "small muted", text: `Counted here and not yet in your Registered Contributions tab: ${acct.waiting.map(w => `${fmtWhole$(w.amount)} on ${shortDate(w.date)}`).join(", ")}.` }));
     p.append(card);
@@ -4328,7 +4328,7 @@ function expectedCard(exp) {
   const why = ["What has arrived, from your year tab, plus each month still to come at your usual month" + (bonus ? ", plus MGH's active staff bonus in December" : "") + ((exp.counted_from_calendar || []).length ? ", plus what your calendar says is coming" : "") + ".",
                `Your usual month is the middle of the ${plural(exp.usual_count || 12, "month")} from ${keyLabel(exp.usual_from, true)} to ${keyLabel(exp.usual_to, true)}: a lump, such as a December's retro pay, or a payment that lands a month early or late, does not move it.`,
                bonus ? `The bonus is taken as one month of MGH pay at ${exp.year}'s average so far (${plural(exp.bonus_months, "month")}), as you expect. December's other lumps, such as retro pay, are not counted until they are known.` : "",
-               (exp.assumptions || []).length ? `Written down as ${exp.assumptions.length > 1 ? "assumptions" : "assumption"} ${exp.assumptions.join(" and ")} in the Finance System (profile/assumptions.csv), each with the date it is checked again.` : ""];
+               (exp.assumptions || []).length ? `Written down in the Finance System as ${exp.assumptions.length > 1 ? `${exp.assumptions.length} assumptions` : "an assumption"}, each with the date it is checked again.` : ""];
   const rows = [[last ? `Arrived, ${fromFebruary(last[0], false)}` : "Arrived", arrived, "s0"],
                 [n ? `${plural(n, "month")} to come at your usual ${fmtWhole$(Math.round(usual))}` : "", usual * n, "later"],
                 [bonus ? "MGH's active staff bonus, in December" : "", bonus, "later"],
@@ -4408,8 +4408,10 @@ function renderWork(embedded) {
     return t.length ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: t.join(" ") })) : null;
   };
   const thin = c => c && c.too_few_shifts ? "; too few to rest a rate on" : "";
-  const why = () => ["Your pay for each shift over its hours. Hours are ones you typed, measured by your phone, or the usual length of that kind of shift.",
-                     plainSource(W.source) + "."];
+  const HOURS_SAID = c => c && c.feeKind ? "Its hours are the ones you logged for it, typed in your Work tab or sent from this page."
+                                         : "Hours are ones you typed, measured by your phone, or the usual length of that kind of shift.";
+  const why = c => [(c && c.feeKind ? "Paid by its contract's fee, not by the shift. " : "Your pay for each shift over its hours. ") + HOURS_SAID(c),
+                    plainSource(W.source) + "."];
   const draw = () => {
     clear(holder);
     const y = V.year, pl = V.place, c = cell(y, pl);
@@ -4453,14 +4455,14 @@ function renderWork(embedded) {
     const est = money(c.assumed_hours !== undefined && c.assumed_hours !== "" ? c.assumed_hours : c.estimated_hours);
     const ppHours = money(c.hours_no_pay_per_activity) || 0;
     const label = `${y === "all" ? "All years" : cur ? y + " so far" : y}, ${nameOf(pl)}` + (metric === "rate" && pl === "edlp" && kind("edlp-stipend") ? " with its stipend"
-                  : metric === "rate" && pl === "all" && kind("all:shifts") ? ", all work" : "") + (metric === "rate" && !(c && c.fee) ? (wc ? ", with travel time" : ", without travel time") : "");
+                  : metric === "rate" && pl === "all" && kind("all:shifts") ? ", all work" : "") + (metric === "rate" && !(c && c.feeKind) ? (wc ? ", with travel time" : ", without travel time") : "");
     if (metric === "hours") {
       const wk = y !== "all" ? (W.weekly || {})[`${y}|${pl}`] : null;
       const mon = k => new Date(+k.slice(0, 4), +k.slice(5, 7) - 1, 1).toLocaleDateString("en-CA", { month: "short" });
       const wkSpan = wk ? (wk.from.endsWith("-01") && wk.to.endsWith("-12") ? "" : `, ${mon(wk.from)} to ${mon(wk.to)}`) : "";
       const total = h("div", { class: "v rounded", text: `${Math.round(hrs).toLocaleString("en-CA")} h` });
       holder.append(h("div", { class: "trend-top" },
-        h("div", { class: "ftop" }, h("span", { class: "l", text: label }), basisDot(c.basis || "recorded", why().concat(wk ? [
+        h("div", { class: "ftop" }, h("span", { class: "l", text: label }), basisDot(c.basis || "recorded", why(c).concat(wk ? [
           `Hours a week: ${Math.round(money(wk.hours)).toLocaleString("en-CA")} h over ${money(wk.weeks).toFixed(1)} weeks, ${mon(wk.from)} to ${mon(wk.to)} ${y}.` +
           (wk.to < `${y}-12` ? " Only the months fully counted: a month MGH's shifts have not reached yet would read as a quiet one." : "")] : []))),
         wk ? h("div", { class: "twofig" },
@@ -4492,9 +4494,9 @@ function renderWork(embedded) {
           h("div", { class: "facts glass card" },
             ...notShift.map(x => h("div", {}, h("span", { class: "k", text: plan && x.name === plan.name && y !== "all" ? `${x.name}, in ${y}` : x.name }), h("span", { class: "fv num", text: `${Math.round(money(x.k.hours)).toLocaleString("en-CA")} h` }))),
             notShift.length > 1 ? h("div", {}, h("span", { class: "k", text: "In all" }), h("span", { class: "fv num", text: `${Math.round(inAll).toLocaleString("en-CA")} h` })) : null,
-            cyc ? h("div", {}, h("span", { class: "k" }, `${plan.name}'s cycle`, h("span", { class: "small muted", text: ` · ${mon2(cyc[0].slice(0, 7))} to ${mon2(cyc[0].slice(-7))}, what its points are paid for` })),
+            cyc ? h("div", {}, h("span", { class: "k" }, `${plan.name}'s cycle`, h("span", { class: "small muted", text: ` · ${mon2(cyc[0].slice(0, 7))} to ${mon2(cyc[0].slice(-7))}` })),
                                 h("span", { class: "fv num", text: `${Math.round(money(cyc[1].hours)).toLocaleString("en-CA")} h` })) : null),
-          h("p", { class: "foot", text: "Counted in the hours above, and in no pay per hour: the practice plan is paid in points once a year, the lead role by its contract's fee, a grant by its deposit. Hours typed for a whole cycle are spread evenly over its months." })));
+          h("p", { class: "foot", text: (cyc ? "The cycle's hours are what its points are paid for. " : "") + "Counted in the hours above, and in no pay per hour: the practice plan is paid in points once a year, the lead role by its contract's fee, a grant by its deposit. Hours typed for a whole cycle are spread evenly over its months." })));
       }
       if (pl === "all") {
         const rows = (W.places || []).map(x => ({ key: x.value, label: x.label.replace(" consulting", ""), value: cell(y, x.value) ? money(cell(y, x.value).hours) : 0,
@@ -4510,10 +4512,10 @@ function renderWork(embedded) {
         h("div", { class: "ftop" }, h("span", { class: "l", text: label }), basisDot(rateBasis(c), c.feeKind
           ? ["Its contract's fee, a month at a time, over the hours you logged for it in those months. A month still going waits until it ends.",
              rateBasis(c) === "estimate" ? "An estimate: its hours are typed for a whole cycle and spread evenly over its months, so when each was worked is assumed." : ""]
-          : why().concat([rateBasis(c) === "estimate" ? "An estimate: more of it rests on the usual length of a shift, or on a commute not measured, than on hours typed or measured." : ""]))),
+          : why(c).concat([rateBasis(c) === "estimate" ? "An estimate: more of it rests on the usual length of a shift, or on a commute not measured, than on hours typed or measured." : ""]))),
         rate(c) ? h("div", { class: "v rounded" }, estRow(c) ? h("span", { class: "about", text: "~" }) : null, `${fmtWhole$(Math.round(rate(c)))}/h`)
                 : h("div", { class: "v rounded muted", text: c.feeKind ? (c.fee ? "No hours in the months its fee covers" : `No fee in ${y === "all" ? "any year" : y}`) : "No pay in yet" }),
-        h("div", { class: "fmeta" }, h("span", { class: "asof", text: (other(c) && Math.round(other(c)) !== Math.round(rate(c)) ? `${fmtWhole$(Math.round(other(c)))}/h ${wc ? "without" : "with"} travel time · ` : "") + (c.feeKind && c.fee ? `${fmtWhole$(Math.round(money(c.pay)))} of its fee for ${monShort(c.fee.from)} to ${monShort(c.fee.to)}` : `${fmtWhole$(Math.round(money(c.pay)))}`)
+        c.feeKind && !rate(c) ? null : h("div", { class: "fmeta" }, h("span", { class: "asof", text: (other(c) && Math.round(other(c)) !== Math.round(rate(c)) ? `${fmtWhole$(Math.round(other(c)))}/h ${wc ? "without" : "with"} travel time · ` : "") + (c.feeKind && c.fee ? `${fmtWhole$(Math.round(money(c.pay)))} of its fee for ${monShort(c.fee.from)} to ${monShort(c.fee.to)}` : `${fmtWhole$(Math.round(money(c.pay)))}`)
           + ` over ${Math.round(paidHours(c)).toLocaleString("en-CA")} h` + (wc && tr ? ` and ${Math.round(tr).toLocaleString("en-CA")} h of commute` : "")
           + (paidHours(c) < hrs - 0.5 ? `, of ${Math.round(hrs).toLocaleString("en-CA")} h ${c.feeKind ? "logged" : "worked"}` : "") })),
         null));
@@ -4561,7 +4563,7 @@ function renderWork(embedded) {
       holder.append((W.seen && W.seen.edlp && W.seen.edlp > shEnd)
         ? h("p", { class: "foot warnline", text: `EDLP's stipend is counted to ${monthDay(stEnd)}, its shifts to ${monthDay(shEnd)}, and your phone saw EDLP work on ${monthDay(W.seen.edlp)}. Until those shifts are typed, the figure with the stipend is too high; the shifts alone are not affected.` })
         : h("p", { class: "foot", text: `EDLP's stipend is counted to ${monthDay(stEnd)}, its shifts to ${monthDay(shEnd)}; your phone saw no EDLP shift after that${W.seen_to ? ` (to ${monthDay(W.seen_to)})` : ""}, so the months since are stipend with no hours, which lifts the figure with the stipend.` }));
-    holder.append(h("p", { class: "foot", text: (metric === "rate" ? (c && c.feeKind ? "Its contract's fee, a month at a time, over the hours you logged for it in those months. " : "Your pay for each shift, over its hours" + (wc ? " and the round trip to it" : "") + ". ") : "") + "Hours are ones you typed, measured by your phone, or the usual length of that kind of shift." + (metric === "rate" && wc && !(c && c.feeKind) ? " A commute is measured where your phone saw both legs, doubled from one leg, or the usual round trip for that place: the Rudd walk and the Don Valley drive are estimates you gave." : "") + " Worked out on the MacBook, from your Work tab and the shifts sent from this page." }));
+    holder.append(h("p", { class: "foot", text: (metric === "rate" ? (c && c.feeKind ? "Its contract's fee, a month at a time, over the hours you logged for it in those months. " : "Your pay for each shift, over its hours" + (wc ? " and the round trip to it" : "") + ". ") : "") + HOURS_SAID(c) + (metric === "rate" && wc && !(c && c.feeKind) ? " A commute is measured where your phone saw both legs, doubled from one leg, or the usual round trip for that place: the Rudd walk and the Don Valley drive are estimates you gave." : "") + " Worked out on the MacBook, from your Work tab and the shifts sent from this page." }));
   };
   const pickPlace = k => { V.place = k; render(); };
   function bySite(valOf, fmtV, subOf, note, estOf) {
@@ -5004,13 +5006,21 @@ const FILE_WORDS = { "profile/calendar.csv": "your calendar", "profile/policies.
   "profile/assumptions.csv": "the assumptions written down", "profile/salary.csv": "your salary plan", "profile/cards.csv": "your cards" };
 function monShort(k) { return k ? new Date(+String(k).slice(0, 4), +String(k).slice(5, 7) - 1, 1).toLocaleDateString("en-CA", { month: "short" }) : ""; }
 function plainWords(t) {
-  return dropIds(dropPaths(String(t || "")
-    .replace(/\b(?:models|ledger|profile|reference|exports|tools)\/[\w./'-]+/g, x => {
+  const s = dropIds(dropPaths(String(t || "")
+    .replace(/\s*\((?:[^()]|\([^()]*\))*?(?:\.(?:pdf|csv|png|txt)\b|https?:\/\/)(?:[^()]|\([^()]*\))*\)/g, "")
+    .replace(/,?\s*\bentry [a-z0-9]{10,}\b/g, ""))
+    .replace(/https?:\/\/[^\s)]+/g, "")
+    .replace(/\b(?:models|ledger|profile|reference|exports|tools|Documents|text)\/[\w./'-]+/g, x => {
       const k = x.replace(/'s$/, "").replace(/\/$/, ""), f = /^(?:models|ledger)\/([^/.]+)/.exec(k);
       return FILE_WORDS[k] || (f && SOURCE_WORDS[f[1]]) || "";
     })
-    .replace(/,?\s*group [a-z-]+,?/g, ",")))
-    .replace(/\s*;\s*(?=[;,.]|$)/g, "").replace(/,\s*(?=[,;.]|$)/g, "").replace(/\s{2,}/g, " ").replace(/^[,;\s]+/, "").trim();
+    .replace(/[\w-]+\.(?:pdf|csv|png|txt)\b/g, "")
+    .replace(/\b[A-Za-z]\d-[a-z]+-\d+\b/g, "").replace(/\b[a-z]+(?:_[a-z0-9]+)+\b/g, "").replace(/\(?\brule \d+\)?/g, "")
+    .replace(/,?\s*group [a-z-]+,?/g, ","));
+  return s.replace(/\(\s*[,;:\s]*/g, "(").replace(/[,;:\s]*\)/g, ")").replace(/\s*\(\)/g, "")
+    .replace(/\b([\w' ]{6,}?)\s*\(\s*\1\s*\)/gi, "$1")
+    .replace(/\s*;\s*(?=[;,.]|$)/g, "").replace(/,\s*(?=[,;.]|$)/g, "").replace(/\s{2,}/g, " ").replace(/\s+([,;.])/g, "$1")
+    .replace(/^[,;\s]+/, "").trim();
 }
 function plainSource(src) {
   const m = /^(models|ledger)\/([^/]+?)(?:\/|\.csv)/.exec(src || "");
@@ -5018,7 +5028,11 @@ function plainSource(src) {
   const what = SOURCE_WORDS[m[2]];
   const more = /[;,]\s*(.+)$/.exec(String(src).slice(m.index + m[0].length));
   let add = more && (!what || /assum|tab\b/i.test(more[1])) ? plainWords(more[1]).replace(/\.$/, "") : "";
-  if (add && what && add.toLowerCase().includes(what.toLowerCase().split(",")[0])) add = "";
+  const longWords = x => x.toLowerCase().match(/[a-z']{4,}/g) || [];
+  if (add && what) {
+    const said = new Set(longWords(what));
+    add = add.split(/\s*;\s*/).filter(part => { const w = longWords(part); return w.filter(x => said.has(x)).length < 0.6 * w.length; }).join("; ");
+  }
   return (m[1] === "models" ? `Worked out on the MacBook${what ? ` from ${what}` : ""}` : `Read from ${what || "your statements"}`)
     + (add ? `; ${add}` : "");
 }
@@ -5709,7 +5723,7 @@ function renderWorkUnit() {
     p.append(h("div", { class: "shstats glass" },
       stat("Hours", hrs ? String(Math.round(hrs * 10) / 10) : "", trv ? `+ ${Math.round(trv * 60)} min travel` : "", hrs ? basisDot(d.hours_label, d.hours_from === "usual" ? [`Here, your usual ${String(Math.round(hrs * 10) / 10)} hours for this kind of shift, since none were typed for it. Type its hours on the shift if they were different.`] : undefined) : null),
       stat("Patients", pts ? String(pts) : "", pts && hrs ? `${(pts / hrs).toFixed(1)} an hour` : pts ? "" : u.entry_id && allShifts().some(z => z.id === u.entry_id) ? "Add on the shift" : ""),
-      stat("Per hour", perh ? fmtWhole$(perh) : "", perh ? (commute && trv ? "with the commute" : "") : m.tbc || m.lump ? "once it is priced" : "")));
+      stat("Per hour", perh ? fmtWhole$(perh) : "", perh ? (commute && trv ? "with travel time" : "") : m.tbc || m.lump ? "once it is priced" : "")));
   }
 
   const PTS = { ohip: d.patients_ohip, ifhp: d.patients_ifhp, "wsib-direct": d.patients_wsib, private: d.patients_private };
