@@ -1455,7 +1455,7 @@ function renderSitting() {
   if ((pd.year_end || []).length) {
     const ye = h("div", { class: "list glass" });
     for (const r of pd.year_end) ye.append(h("div", { class: "row" },
-      h("span", { class: "main" }, h("span", { class: "title", text: r.what.split(/[:;]\s|\.\s/)[0] }), h("span", { class: "meta", text: dayName(r.date, { weekday: "short", day: "numeric", month: "long" }) })),
+      h("span", { class: "main" }, h("span", { class: "title", text: plainWords(r.what).split(/[:;]\s|\.\s/)[0] }), h("span", { class: "meta", text: dayName(r.date, { weekday: "short", day: "numeric", month: "long" }) })),
       money(r.amount) ? h("span", { class: "amt", text: "$" + Math.round(money(r.amount)).toLocaleString("en-CA") }) : h("span", {})));
     p.append(step(8, "Before the 31st, look once more", null, "December only: what falls between this day and the year end, so that it and both pay legs clear inside the year.", ye));
   }
@@ -4543,7 +4543,7 @@ function renderWork(embedded) {
           const alone = K[`${y}|${x.value}:shifts`], mixed = K[`${y}|edlp-stipend`] && x.value === "edlp" || apartHere(x.value).length > 0;
           const c2 = mixed && alone ? alone : cell(y, x.value);
           return { key: x.value, label: x.label.replace(" consulting", ""), value: c2 ? rate(c2) : 0, est: c2 ? estRow(c2) : false,
-                   sub: c2 ? `${Math.round(paidHours(c2))} h` + (mixed && alone ? ", shifts alone" : "") + thin(c2) : "" };
+                   sub: c2 ? `${Math.round(paidHours(c2)).toLocaleString("en-CA")} h` + (mixed && alone ? ", shifts alone" : "") + thin(c2) : "" };
         }).concat(feeKinds.map(a => { const c2 = cell(y, a.type);   // the lead role beside the places, by its fee (2026-10-21)
           return { key: a.type, label: shortName(a.name), value: c2 ? rate(c2) : 0, est: c2 ? estRow(c2) : false, sub: c2 ? `${Math.round(paidHours(c2))} h, by its fee` : "" }; }))
           .filter(r => r.value > 0).sort((a1, b1) => b1.value - a1.value);
@@ -4551,10 +4551,11 @@ function renderWork(embedded) {
           h("div", { class: "card glass" }, hbars(rows, v => `${fmtWhole$(Math.round(v))}/h`, k => pickPlace(k)))));
       } else {
         const rows = years.map(k => { const ck = cell(k, pl); return { label: k, value: ck ? rate(ck) : 0, on: k === y, est: ck ? estRow(ck) : false,
-          sub: ck ? `${Math.round(paidHours(ck))} h` + thin(ck) : "" }; }).filter(r => r.value > 0);
+          sub: ck ? `${Math.round(paidHours(ck)).toLocaleString("en-CA")} h` + thin(ck) : "" }; }).filter(r => r.value > 0);
         if (rows.length > 1) holder.append(h("section", { class: "section" }, h("h2", { text: `${nameOf(pl)}, year by year` }), h("div", { class: "card glass" }, hbars(rows, v => `${fmtWhole$(Math.round(v))}/h`)),
           pl === "edlp" ? h("p", { class: "foot", text: "Each year counts the monthly stipend with the shifts' pay, over the shifts' hours." }) : null));
-        bySite(k => rate(C[k]), v => `${fmtWhole$(Math.round(v))}/h`, k => `${unitWord(pl, Number(C[k].units))}, ${Math.round(paidHours(C[k]))} h`
+        bySite(k => rate(C[k]), v => `${fmtWhole$(Math.round(v))}/h`, k => `${unitWord(pl, Number(C[k].units))}, ${Math.round(paidHours(C[k])).toLocaleString("en-CA")} h`
+               + (paidHours(C[k]) < money(C[k].hours) - 0.5 ? " with pay in" : "")
                + (wc && C[k].travel_source ? `; travel ${commuteShort(C[k].travel_source)}` : "") + thin(C[k]),
                pl === "edlp" ? "The shifts alone: the monthly stipend belongs to no site." : "", k => estRow(C[k]));
       }
@@ -5014,33 +5015,50 @@ function monShort(k) { return k ? new Date(+String(k).slice(0, 4), +String(k).sl
 const BASIS_TAG = /\s*\[(?:verified|recorded|derived|estimate|measured)\b[^\]:]*\]/g;   // "[estimate: the day]" is kept, in words
 const ID_NOUN = { D: "the decision", Q: "the question", A: "the assumption" };
 const FILEISH = String.raw`(?:\b(?:models|ledger|profile|reference|exports|tools|Documents|text|topics|webpage)\/|\.(?:pdf|csv|png|txt|md|json|xlsx)\b|https?:\/\/)`;
+const YOU_VERBS = new Set("plan pay want need say use keep hold get type send log ask expect decide give take own earn choose do go work live drive read tell share answer agree prefer buy sell move sign file open close think know see call wait carry watch spend save put leave repay receive mean".split(" "));
+function toYou(seg, whole) {
+  whole = whole || seg;
+  if (!/\bAlvin\b/.test(whole) && (/\b(?:Karen|Gloria|accountant|broker|advis[eo]r|agent|Dr\.?|Mr\.?|patient|she|her)\b/.test(whole) || !/\b(?:he|him|his|himself)\b/.test(seg))) return seg;
+  const verb = w => { const b = w.endsWith("ies") ? w.slice(0, -3) + "y" : /(?:ss|sh|ch|x|o)es$/.test(w) ? w.slice(0, -2) : w.endsWith("s") ? w.slice(0, -1) : ""; return YOU_VERBS.has(b) ? b : ""; };
+  const subj = String.raw`\b(Alvin|he)\b`;
+  return seg.replace(/\bAlvin's\b/g, "your")
+    .replace(new RegExp(subj + String.raw` (has|is|was|does)\b`, "g"), (x, w, v) => "you " + ({ has: "have", is: "are", was: "were", does: "do" })[v])
+    .replace(new RegExp(subj + String.raw` ((?:always|also|usually|still|then|now|often|never|only|already) )?([a-z]+)\b`, "g"), (x, w, adv, v) => `you ${adv || ""}${verb(v) || v}`)
+    .replace(/\bAlvin\b/g, "you").replace(/\bhe\b/g, "you").replace(/\bhim(self)?\b/g, (x, s2) => s2 ? "yourself" : "you").replace(/\bhis\b/g, "your")
+    .replace(/(^|[.!?]\s+)you(r?)\b/g, "$1You$2");
+}
+function acctWords(k) { return ((SNAP && SNAP.account_words) || {})[k] || ""; }
+const KEY_UPPER = new Set("fhsa rrsp tfsa cpp ei ohip mgh edlp abp veqt cra ifhp wsib ynab hst".split(" "));
+function keyWords(k) { return k.split("_").filter(w => w !== "alvin").map(w => KEY_UPPER.has(w) ? w.toUpperCase() : w).join(" "); }
 function plainWords(t) {
   const nest = String.raw`(?:[^()]|\([^()]*\))*?`;
   let s = String(t || "")
     .replace(/\btopics\/notes\/[\w.-]+\.md\b/g, "the note written for it").replace(/\b(?:[\w-]+\/)*[\w.-]+\.(?:md|json|csv)\b/g, x => FILE_WORDS[x] || x)
-    .split(/(?<=[.!?])\s+(?=[A-Z])/).map(x => !/^(?:Corrected|Re-?check(?:ed)?|Moved|Was |Recorded|Until \d{4}|Before \d{4})\b/.test(x) ? x
+    .split(/(?<=[.!?])\s+(?=[A-Z])/).map(x => !/^(?:Corrected\b|Re-?check(?:ed)? moved\b|Moved (?:on )?\d{4}-\d\d-\d\d|Was |Recorded (?:as|under)\b|Until \d{4}-\d\d-\d\d|Before \d{4}-\d\d-\d\d)/.test(x) ? x
       : ((/[;:]\s*(the next (?:is|one)\b.*)$/i.exec(x) || [])[1] || "").replace(/^./, c => c.toUpperCase())).filter(Boolean).join(" ")
     .replace(new RegExp(String.raw`\s*\(` + nest + FILEISH + nest + String.raw`\)`, "g"), x => { const q = /"[^"]{6,}"/.exec(x); return q ? `: ${q[0]}` : ""; })
     .replace(/,?\s*\bentry [a-z0-9]{10,}\b/g, "")
+    .replace(/\[(verified|recorded|derived|estimate|measured):\s*(?:models|ledger|profile|reference|exports)\/[^\]]*\]/g, "($1)")
     .replace(/https?:\/\/[^\s)]+/g, "")
     .replace(/\b(?:models|ledger|profile|reference|exports|tools|Documents|text|topics|webpage)\/[\w./'-]+/g, (x, at, all) => {
       const k = x.replace(/'s$/, "").replace(/\/$/, ""), f = /^(?:models|ledger)\/([^/.]+)/.exec(k);
       return FILE_WORDS[k] || (f && SOURCE_WORDS[f[1]]) || (/\b(?:in|from|of|to|by)\s$/.test(all.slice(0, at)) ? "the Finance System's records" : "");
     })
-    .replace(/\b[\w-]+\.(?:md|json|xlsx)\b/g, x => FILE_WORDS[x] || "").replace(/[\w-]+\.(?:pdf|csv|png|txt)\b/g, "").replace(/\s--[a-z][a-z-]+/g, "")
+    .replace(/\b[\w-]+\.(?:md|json|xlsx)\b/g, x => FILE_WORDS[x] || "").replace(/[\w-]+\.(?:pdf|csv|png|txt)\b/g, "").replace(/\s--([a-z][a-z-]+)/g, (x, f) => ` the ${f.replace(/-/g, " ")} option`)
     .replace(new RegExp(String.raw`\b(assumptions?|decisions?|questions?)\s+` + ID_RE + String.raw`(?:\s*(?:,|and)\s*` + ID_RE + ")*", "g"), "$1")
     .replace(new RegExp(String.raw`\s+of\s+` + ID_RE + String.raw`\b`, "g"), "")
     .replace(new RegExp(String.raw`\b(by|from|that|If|if|when|with)\s+(` + ID_RE + ")", "g"), (x, w, id) => `${w} ${ID_NOUN[id[0]]}`)
-    .replace(new RegExp(String.raw`(?<=[A-Za-z]\s)(` + ID_RE + String.raw`)(?=\s+[a-z])`, "g"), x => ID_NOUN[x[0]])
-    .replace(/\bAlvin(?:'s)? (?=\d{4} )/g, "your ").replace(/\bAlvin (has|is|was)\b/g, (x, v) => "you " + ({ has: "have", is: "are", was: "were" })[v])
-    .replace(/\bAlvin's\b/g, "your")
-    .replace(/\bAlvin (?=[a-z]+s\b)([a-z]+?)(ies|(?<=ss|sh|ch|x|o)es|s)\b/g, (x, v, e) => `you ${v}${e === "ies" ? "y" : ""}`)
-    .replace(/\bAlvin\b/g, "you").replace(/\bhis\b/g, "your").replace(/(^|[.!?]\s+)you\b/g, "$1You")
+    .replace(new RegExp(String.raw`\bas\s+(` + ID_RE + ")", "g"), (x, id) => "as " + ID_NOUN[id[0]].replace(/^the /, /^[aeiou]/.test(ID_NOUN[id[0]].slice(4)) ? "an " : "a "))
+    .replace(new RegExp(String.raw`(?<!\(\s*|,\s*|\b(?:Recorded as|Recorded under|Under|See|see|under|and)\s+)\b(` + ID_RE + String.raw`)\b(?!\s*\))`, "g"), x => ID_NOUN[x[0]])
+    .replace(/\bAlvin(?:'s)? (?=\d{4} )/g, "your ").split(/("[^"]*")/).map((x, i, all) => i % 2 ? x : toYou(x, all.filter((_, j) => j % 2 === 0).join(" "))).join("")
     .replace(/\bare OCR\b/g, "were read from a scan by machine").replace(/\bOCR\b/g, "a machine's reading of a scan")
     .replace(/\[(verified|recorded|derived|estimate|measured):\s*([^\]]+)\]/g, (x, b, w) => `(${b === "estimate" ? "an estimate" : b}: ${w})`)
-    .replace(/\b[rR]\d-[a-z0-9]+(?:-[a-z0-9]+)*-\d+\b/g, "").replace(/\b[a-z]+(?:_[a-z0-9]+)+\b/g, "")
+    .replace(/\b[rR]\d-[a-z0-9]+(?:-[a-z0-9]+)*-\d+\b/g, "")
+    .replace(/(\b(?:as|of|in|with|than|and)\s+)?\b([a-z]+(?:_[a-z0-9]+)+)\b/g, (x, pre, k) => (pre || "") + (pre ? "the " : "") + keyWords(k))
     .replace(/\brule \d+\b/g, "").replace(BASIS_TAG, "")
-    .replace(/\s*\(?\b(?:[a-z]+-)+to-[a-z-]+\)?/g, "").replace(/\b(?:qt|scotia|mbna|amex|rbc)-[a-z-]+\s?/g, "")
+    .replace(/\s*\(\b(?:[a-z]+-)+to-[a-z-]+\)/g, "")
+    .replace(/\b((?:[a-z]+-)+?[a-z]+)-to-([a-z-]+)\b/g, (x, a, b) => `the move from ${acctWords(a) || a} to ${acctWords(b) || capFirst(b)}`)
+    .replace(/\b(the |your )?((?:qt|scotia|mbna|amex|rbc|cra|td|cibc|ws)-[a-z-]+)\b(\s?)/g, (x, pre, k, sp) => acctWords(k) ? acctWords(k) + sp : (pre || ""))
     .replace(/,?\s*group [a-z]+-[a-z-]+,?/g, ",");
   s = dropIds(s);
   let depth = 0;
@@ -5048,24 +5066,26 @@ function plainWords(t) {
   while (depth-- > 0) s = s.replace(/\((?![^(]*\))/, "");
   return s.replace(/\(\s*[,;:\s]*/g, "(").replace(/[,;:\s]*\)/g, ")").replace(/\s*\(\)/g, "")
     .replace(/\b([\w' ]{6,}?)\s*\(\s*\1\s*\)/gi, "$1")
-    .replace(/\b(assumptions?) in the assumptions written down/g, "$1 written down").replace(/…\./g, "…").replace(/\.{2,}/g, ".").replace(/([,;:])\s*(?=[,;:.])/g, "")
+    .replace(/\b(assumptions?) in the assumptions written down/g, "$1 written down").replace(/\.{3}/g, "…").replace(/…\./g, "…").replace(/\.{2,}/g, ".")
+    .replace(/\b(\d+) (\w+)\(s\)/g, (x, n, w) => `${n} ${w}${n === "1" ? "" : "s"}`).replace(/([,;:])\s*(?=[,;:.])/g, "")
     .replace(/\s*;\s*(?=[;,.]|$)/g, "").replace(/,\s*(?=[,;.]|$)/g, "").replace(/\s{2,}/g, " ").replace(/\s+([,;.:])/g, "$1")
     .replace(/^[,;:\s]+/, "").replace(/[,;:\s]+$/, "").trim();
 }
 function plainSource(src) {
   const m = /^(models|ledger)\/([^/]+?)(?:\/|\.csv)/.exec(src || "");
   if (!m) { const w = plainWords(src); return w ? "From " + w : ""; }
+  const colon = /^(?:models|ledger)\/[\w./-]+:\s*(.+)$/.exec(src);
   const rest = String(src).slice(m.index + m[0].length).replace(/^[\w.-]*(?:\s*(?:,|and)\s*(?:models|ledger)\/[\w./-]+)+/, ""), br = /^\s*\(([^()]*)\)/.exec(rest);
   const what = (rest !== String(src).slice(m.index + m[0].length) && br ? plainWords(br[1]) : "") || SOURCE_WORDS[m[2]] || (br ? plainWords(br[1]) : "");
-  const more = /[;,]\s*(.+)$/.exec(br && !SOURCE_WORDS[m[2]] ? rest.slice(br[0].length) : rest);
-  let add = more && (!what || /assum|tab\b/i.test(more[1])) ? plainWords(more[1]).replace(/\.$/, "") : "";
+  const more = colon ? null : /[;,]\s*(.+)$/.exec(br ? rest.slice(br[0].length) : rest);
+  let add = more ? plainWords(more[1]).replace(/\.$/, "") : "";
   const longWords = x => x.toLowerCase().match(/[a-z']{4,}/g) || [];
   if (add && what) {
     const said = new Set(longWords(what));
     add = add.split(/\s*;\s*/).filter(part => { const w = longWords(part); return w.filter(x => said.has(x)).length < 0.6 * w.length; }).join("; ");
   }
   return (m[1] === "models" ? `Worked out on the MacBook${what ? ` from ${what}` : ""}` : `Read from ${what || "your statements"}`)
-    + (add ? `; ${add}` : "");
+    + (colon ? `: ${plainWords(colon[1])}` : add ? `; ${add}` : "");
 }
 
 
@@ -5770,7 +5790,9 @@ function renderWorkUnit() {
       : (pd ? `${fmt$(pd)} paid, the rest expected` : "Expected") + (x.expected_by ? ` by ${shortDate(x.expected_by)}` : "")
         + (x.status === "waiting (bank statement not filed)" ? "; the bank statement is not filed yet" : "");
     const note = String(it.note || "").split("; ").filter(t => t && !/^(\d+ WSIB patient|submitted \$?[\d,.]+,? paid)/i.test(t)).join("; ");
-    const extra = [it.ohip_claims ? plural(Number(it.ohip_claims), "claim") + " on the remittance" : "", note ? prettyDates(note) : "", it.answer || ""].filter(Boolean).join(". ");
+    const said = plainWords(note).split(/;\s*/).map(t => x.expected_by ? t.replace(new RegExp(String.raw`,?\s*expected by ${x.expected_by}`), "") : t).filter(t => t.trim());
+    const extra = [it.ohip_claims ? plural(Number(it.ohip_claims), "claim") + " on the remittance" : "", ...said,
+                   it.answer && !/your answer/i.test(note) ? plainWords(it.answer) : ""].filter(Boolean).map(t => capFirst(prettyDates(t.trim()))).join(". ");
     const n = Number(PTS[x.part]) || 0;
     const row = h("div", { class: "shpart" },
       h("span", { class: "pn" }, h("span", { class: "shdot " + ps, "aria-hidden": "true" }), x.part_name, n ? h("span", { class: "pc", text: `· ${plural(n, "patient")}` }) : null),
