@@ -586,7 +586,7 @@ function render(animate) {
   onScroll();
   neighboursStale();
 }
-const FOLD_SEL = ".foot, .asof, .small, .gf, .salnote, .head .sub, .hb-s, .fold-me";
+const FOLD_SEL = ".foot, .asof, .small, .gf, .salnote, .head .sub, .hb-s, .fold-me, .alert > .d";
 function foldProse(root) {
   for (const el of root.querySelectorAll(FOLD_SEL)) {
     if (el.dataset.fold || el.closest(".sheet, .unfolded, button, a") || el.querySelector("button, a, input, select, textarea, svg")) continue;
@@ -1289,7 +1289,7 @@ function landingList() {
     list.append(h("div", { class: "row veqt" },
       h("span", { class: "main" }, h("span", { class: "title", text: capFirst(d.name) }),
         h("span", { class: "meta" }, `${what} · `, h("span", { class: warn ? "warnline" : "", text: state }))),
-      h("span", { class: "trail" }, basisDot(d.label, [prettyDates(d.how)]), h("span", { class: "amt num", text: fmt$(Math.abs(money(d.amount))) }))));
+      h("span", { class: "trail" }, basisDot(d.label, [prettyDates(plainWords(d.how))]), h("span", { class: "amt num", text: fmt$(Math.abs(money(d.amount))) }))));
   }
   return list;
 }
@@ -2982,7 +2982,7 @@ function explain(anchor, b, extra) {
   const pop = h("div", { class: "pop", role: "dialog", tabindex: "-1", "aria-label": BASIS_NAME[b] },
     h("div", { class: "pop-h" }, h("span", { class: "bd " + b }), h("strong", { text: BASIS_NAME[b] })),
     h("p", { text: MEANS_LONG[b] }),
-    (extra || []).filter(Boolean).map(t => h("p", { class: "pop-x", text: t })),
+    (extra || []).filter(Boolean).map(t => h("p", { class: "pop-x", text: prettyDates(String(t).replace(BASIS_TAG, "")) })),
     h("div", { class: "pop-all", "aria-label": "The five labels" }, Object.keys(BASIS_NAME).map(k => h("span", { class: k === b ? "on" : "" }, h("span", { class: "bd " + k }), BASIS_NAME[k]))));
   document.body.append(pop);
   const r = anchor.getBoundingClientRect(), pw = pop.offsetWidth, ph = pop.offsetHeight;
@@ -3740,13 +3740,13 @@ function salaryCard(sal, S) {
     h("div", { class: "ftop" }, h("span", { class: "l", text: `Your pay, ${yr}` }), basisDot(sal.basis, why),
       h("span", { class: "chev-go", "aria-hidden": "true" }, icon("chevR"))),
     h("div", { class: "salhead" }, h("span", { class: "v rounded", text: fmtWhole$(Math.round(paid)) }),
-      h("span", { class: "salof" }, "salary paid of ", h("b", { text: fmtWhole$(Math.round(target)) }))),
+      h("span", { class: "salof" }, sal.last_pay > todayISO() ? "salary of " : "salary paid of ", h("b", { text: fmtWhole$(Math.round(target)) }))),
     bar,
     h("div", { class: "salends" }, h("span", { text: sal.last_pay ? `To ${MONTH_FULL[Number((sal.last_pay_month || sal.last_pay).slice(5, 7)) - 1]}'s pay, ${sal.last_pay > todayISO() ? "going out" : "paid"} ${monthDay(sal.last_pay)}` : `Paid to ${monthDay(sal.as_of)}` }),
       h("span", {}, `${fmtWhole$(Math.round(target))} fills ${nextYr}'s RRSP room`, basisDot(sal.rrsp_target_basis, why.slice(2)))),
     note, divLine,
     h("span", { class: "fmeta" }, h("span", { class: "asof", text: "Before tax and deductions." })));
-  tapArea(card, `Your salary, ${fmtWhole$(Math.round(paid))} paid of ${fmtWhole$(Math.round(target))}. Open`, () => openTrendOf("salary"));
+  tapArea(card, `Your salary, ${fmtWhole$(Math.round(paid))} ${sal.last_pay > todayISO() ? "with the pay going out" : "paid"} of ${fmtWhole$(Math.round(target))}. Open`, () => openTrendOf("salary"));
   return card;
 }
 
@@ -3823,7 +3823,9 @@ function summaryPersonal() {
         h("span", { class: "main" }, h("span", { class: "title", text: String(p.kind || "").replace(/^./, c => c.toUpperCase()) }),
           h("span", { class: "meta", text: [p.insurer, money(p.premium) ? `${fmtWhole$(Math.round(money(p.premium)))} ${per(p.premium_frequency)}` : "",
             p.payer === "maypc" ? "the corporation pays" : p.payer === "alvin" ? "you pay" : ""].filter(Boolean).join(" · ") })),
-        h("span", { class: "chip " + (held ? "green" : gap ? "orange" : "grey"), text: held ? "Held" : none ? (gap ? "None: a gap" : "None") : String(p.status).replace(/^./, c => c.toUpperCase()) }));
+        h("span", { class: "est-wrap" },
+          h("span", { class: "chip " + (held ? "green" : gap ? "orange" : "grey"), text: held ? "Held" : none ? (gap ? "None: a gap" : /unconfirmed/i.test(p.label) ? "None, not confirmed" : "None") : String(p.status).replace(/^./, c => c.toUpperCase()) }),
+          basisDot(p.label, [sentence(plainWords((/\((.*)\)\s*$/.exec(p.label || "") || [])[1] || "").replace(/\bAlvin has\b/g, "you have").replace(/\bAlvin's\b/g, "your").replace(/\bAlvin\b/g, "you"))])));
     })), h("p", { class: "foot", text: "Every policy you hold, and the ones you do not, as your insurance record lists them. A change of insurer or premium is told to a session." })));
   }
   if (owedCard && owedCard.dataset.settled) out.append(owedCard);
@@ -4020,7 +4022,7 @@ function renderCard() {
       h("div", { class: "cardline" }, cardChip(it.status, it.item),
         it.figure ? h("span", { class: "camt num", text: (it.unit === "CAD" || /cash back|money/i.test(it.unit || "")
           ? fmtWhole$(Math.round(Number(String(it.figure).replace(/[$,]/g, "")))) : `${it.figure} ${it.unit || ""}`.trim()) }) : null),
-      h("p", { class: "small", text: prettyDates(dropIds(it.note)) }));
+      h("p", { class: "small", text: prettyDates(plainWords(it.note)) }));
     if (it.item === "minimum-spend" && it.need && it.due >= todayISO()
         && !["DONE", "MISSED", "EXPLAINED"].includes(it.status)) sec.append(spendBar(it));
     p.append(sec);
@@ -4391,8 +4393,8 @@ function renderWork(embedded) {
     pullDown(metric === "hours" ? "Hours" : "Pay per hour", [[["hours", "Hours"], ["rate", "Pay per hour"]]],
       metric, v => { V.metric = v; render(); }, "Show"),
     pullDown((yearC.find(x => x[0] === V.year) || [0, V.year])[1], [yearC], V.year, v => { V.year = v; p.querySelector(".pulls").replaceWith(pulls()); draw(); }, "Which year"),
-    pullDown((places.find(x => x[0] === V.place) || [0, V.place])[1], [places], V.place, v => { V.place = v; p.querySelector(".pulls").replaceWith(pulls()); draw(); }, "Which place", { active: V.place !== "all" }));
-  const travel = metric === "rate" ? segControl([["with", "With travel time"], ["without", "Without travel time"]], wc ? "with" : "without",
+    pullDown(shortName((places.find(x => x[0] === V.place) || [0, V.place])[1]), [places], V.place, v => { V.place = v; render(); }, "Which place", { active: V.place !== "all" }));
+  const travel = metric === "rate" && !feeKinds.some(a => a.type === V.place) ? segControl([["with", "With travel time"], ["without", "Without travel time"]], wc ? "with" : "without",
     v => { save("pph_commute", v === "with"); render(); }, "Travel time", "partseg travelseg") : null;
   p.append(...[pulls(), travel, holder].filter(Boolean));
   if (!embedded) swipeAlong(h("div"), holder, BACK, null);
@@ -4410,7 +4412,7 @@ function renderWork(embedded) {
   const thin = c => c && c.too_few_shifts ? "; too few to rest a rate on" : "";
   const HOURS_SAID = c => c && c.feeKind ? "Its hours are the ones you logged for it, typed in your Work tab or sent from this page."
                                          : "Hours are ones you typed, measured by your phone, or the usual length of that kind of shift.";
-  const why = c => [(c && c.feeKind ? "Paid by its contract's fee, not by the shift. " : "Your pay for each shift over its hours. ") + HOURS_SAID(c),
+  const why = c => [(metric === "hours" ? "" : c && c.feeKind ? "Paid by its contract's fee, not by the shift. " : "Your pay for each shift over its hours. ") + HOURS_SAID(c),
                     plainSource(W.source) + "."];
   const draw = () => {
     clear(holder);
@@ -4450,7 +4452,7 @@ function renderWork(embedded) {
       return plural(n, ({ mgh: "shift or call", bochner: "sedation", endoscopy: "sedation", abp: "month's entry", all: "shift or sedation" })[pl] || "entry",
                     ({ mgh: "shifts and calls", bochner: "sedations", endoscopy: "sedations", abp: "months' entries", all: "shifts and sedations" })[pl] || "entries");
     };
-    if (!c) { holder.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: `No work at ${nameOf(pl)} ${y === "all" ? "yet" : "in " + y}.` }))); return; }
+    if (!c) { holder.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: `${feeKinds.some(a => a.type === pl) ? "No hours for" : "No work at"} ${nameOf(pl)} ${y === "all" ? "yet" : "in " + y}.` }))); return; }
     const hrs = money(c.hours), units = Number(c.units), tr = money(c.travel_hours);
     const est = money(c.assumed_hours !== undefined && c.assumed_hours !== "" ? c.assumed_hours : c.estimated_hours);
     const ppHours = money(c.hours_no_pay_per_activity) || 0;
@@ -4512,17 +4514,17 @@ function renderWork(embedded) {
         h("div", { class: "ftop" }, h("span", { class: "l", text: label }), basisDot(rateBasis(c), c.feeKind
           ? ["Its contract's fee, a month at a time, over the hours you logged for it in those months. A month still going waits until it ends.",
              rateBasis(c) === "estimate" ? "An estimate: its hours are typed for a whole cycle and spread evenly over its months, so when each was worked is assumed." : ""]
-          : why(c).concat([rateBasis(c) === "estimate" ? "An estimate: more of it rests on the usual length of a shift, or on a commute not measured, than on hours typed or measured." : ""]))),
+          : why(c).concat([rateBasis(c) === "estimate" ? "An estimate: more of it rests on the usual length of a shift, or on travel time not measured, than on hours typed or measured." : ""]))),
         rate(c) ? h("div", { class: "v rounded" }, estRow(c) ? h("span", { class: "about", text: "~" }) : null, `${fmtWhole$(Math.round(rate(c)))}/h`)
                 : h("div", { class: "v rounded muted", text: c.feeKind ? (c.fee ? "No hours in the months its fee covers" : `No fee in ${y === "all" ? "any year" : y}`) : "No pay in yet" }),
         c.feeKind && !rate(c) ? null : h("div", { class: "fmeta" }, h("span", { class: "asof", text: (other(c) && Math.round(other(c)) !== Math.round(rate(c)) ? `${fmtWhole$(Math.round(other(c)))}/h ${wc ? "without" : "with"} travel time · ` : "") + (c.feeKind && c.fee ? `${fmtWhole$(Math.round(money(c.pay)))} of its fee for ${monShort(c.fee.from)} to ${monShort(c.fee.to)}` : `${fmtWhole$(Math.round(money(c.pay)))}`)
-          + ` over ${Math.round(paidHours(c)).toLocaleString("en-CA")} h` + (wc && tr ? ` and ${Math.round(tr).toLocaleString("en-CA")} h of commute` : "")
+          + ` over ${Math.round(paidHours(c)).toLocaleString("en-CA")} h` + (wc && tr ? ` and ${Math.round(tr).toLocaleString("en-CA")} h of travel` : "")
           + (paidHours(c) < hrs - 0.5 ? `, of ${Math.round(hrs).toLocaleString("en-CA")} h ${c.feeKind ? "logged" : "worked"}` : "") })),
         null));
       const later = [
         c.travel_source && wc ? h("div", { class: "fmeta" }, h("span", { class: "asof commute-from" }, basisDot(c.basis_incl_travel || "recorded",
-          ["Where the commute hours came from, by share.", "Measured: both legs of the round trip seen by your phone. Worked out: one leg seen and doubled, or the usual round trip for that place. Estimate: an assumption written down, such as the Rudd walk and the Don Valley drive."]),
-          h("span", { class: "fold-me", text: `The commute: ${commuteFrom(c.travel_source)}.` }))) : null,
+          ["Where the travel hours came from, by share.", "Measured: both legs of the round trip seen by your phone. Worked out: one leg seen and doubled, or the usual round trip for that place. Estimate: an assumption written down, such as the Rudd walk and the Don Valley drive."]),
+          h("span", { class: "fold-me", text: `Travel time: ${commuteFrom(c.travel_source)}.` }))) : null,
         wc && pl === "mgh" && ((W.commute || {}).mgh || {}).median_round_trip_hours && (y === "all" || y >= String(W.commute.mgh.from).slice(0, 4)) ? h("div", { class: "fmeta" }, h("span", { class: "asof",
           text: `MGH's round trip, as your phone measured it: ${Math.round(Number(W.commute.mgh.median_round_trip_hours) * 60)} minutes, the middle of ${W.commute.mgh.round_trips_measured} trips since the move, from ${keyLabel(W.commute.mgh.from, true)} to ${keyLabel(W.commute.mgh.to, true)}` })) : null,
         money(c.hours_awaiting_pay) || ppHours ? h("div", { class: "fmeta" }, h("span", { class: "asof", text: sentence([money(c.hours_awaiting_pay) ? (c.feeKind ? `${Math.round(money(c.hours_awaiting_pay))} h logged in months its fee does not count yet are left out: a month still going, or one outside the contract's term` : `${Math.round(money(c.hours_awaiting_pay))} h of shifts still waiting for their pay are left out`) : "",
@@ -4552,7 +4554,7 @@ function renderWork(embedded) {
         if (rows.length > 1) holder.append(h("section", { class: "section" }, h("h2", { text: `${nameOf(pl)}, year by year` }), h("div", { class: "card glass" }, hbars(rows, v => `${fmtWhole$(Math.round(v))}/h`)),
           pl === "edlp" ? h("p", { class: "foot", text: "Each year counts the monthly stipend with the shifts' pay, over the shifts' hours." }) : null));
         bySite(k => rate(C[k]), v => `${fmtWhole$(Math.round(v))}/h`, k => `${unitWord(pl, Number(C[k].units))}, ${Math.round(paidHours(C[k]))} h`
-               + (wc && C[k].travel_source ? `; commute ${commuteShort(C[k].travel_source)}` : "") + thin(C[k]),
+               + (wc && C[k].travel_source ? `; travel ${commuteShort(C[k].travel_source)}` : "") + thin(C[k]),
                pl === "edlp" ? "The shifts alone: the monthly stipend belongs to no site." : "", k => estRow(C[k]));
       }
       if (later.some(Boolean)) holder.append(h("div", { class: "worknotes" }, later.filter(Boolean)));
@@ -4563,7 +4565,7 @@ function renderWork(embedded) {
       holder.append((W.seen && W.seen.edlp && W.seen.edlp > shEnd)
         ? h("p", { class: "foot warnline", text: `EDLP's stipend is counted to ${monthDay(stEnd)}, its shifts to ${monthDay(shEnd)}, and your phone saw EDLP work on ${monthDay(W.seen.edlp)}. Until those shifts are typed, the figure with the stipend is too high; the shifts alone are not affected.` })
         : h("p", { class: "foot", text: `EDLP's stipend is counted to ${monthDay(stEnd)}, its shifts to ${monthDay(shEnd)}; your phone saw no EDLP shift after that${W.seen_to ? ` (to ${monthDay(W.seen_to)})` : ""}, so the months since are stipend with no hours, which lifts the figure with the stipend.` }));
-    holder.append(h("p", { class: "foot", text: (metric === "rate" ? (c && c.feeKind ? "Its contract's fee, a month at a time, over the hours you logged for it in those months. " : "Your pay for each shift, over its hours" + (wc ? " and the round trip to it" : "") + ". ") : "") + HOURS_SAID(c) + (metric === "rate" && wc && !(c && c.feeKind) ? " A commute is measured where your phone saw both legs, doubled from one leg, or the usual round trip for that place: the Rudd walk and the Don Valley drive are estimates you gave." : "") + " Worked out on the MacBook, from your Work tab and the shifts sent from this page." }));
+    holder.append(h("p", { class: "foot", text: (metric === "rate" ? (c && c.feeKind ? "Its contract's fee, a month at a time, over the hours you logged for it in those months. " : "Your pay for each shift, over its hours" + (wc ? " and the round trip to it" : "") + ". ") : "") + HOURS_SAID(c) + (metric === "rate" && wc && !(c && c.feeKind) ? " Travel time is measured where your phone saw both legs, doubled from one leg, or the usual round trip for that place: the Rudd walk and the Don Valley drive are estimates you gave." : "") + " Worked out on the MacBook, from your Work tab and what you sent from this page." }));
   };
   const pickPlace = k => { V.place = k; render(); };
   function bySite(valOf, fmtV, subOf, note, estOf) {
@@ -4995,38 +4997,59 @@ function dropIds(t) {
     .replace(/\s{2,}/g, " ").replace(/\s+([,;.])/g, "$1").trim();
 }
 const SOURCE_WORDS = {
-  "work-hours": "your Work tab and the shifts sent from this page", "work-pay": "the bank's deposits, OHIP's remittances and your Work tab",
+  "work-hours": "your Work tab and what you sent from this page", "work-pay": "the bank's deposits, OHIP's remittances and your Work tab",
   "net-worth": "your statements", "about-now": "your statements, what you logged since, and VEQT's price",
   "spending-now": "your YNAB budget", "registered-room": "your contributions and CRA's limits", "money-moves": "what you logged and the statements",
   "dividend-vs-salary": "your payroll plan", "credit-card-churning": "your cards and the issuers' pages", "bank-vs-ledgers": "the bank statements",
   "payroll": "your payroll calculations", "work": "your Work tab", "web-entries": "what you sent from this page",
-  "scotia-chq": "your chequing statements", "scotia-corp-chq": "the corporation's chequing statements", "mgh-billing": "MGH's billing summaries",
+  "scotia-chq": "your chequing statements", "corp-expenses": "the corporation's expenses", "scotia-corp-chq": "the corporation's chequing statements", "mgh-billing": "MGH's billing summaries",
 };
 const FILE_WORDS = { "profile/calendar.csv": "your calendar", "profile/policies.csv": "your insurance record",
-  "profile/assumptions.csv": "the assumptions written down", "profile/salary.csv": "your salary plan", "profile/cards.csv": "your cards" };
+  "profile/assumptions.csv": "the assumptions written down", "profile/salary.csv": "your salary plan", "profile/cards.csv": "your cards",
+  "questions.md": "your questions", "webpage/config.json": "this page's settings", "TODO.md": "your to-do list",
+  "profile/expected-income-left-out.csv": "a list of its own" };
+function shortName(n) { const w = String(n || "").split(" "); return n && n.length > 16 && w.length > 2 ? `${w[0]} ${w[w.length - 1]}` : n; }
 function monShort(k) { return k ? new Date(+String(k).slice(0, 4), +String(k).slice(5, 7) - 1, 1).toLocaleDateString("en-CA", { month: "short" }) : ""; }
+const BASIS_TAG = /\s*\[(?:verified|recorded|derived|estimate|measured)\b[^\]]*\]/g;
+const ID_NOUN = { D: "the decision", Q: "the question", A: "the assumption" };
+const FILEISH = String.raw`(?:\b(?:models|ledger|profile|reference|exports|tools|Documents|text|topics|webpage)\/|\.(?:pdf|csv|png|txt|md|json|xlsx)\b|https?:\/\/)`;
 function plainWords(t) {
-  const s = dropIds(dropPaths(String(t || "")
-    .replace(/\s*\((?:[^()]|\([^()]*\))*?(?:\.(?:pdf|csv|png|txt)\b|https?:\/\/)(?:[^()]|\([^()]*\))*\)/g, "")
-    .replace(/,?\s*\bentry [a-z0-9]{10,}\b/g, ""))
+  const nest = String.raw`(?:[^()]|\([^()]*\))*?`;
+  let s = String(t || "")
+    .replace(/\btopics\/notes\/[\w.-]+\.md\b/g, "the note written for it").replace(/\b(?:[\w-]+\/)*[\w.-]+\.(?:md|json|csv)\b/g, x => FILE_WORDS[x] || x)
+    .split(/(?<=[.!?])\s+(?=[A-Z])/).filter(x => !/^(?:Corrected|Re-?check(?:ed)?|Moved|Was |Recorded|Until \d{4}|Before \d{4})\b/.test(x)).join(" ")
+    .replace(new RegExp(String.raw`\s*\(` + nest + FILEISH + nest + String.raw`\)`, "g"), x => { const q = /"[^"]{6,}"/.exec(x); return q ? `: ${q[0]}` : ""; })
+    .replace(/,?\s*\bentry [a-z0-9]{10,}\b/g, "")
     .replace(/https?:\/\/[^\s)]+/g, "")
-    .replace(/\b(?:models|ledger|profile|reference|exports|tools|Documents|text)\/[\w./'-]+/g, x => {
+    .replace(/\b(?:models|ledger|profile|reference|exports|tools|Documents|text|topics|webpage)\/[\w./'-]+/g, x => {
       const k = x.replace(/'s$/, "").replace(/\/$/, ""), f = /^(?:models|ledger)\/([^/.]+)/.exec(k);
       return FILE_WORDS[k] || (f && SOURCE_WORDS[f[1]]) || "";
     })
-    .replace(/[\w-]+\.(?:pdf|csv|png|txt)\b/g, "")
-    .replace(/\b[A-Za-z]\d-[a-z]+-\d+\b/g, "").replace(/\b[a-z]+(?:_[a-z0-9]+)+\b/g, "").replace(/\(?\brule \d+\)?/g, "")
-    .replace(/,?\s*group [a-z-]+,?/g, ","));
+    .replace(/\b[\w-]+\.(?:md|json|xlsx)\b/g, x => FILE_WORDS[x] || "").replace(/[\w-]+\.(?:pdf|csv|png|txt)\b/g, "").replace(/\s--[a-z][a-z-]+/g, "")
+    .replace(new RegExp(String.raw`\b(assumptions?|decisions?|questions?)\s+` + ID_RE + String.raw`(?:\s*(?:,|and)\s*` + ID_RE + ")*", "g"), "$1")
+    .replace(new RegExp(String.raw`\b(of|by|from|that|If|if|when|with)\s+(` + ID_RE + ")", "g"), (x, w, id) => `${w} ${ID_NOUN[id[0]]}`)
+    .replace(new RegExp(String.raw`(?<=[A-Za-z]\s)(` + ID_RE + String.raw`)(?=\s+[a-z])`, "g"), x => ID_NOUN[x[0]])
+    .replace(/\bAlvin(?:'s)? (?=\d{4} )/g, "your ")
+    .replace(/\b[rR]\d-[a-z0-9]+(?:-[a-z0-9]+)*-\d+\b/g, "").replace(/\b[a-z]+(?:_[a-z0-9]+)+\b/g, "")
+    .replace(/\brule \d+\b/g, "").replace(BASIS_TAG, "")
+    .replace(/\s*\(?\b(?:[a-z]+-)+to-[a-z-]+\)?/g, "").replace(/\b(?:qt|scotia|mbna|amex|rbc)-[a-z-]+\s?/g, "")
+    .replace(/,?\s*group [a-z-]+,?/g, ",");
+  s = dropIds(s);
+  let depth = 0;
+  s = Array.from(s).filter(ch => ch === "(" ? (depth++, true) : ch === ")" ? (depth > 0 ? (depth--, true) : false) : true).join("");
+  while (depth-- > 0) s = s.replace(/\((?![^(]*\))/, "");
   return s.replace(/\(\s*[,;:\s]*/g, "(").replace(/[,;:\s]*\)/g, ")").replace(/\s*\(\)/g, "")
     .replace(/\b([\w' ]{6,}?)\s*\(\s*\1\s*\)/gi, "$1")
-    .replace(/\s*;\s*(?=[;,.]|$)/g, "").replace(/,\s*(?=[,;.]|$)/g, "").replace(/\s{2,}/g, " ").replace(/\s+([,;.])/g, "$1")
-    .replace(/^[,;\s]+/, "").trim();
+    .replace(/\b(assumptions?) in the assumptions written down/g, "$1 written down").replace(/…\./g, "…").replace(/\.{2,}/g, ".").replace(/([,;:])\s*(?=[,;:.])/g, "")
+    .replace(/\s*;\s*(?=[;,.]|$)/g, "").replace(/,\s*(?=[,;.]|$)/g, "").replace(/\s{2,}/g, " ").replace(/\s+([,;.:])/g, "$1")
+    .replace(/^[,;:\s]+/, "").trim();
 }
 function plainSource(src) {
   const m = /^(models|ledger)\/([^/]+?)(?:\/|\.csv)/.exec(src || "");
-  if (!m) return "From " + plainWords(src);
-  const what = SOURCE_WORDS[m[2]];
-  const more = /[;,]\s*(.+)$/.exec(String(src).slice(m.index + m[0].length));
+  if (!m) { const w = plainWords(src); return w ? "From " + w : ""; }
+  const rest = String(src).slice(m.index + m[0].length), br = /^\s*\(([^()]*)\)/.exec(rest);
+  const what = SOURCE_WORDS[m[2]] || (br ? plainWords(br[1]) : "");
+  const more = /[;,]\s*(.+)$/.exec(br && !SOURCE_WORDS[m[2]] ? rest.slice(br[0].length) : rest);
   let add = more && (!what || /assum|tab\b/i.test(more[1])) ? plainWords(more[1]).replace(/\.$/, "") : "";
   const longWords = x => x.toLowerCase().match(/[a-z']{4,}/g) || [];
   if (add && what) {
