@@ -1391,8 +1391,9 @@ function renderSitting() {
     : calc.state === "inbox" ? `Not read yet: ${calc.detail}. Step 3's amounts are last month's until it is read.`
     : `Not done yet: step 3's amounts are last month's until it runs.`, s2));
   const own = `your personal chequing account${pd.net_pay_to ? ` (ending ${pd.net_pay_to})` : ""}`;
-  const how = { netpay: `Transfer to ${own}`, cra: "Government Tax Payment: Federal payroll deductions" };
-  const corp = h("div", { class: "visit glass" }, visitItemsEl(pd, it => how[(it.id || "").split("-")[0]]));
+  const how = { netpay: () => `Transfer to ${own}`,
+                cra: it => "Government Tax Payment: Federal payroll deductions" + (money(it.gross) && !(it.basis || "").startsWith("estimate") ? `; gross payroll ${fmt$(it.gross)}` : "") };
+  const corp = h("div", { class: "visit glass" }, visitItemsEl(pd, it => { const f = how[(it.id || "").split("-")[0]]; return f ? f(it) : ""; }));
   for (const c of (pd.cards || []).filter(c => !c.pays_itself)) {
     const st = c.statement && c.statement.balance ? c.statement : null;
     corp.querySelector(".items").append(h("div", { class: "item", title: c.note || "" },
