@@ -1478,6 +1478,8 @@ function investRows(pd, items, box) {
   const ring = () => h("span", { class: "bd estimate", "aria-hidden": "true" });
   const note = (t, warn) => box.append(h("p", { class: "small " + (warn ? "warnline" : "muted"), text: t }));
   if (inv.error) { note(`What to invest from your own pay could not be worked out: ${inv.error}. A session can look.`, true); return; }
+  const sortFirst = inv.to_sort && inv.to_sort.words;
+  if (sortFirst) items.before(h("p", { class: "small warnline tosort", text: sortFirst + "." }));
   const sv = inv.savings;
   if (sv && sv.owed > 0) {
     const when = (sv.owed_items || []).map(o => dayName(o.date, { day: "numeric", month: "long" })).join(" and ");
@@ -1508,6 +1510,7 @@ function investRows(pd, items, box) {
   if ((inv.split || []).length) note(`Worked out from your budget in YNAB: what is left once ${kept.join(" and ")} ${kept.length > 1 ? "are" : "is"} kept back${orderWords(inv.order)}. Not sending it is fine: it stays in your budget and is counted next month.` + (inv.pay_estimate ? " Approximate until this month's calculation is read (step 2)." : "")
     + (inv.room_estimate ? " The RRSP's room this year is worked out by CRA's rule until your notice of assessment says it." : ""));
   if (inv.year_note) note(inv.year_note + ".", true);
+  if (inv.accounts_note) note(inv.accounts_note + ".", true);
   if ((inv.missing_cards || []).length) note(`Not in YNAB, so what ${inv.missing_cards.length > 1 ? "they owe is" : "it owes is"} not counted: ${inv.missing_cards.join(" and ")}. Keep that much back, or add ${inv.missing_cards.length > 1 ? "them" : "it"} to YNAB.`, true);
   if (inv.stale && inv.read_at) note(`YNAB was last read ${dayName(inv.read_at.slice(0, 10), { day: "numeric", month: "long" })} at ${inv.read_at.slice(11, 16)}: open the MacBook so it reads it again before you send.`, true);
 }
