@@ -2173,7 +2173,11 @@ function buildForm(f) {
       if (Object.keys(amounts).length) out.amounts = amounts;
       if (est.length) out.estimated = est;
     }
-    if (f.kind === "answer" && pre && WORKPAY_RES.has(String(pre.resolution || ""))) {
+    const sameQuestion = f.kind === "answer" && pre && out.question === pre.question;
+    if (sameQuestion && CHQ_RES.has(String(pre.resolution || "")) && /^chq-/.test(String(pre.question || ""))) {
+      out.resolution = pre.resolution;
+    }
+    if (sameQuestion && WORKPAY_RES.has(String(pre.resolution || ""))) {
       out.resolution = pre.resolution;
       if (pre.deposit && !out.deposit) out.deposit = pre.deposit;
     }
@@ -5459,6 +5463,7 @@ function sweepOldAtStart() {
 }
 
 const WORKPAY_RES = new Set(["paid-by", "partly-paid", "write-off", "resubmitted", "not-owed", "paid-amount"]);
+const CHQ_RES = new Set(["label", "payer"]);
 const PART_ORDER = ["base", "shadow", "travel", "expense", "stipend", "ohip", "private", "invoice"];
 const STATUS_WORDS = { "paid": "Paid", "settled": "Settled", "waiting": "Waiting", "waiting (amount not yet known)": "Waiting, amount not known yet",
   "waiting (bank statement not filed)": "Waiting for the bank statement", "overdue": "Overdue", "short": "Paid short", "rejected": "Rejected by OHIP",
@@ -5879,6 +5884,11 @@ function issueWords(i, wp) {
   if (i.kind === "payment") return [`A deposit from ${PLACE_NAMES_PAGE[i.payer] || String(i.payer || "").toUpperCase()} to match`, text];
   return [cap(text.split(/: /)[0]).slice(0, 60), text.includes(": ") ? cap(text.split(/: /).slice(1).join(": ")) : ""];
 }
+function depositLabel(x) {
+  const amt = money(x.amount), left = x.left === undefined || x.left === "" ? null : money(x.left);
+  const what = left !== null && amt !== null && left < amt - 0.005 ? `${fmt$(left)} left of ${fmt$(amt)}` : fmt$(x.amount);
+  return `${shortDate(x.date)} · ${what}${x.label ? ` · ${x.label}` : x.source === "page" ? " · logged here" : ""}`;
+}
 function workpayAnswer(i) {
   const wp = workPay();
   const words = i.kind === "payment" ? "This deposit" : "This payment";
@@ -5889,15 +5899,14 @@ function workpayAnswer(i) {
     acts.push({ label: "Something else: type it", run: () => startForm("answer", { question: i.id }, "work") });
     sheet(title, choices.length ? "" : none || "No deposit still to place fits; type what you know.", acts);
   };
-  const deposits = (wp.payments_open || []).map(x => ({ key: x.key, label: `${shortDate(x.date)} · ${fmt$(x.amount)}${x.label ? ` · ${x.label}` : x.source === "page" ? " · logged here" : ""}` }));
+  const deposits = (wp.payments_open || []).map(x => ({ key: x.key, label: depositLabel(x) }));
   const acts = [];
   if (i.kind === "payment") {
     acts.push({ label: "It paid these shifts", kind: "tinted", run: () => pickThen("Which shifts did it pay?", i.candidates, key => send("paid-by", { deposit: key }, "Paid by this deposit."), NO_SHIFTS) });
     acts.push({ label: "It paid part of them; the rest is to come", run: () => pickThen("Which shifts, in part?", i.candidates, key => startForm("answer", { question: i.id, resolution: "partly-paid", deposit: key, answer: "Partly paid; the rest is to come." }, "work"), NO_SHIFTS) });
-    acts.push({ label: "It is not for any shift", run: () => send("not-owed", {}, "Not for any shift.") });
+    if (i.not_for_a_shift !== false) acts.push({ label: "It is not for any shift", run: () => send("not-owed", {}, "Not for any shift.") });
   } else if (i.kind === "ohip-no-work" || i.kind === "ohip-which") {
     acts.push({ label: "Add that day's shift or list", kind: "tinted", run: () => startForm("shift", { date: i.date }, "work") });
-    if (i.candidates && i.candidates.length) acts.push({ label: "It belongs to one of these", run: () => pickThen("Which one?", i.candidates, key => send("paid-by", { deposit: key }, "It belongs to this one."), NO_SHIFTS) });
   } else {
     acts.push({ label: "It was paid", kind: "tinted", run: () => pickThen("By which deposit?", deposits, key => send("paid-by", { deposit: key }, "Paid by this deposit.")) });
     acts.push({ label: "Partly paid; the rest is to come", run: () => pickThen("By which deposit, in part?", deposits, key => startForm("answer", { question: i.id, resolution: "partly-paid", deposit: key, answer: "Partly paid; the rest is to come." }, "work")) });
