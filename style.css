@@ -259,7 +259,7 @@ body.in-form main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 .fig .l { font-size: .8125rem; font-weight: 600; color: var(--ink-2); text-wrap: balance; }
 .fig .v { font-size: clamp(1.05rem, 5vw, 1.5rem); font-weight: 700; letter-spacing: -.028em; line-height: 1.12; white-space: nowrap; }
 .fig .v .c { font-size: .66em; font-weight: 600; opacity: .7; }
-.fig .v .about { font-size: .42em; font-weight: 600; color: var(--ink-2); letter-spacing: 0; margin-right: 1px; vertical-align: .34em; }
+.fig .v .about, .regval .about { font-size: .42em; font-weight: 600; color: var(--ink-2); letter-spacing: 0; margin-right: 1px; vertical-align: .34em; }
 .fig.hero .v { font-size: 2.3rem; letter-spacing: -.04em; font-variant-numeric: normal; }
 .fchange { margin-top: -4px; font-size: .9375rem; font-weight: 600; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .fchange .arrow { font-size: .72em; margin-right: 5px; position: relative; top: -1px; }
@@ -390,6 +390,9 @@ body.in-form main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 .row .amt.paid { color: var(--ink-3); font-weight: 500; text-decoration: line-through; }
 .row .amt.covered { color: var(--ink-3); font-weight: 500; }
 .row .overdue { color: var(--red); }
+.row .warnword, .row .meta.warnword { color: #8A5200; }
+@media (prefers-color-scheme: dark) { .row .warnword, .row .meta.warnword { color: var(--orange); } }
+:root[data-theme="dark"] .row .warnword, :root[data-theme="dark"] .row .meta.warnword { color: var(--orange); }
 .row > svg, .row .chev { color: var(--ink-3); width: 14px; height: 14px; flex: none; }
 .row .trail { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-3); }
 .row .trail svg { width: 14px; height: 14px; }
@@ -789,30 +792,28 @@ details.billing > .fields > .foot { padding: 0; }
 .row.due .amt .about { font-size: .68rem; font-weight: 500; color: var(--ink-2); text-transform: none; }
 .row.due .amt.in { color: var(--green, #1f9d55); }
 
-.regcols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) 14px; gap: 14px;
-  margin-top: 10px; padding-bottom: 5px; border-bottom: 1px solid var(--sep); font-size: .68rem; font-weight: 700;
-  text-transform: uppercase; letter-spacing: .02em; color: var(--ink-2); align-items: center; }
-.regcols span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-.regcols .bdot { margin: -9px -6px; }
 .row.regrow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) 14px; gap: 14px; padding-top: 12px; padding-bottom: 12px; }
 .regname { display: flex; align-items: center; gap: 7px; font-size: .8rem; font-weight: 650; color: var(--ink-2); }
-.regval { font-size: 1.5rem; font-weight: 700; letter-spacing: -.03em; line-height: 1.15; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.regval { font-size: clamp(1.15rem, 6.1vw, 1.5rem); font-weight: 700; letter-spacing: -.03em; line-height: 1.15; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .regyear { display: grid; gap: 5px; }
-.regyear .small { white-space: nowrap; }
+.regyear .small { white-space: normal; }   /* two lines on a 320-point phone rather than over the chevron */
 .regyear b { color: var(--ink); font-weight: 650; }
 .regyear b.regfull { color: hsl(125 70% 29%); }   /* 4.5:1 or better on the light glass */
 @media (prefers-color-scheme: dark) { .regyear b.regfull { color: hsl(120 72% 52%); } }
 .meter.roombar { height: 10px; border-radius: 5px; }
+.owedrows > .row:last-child { padding-bottom: 2px; }
+.owedsub { margin-top: 10px; font-size: .8125rem; font-weight: 600; color: var(--ink-2); }
 .salhead { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .salof { font-size: .95rem; color: var(--ink-2); }
 .salof b { color: var(--ink); font-weight: 650; }
 .meter.salbar .mseg.s0.planned { background: repeating-linear-gradient(115deg, var(--c0) 0 5px, transparent 5px 10px), var(--fill); opacity: .75; }
 .meter.salbar .mseg.gap { background: var(--orange); }
-.salends { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: .76rem; color: var(--ink-2); }
-.salends > span { display: inline-flex; align-items: center; gap: 2px; }
-.salends .bdot { margin: -9px -8px -9px 0; }
-.salnote { border-radius: 12px; padding: 10px 12px; font-size: .84rem; line-height: 1.38; }
-.salnote b { font-weight: 700; }
+.salnote { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  border-radius: 12px; padding: 8px 12px; font-size: .84rem; font-weight: 600; line-height: 1.3; }
+.salnote:not(.ok):not(.short) { padding-left: 0; font-weight: 500; color: var(--ink-2); }
+.salnote .bdot, .divrow .bdot { margin: -9px -8px -9px 0; flex: none; }
+.divrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .84rem; color: var(--ink-2);
+  padding-right: 12px; }   /* its dot under the plan line's, which sits inside the band's padding */
 .salnote.short { background: var(--orange-soft); }
 .salnote.ok { background: var(--green-soft); }
 .roomcard { gap: 12px; }
