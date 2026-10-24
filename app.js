@@ -746,6 +746,9 @@ function pageFor() {
   else if (VIEW && VIEW.type === "ytd") page = renderYtd();
   else if (VIEW && VIEW.type === "returns") page = renderReturns();
   else if (VIEW && VIEW.type === "spending") page = renderSpending();
+  else if (VIEW && VIEW.type === "spending-month") page = renderSpendingMonth();
+  else if (VIEW && VIEW.type === "category") page = renderCategory();
+  else if (VIEW && VIEW.type === "networth") page = renderNetWorth();
   else if (VIEW && VIEW.type === "vehicle") page = renderVehicle();
   else if (VIEW && VIEW.type === "card") page = renderCard();
   else if (VIEW && VIEW.type === "workunit") page = renderWorkUnit();
@@ -825,7 +828,8 @@ function viewTitle(v) {
   return ({ form: kindOf(v.kind).name, settings: "Settings", questions: "Questions", shifts: "Your shifts", income: "Income",
             work: v.metric === "rate" ? "Pay per hour" : "Hours", workunit: v.title || "A shift", account: ({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[v.account] || "Account",
             card: v.title || "Card", trend: v.title || "History", sitting: "Monthly banking",
-            saving: "What you invest", ytd: ytdTitle(v.measure), returns: "What it is worth", spending: "What you spend", vehicle: (SNAP && SNAP.vehicle && SNAP.vehicle.name) || "Your car" })[v.type] || "Back";
+            saving: "What you invest", ytd: ytdTitle(v.measure), returns: "What it is worth", spending: "What you spend",
+            "spending-month": v.month ? keyLabel(v.month, true) : "A month", category: v.key || "A category", networth: "Net worth", vehicle: (SNAP && SNAP.vehicle && SNAP.vehicle.name) || "Your car" })[v.type] || "Back";
 }
 function onScroll() {
   document.getElementById("bar").classList.toggle("scrolled", window.scrollY > (document.body.classList.contains("toplevel") ? 48 : 28));
@@ -3205,22 +3209,24 @@ function openTrendOf(id) {
 function householdNow() {
   const nw = (SNAP && SNAP.networth) || {};
   if (nw.now) return { date: nw.now.date, total: money(nw.now.household), corp: money(nw.now.corporation), pers: money(nw.now.personal),
-                       since: money(nw.now.personal_since), from: nw.now.personal_from, basis: nw.now.basis || "estimate", corpBasis: nw.now.corporation_label, note: nw.now.note, est: nw.now.basis !== "verified",
+                       cash: money(nw.now.cash || 0), cashFrom: nw.now.cash_from, cashBasis: nw.now.cash_label || "recorded", cashNote: nw.now.cash_note,
+                       since: money(nw.now.personal_since), hsince: money(nw.now.household_since == null ? nw.now.personal_since : nw.now.household_since), from: nw.now.personal_from, basis: nw.now.basis || "estimate", corpBasis: nw.now.corporation_label, note: nw.now.note, est: nw.now.basis !== "verified",
                        aboutNow: !!nw.now.about_now, corpFrom: nw.now.corporation_from || nw.now.date, corpNote: nw.now.corporation_note, persNote: nw.now.personal_note, persLabel: nw.now.personal_label };
   const me = nw.month_end;
   if (me) return { date: me.date, total: money(me.household), corp: money(me.corporation), pers: money(me.personal), since: 0, from: me.date,
+                   cash: money(me.cash || 0), cashFrom: me.date, cashBasis: me.cash_label || "recorded",
                    basis: "derived", corpBasis: me.corporation_label, persBasis: "verified", est: false };
   if (nw.household) return { date: nw.date, total: money(nw.household), corp: money(nw.corporation), pers: money(nw.personal), since: 0, from: nw.date,
+                             cash: money(nw.cash || 0), cashFrom: nw.date, cashBasis: "recorded",
                              basis: "recorded", corpBasis: nw.corporation_label, est: false };
   return null;
 }
 function householdWhy(n) {
   const nw = (SNAP && SNAP.networth) || {};
-  if (n.aboutNow) return [`About now, ${prettyDates(n.date)}: the statements to ${prettyDates(n.from)}, carried to today.`,
-          "It counts the corporation, at market, and your TFSA, RRSP and FHSA. Before the tax paid to take money out of the corporation.",
-          `The corporation: ${n.corpNote}.`, `Your accounts: ${n.persNote}.`, `An estimate: ${n.note}.`];
-  return [`At ${prettyDates(n.date)}${n.est ? ", the corporation's latest month-end with a bank and Questrade statement" : ""}.`,
-          "It counts the corporation, at market, and your TFSA, RRSP and FHSA. Before the tax paid to take money out of the corporation.",
+  const counts = "It counts the corporation, at market, your TFSA, RRSP and FHSA, your chequing, the joint savings, and your personal cards as debts. Before the tax paid to take money out of the corporation.";
+  if (n.aboutNow) return [`About now, ${prettyDates(n.date)}: the statements to ${prettyDates(n.from)}, carried to today.`, counts,
+          `The corporation: ${n.corpNote}.`, `Your accounts: ${n.persNote}.`, n.cashNote ? `Your cash and cards: ${n.cashNote}.` : "", `An estimate: ${n.note}.`];
+  return [`At ${prettyDates(n.date)}${n.est ? ", the corporation's latest month-end with a bank and Questrade statement" : ""}.`, counts,
           n.est ? `An estimate: ${n.note}.` : "", nw.household && n.est ? `At ${prettyDates(nw.date)}, the last year end with every account's value, it was ${fmtWhole$(Math.round(money(nw.household)))}.` : ""];
 }
 function summaryTotal() {
@@ -3235,9 +3241,10 @@ function summaryTotal() {
     worth: "net_worth", put: "put_in_total", label: "Net worth and investments", nets: true,
     worthLabel: "What it is all worth",
     basis: (S.net_worth || {}).basis,
-    why: householdWhy(n).concat(n.since ? [n.since > 0 ? `Includes ${fmtWhole$(Math.round(n.since))} you put in since ${prettyDates(n.from)}, which no statement covers yet.`
-                                                      : `Includes ${fmtWhole$(Math.round(-n.since))} taken out since ${prettyDates(n.from)}, net, which no statement covers yet.`] : []),
-    foot: "The corporation whole and your TFSA, RRSP and FHSA. Not the car, the condo or your personal chequing account.",
+    why: householdWhy(n).concat(n.hsince ? [n.hsince > 0 ? `Includes ${fmtWhole$(Math.round(n.hsince))} put in since ${prettyDates(n.from)}, which no statement covers yet.`
+                                                      : `Includes ${fmtWhole$(Math.round(-n.hsince))} taken out since ${prettyDates(n.from)}, net, which no statement covers yet.`] : []),
+    foot: "The corporation whole, your TFSA, RRSP and FHSA, your chequing, the joint savings, less your cards. Not the car or the condo.",
+    onOpen: () => openView({ type: "networth" }),
     change: up !== null ? changeWords(up, nw.date) : null });
   if (tmc) g.append(tmc);
   else {
@@ -3259,7 +3266,7 @@ function summaryTotal() {
   const persSub = n.aboutNow ? `${pct(n.pers)} · about now` : n.since ? `${pct(n.pers)} · ${valueWord} + ${fmtWhole$(Math.round(n.since))} put in to ${monthDay(n.date)}` : `${pct(n.pers)} · ${valueWord}`;
   out.append(h("section", { class: "section" }, h("h2", { text: "Breakdown" }),
     h("div", { class: "card glass splitcard" },
-      meter([{ value: n.corp, cls: "s0", label: "Corporation" }, { value: n.pers, cls: "s1", label: "TFSA, RRSP, FHSA" }]),
+      meter([{ value: n.corp, cls: "s0", label: "Corporation" }, { value: n.pers, cls: "s1", label: "TFSA, RRSP, FHSA" }, { value: n.cash || 0, cls: "grey", label: "Cash, less cards" }]),
       h("div", { class: "list flat" },
         row("s0", "Corporation", `${pct(n.corp)} · ${n.aboutNow ? "about now" : "at market, " + monthDay(n.date)}`, n.corp, n.corpBasis,
             (n.aboutNow ? [`About now: ${n.corpNote}.`] : [`At ${prettyDates(n.date)}.`]).concat(["Its investments and chequing, plus money on its way from chequing to Questrade, less what it owes on its Visa.", "Before the tax paid to take money out of the corporation, and before a payroll remittance still to be paid."]), "corporation"),
@@ -3267,7 +3274,13 @@ function summaryTotal() {
               ((regOf(a) || {}).values || []).some(v => v[0] === d && basisOf(v[2]) !== "verified")) ? "recorded" : (n.persBasis || nw.personal_label),
             n.aboutNow ? [`About now: ${n.persNote}.`] : [oneDate ? `Their values at ${prettyDates(n.from)}, from each account's own Questrade statement${n.persBasis ? "" : " (or a reading you sent from this page)"}.`
                      : `Each at its latest value: ${Object.entries(((SNAP.networth || {}).now || {}).personal_dates || {}).map(([a, d]) => `${({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[a]} ${monthDay(d)}`).join(", ")}, from each account's own Questrade statement (or a reading you sent from this page).`,
-             n.since ? `Plus ${fmtWhole$(Math.round(n.since))} you put in between then and ${prettyDates(n.date)}, from your Registered Contributions tab and this page. How their investments moved since is not known until the next statements, so this is an estimate.` : ""], "personal"))),
+             n.since ? `Plus ${fmtWhole$(Math.round(n.since))} you put in between then and ${prettyDates(n.date)}, from your Registered Contributions tab and this page. How their investments moved since is not known until the next statements, so this is an estimate.` : ""], "personal"),
+        n.cash ? tapArea(h("div", { class: "row legendrow" }, h("span", { class: "sw2 grey" }),
+          h("span", { class: "main" }, h("span", { class: "title", text: "Cash, less cards" }), h("span", { class: "meta", text: `${pct(n.cash)} · ${monthDay(n.cashFrom || n.date)}` })),
+          h("span", { class: "amt", text: (n.cash < 0 ? "−" : "") + fmtWhole$(Math.round(Math.abs(n.cash))) }),
+          basisDot(n.cashBasis || "recorded", [n.cashNote ? sentence(plainWords(n.cashNote)) : `At ${prettyDates(n.cashFrom || n.date)}.`,
+            "Your chequing from its statements, the joint savings from the bank's list, counted whole, less what your personal cards owed: the MBNA from its statements, the others from YNAB."])),
+          `Cash, less cards, ${fmtWhole$(Math.round(n.cash))}. Show in detail`, () => openView({ type: "networth", view: "cash" })) : null)),
       h("p", { class: "foot", text: "Choose either line to see it in detail." })));
   { const y = ytdCard(); if (y) out.append(y); }
   const g2 = h("div", { class: "figs" });
@@ -3355,7 +3368,8 @@ function ytdMore(m, y) {
   }
   if (m === "personal spending" && ((SNAP && SNAP.spending) || {}).months) {
     const now = new Date(), here = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;   // this month on the phone's clock, not UTC's
-    return ["What you spend", `Every month YNAB has, by calendar year, January to December, to ${keyLabel(SNAP.spending.as_of, true)}${SNAP.spending.as_of >= here ? " so far" : ""}; and the average month.`, "spending"];
+    void here;
+    return ["What you spend", "The last twelve whole months, and where it goes: by category, by group and month by month.", "spending"];
   }
   const B = (SNAP && SNAP.saving) || {};
   if (m === "invested" && (B.years || []).length && B.life && B.life.pct !== undefined) {
@@ -3463,7 +3477,7 @@ function moneyCard(opts) {
   const body = chart(sers, { form: "line", unit: "$", height: 128, legend: true, tip: rows });
   return figCard(o, { hero: true, label: opts.label, value: fmtWhole$(Math.round(head)), body, about: est, change: opts.change,
     basis: est ? "estimate" : opts.basis, why: est ? anWhy.concat(opts.why || []) : opts.why,
-    onOpen: () => openView({ type: "trend", keys: [opts.all, opts.worth, opts.put].filter(Boolean), title: opts.label }),
+    onOpen: opts.onOpen || (() => openView({ type: "trend", keys: [opts.all, opts.worth, opts.put].filter(Boolean), title: opts.label })),
     meta: (opts.meta || []).concat([h("span", { class: "asof", text: opts.foot })]) });
 }
 
@@ -3821,7 +3835,7 @@ function summaryPersonal() {
   const sp = ov("spending");
   const spendable = ((SNAP && SNAP.spending) || {}).months;
   if (sp) g2.append(figCard(sp, { label: "Spending now, a month", onOpen: spendable ? () => openView({ type: "spending" }) : null,
-    meta: [h("span", { class: "asof", text: spendable ? "Recent months · the year's average and where it goes" : "Recent months, now rent is gone" })] }));
+    meta: [h("span", { class: "asof", text: spendable ? "Where it goes, over the last twelve months" : "Recent months, now rent is gone" })] }));
   const car = vehicleCard(); if (car) g2.append(car);
   out.append(balance(g2));
   const pols = ((SNAP && SNAP.policies) || {}).policies || [];
@@ -4180,41 +4194,542 @@ function renderReturns() {
   return p;
 }
 
+const SPEND_SPANS = [["this-month", "This month so far", "This month"], ["3m", "Last 3 months", "3 months"], ["6m", "Last 6 months", "6 months"],
+  ["12m", "Last 12 months", "12 months"], ["this-year", "This year", "This year"], ["last-year", "Last year", "Last year"], ["all", "All months", "All"]];
+const SPEND_GROUPS = ["Bills", "Everyday", "Irregular", "Retired", "To sort", "Savings and investing", "Work"];
+const SPEND_HUE = { Bills: "s0", Everyday: "s1", Irregular: "s2", "Savings and investing": "s3", Retired: "hatch", "To sort": "todo", Work: "grey" };
+function spendGroupOf(c) { return c.group === "Saving" || c.group === "Investing" ? "Savings and investing" : c.group; }
+function spendHue(g) { return SPEND_HUE[g] || "grey"; }
+function spendInScope(c, scope) {
+  if (scope === "burn") return c.kind === "burn" || c.kind == null;     // a kind the writer does not know is counted and named, never dropped
+  if (scope === "all") return true;
+  if (scope.startsWith("g:")) return spendGroupOf(c) === scope.slice(2);
+  if (scope.startsWith("c:")) return c.name === scope.slice(2);
+  return false;
+}
+function spendMonths(B, span) {
+  if (/^\d{4}-\d{2}$/.test(span)) return (B.months || []).some(m => m.month === span) ? [span] : [];
+  const s = (B.spans || {})[span];
+  return s ? s.burn.months : [];
+}
+function spendSpanOk(B, span) { return /^\d{4}-\d{2}$/.test(span) ? spendMonths(B, span).length > 0 : !!(B.spans || {})[span]; }
+function spendTotal(B, span, scope) {
+  const months = spendMonths(B, span);
+  const sent = !/^\d{4}-\d{2}$/.test(span) && (scope === "burn" || scope === "all") ? ((B.spans || {})[span] || {})[scope] : null;
+  if (sent) return { months, total: money(sent.total), average: sent.average == null ? null : money(sent.average), partial: !!sent.partial };
+  const idx = (B.columns || []).map((c, i) => spendInScope(c, scope) ? i : -1).filter(i => i >= 0);
+  const by = Object.fromEntries((B.months || []).map(m => [m.month, m]));
+  let total = 0;
+  for (const k of months) {
+    const m = by[k];
+    if (!m) continue;
+    total += scope === "burn" && m.burn != null && idx.every(i => (B.columns[i].kind || "burn") === "burn") ? money(m.burn)
+           : scope === "all" && m.all != null ? money(m.all) : idx.reduce((a, i) => a + money(m.cells[i] || 0), 0);
+  }
+  total = Math.round(total * 100) / 100;
+  return { months, total, average: months.length ? Math.round(total / months.length * 100) / 100 : null, partial: months.includes(B.in_progress) };
+}
+function spendByColumn(B, months, scope) {
+  const want = new Set(months), out = [];
+  (B.columns || []).forEach((c, i) => {
+    if (!spendInScope(c, scope)) return;
+    const v = (B.months || []).filter(m => want.has(m.month)).reduce((a, m) => a + money(m.cells[i] || 0), 0);
+    out.push({ i, name: c.name, group: spendGroupOf(c), kind: c.kind, value: Math.round(v * 100) / 100, purpose: c.purpose || "" });
+  });
+  return out;
+}
+function spendShares(values) {
+  const tot = values.reduce((a, v) => a + v, 0);
+  if (!(tot > 0)) return values.map(() => 0);
+  const raw = values.map(v => v / tot * 100), base = raw.map(Math.floor);
+  let left = 100 - base.reduce((a, v) => a + v, 0);
+  raw.map((v, i) => [v - base[i], i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (left > 0) { base[i] += 1; left -= 1; } });
+  return base;
+}
+function shareWords(p, raw) { return raw > 0 && p === 0 ? "under 1%" : `${p}%`; }
+function spendSpanWords(B, months, span) {
+  if (!months.length) return "";
+  const a = months[0], b = months[months.length - 1], soFar = b === B.in_progress;
+  const mon = k => keyLabel(k).replace(".", "");
+  if (months.length === 1) return soFar ? `${keyLabel(a, true).replace(/ \d{4}$/, "")} so far` : keyLabel(a, true);
+  const end = `${mon(b)} ${b.slice(0, 4)}${soFar ? " so far" : ""}`;
+  if (span === "all" && B.first_day && B.first_day.slice(0, 7) === a) return `From ${monthDay(B.first_day)} to ${end}`;
+  return a.slice(0, 4) === b.slice(0, 4) ? `${mon(a)} to ${end}` : `${mon(a)} ${a.slice(0, 4)} to ${end}`;
+}
+function spendWhy(B, months) {
+  const now = B.in_progress, partial = months.includes(now);
+  return ["From YNAB, where you sort each line yourself." + (B.read_day ? ` Read ${monthDay(B.read_day)}.` : ""),
+          partial && B.partial_to ? `${keyLabel(now, true).replace(/ \d{4}$/, "")} is counted to ${monthDay(B.partial_to)}.` : "",
+          "A month counts as whole once YNAB is read in the month after it."];
+}
+function spendScopeWords(B, scope, short) {
+  if (scope === "burn") return "Cost of living";
+  if (scope === "all") return short ? "Everything" : "Everything YNAB counts";
+  if (scope.startsWith("g:")) return short && scope.length > 20 ? scope.slice(2).split(" ")[0] : scope.slice(2);
+  const n = scope.slice(2);
+  return short && n.length > 18 ? n.slice(0, 17) + "…" : short ? n : `Only ${n}`;
+}
+function spendPulls(B, V, redraw, withScope) {
+  const spans = [SPEND_SPANS.map(([v, w]) => [v, w]), (B.years || []).map(y => [y, y])].filter(g => g.length);
+  const span = V.span, scope = V.scope;
+  const spanShort = (SPEND_SPANS.find(x => x[0] === span) || [span, span, span])[2];
+  const line = h("div", { class: "pulls" }, pullDown(spanShort, spans, span, v => { V.span = v; redraw(); }, "Months", { active: span !== "12m" }));
+  if (withScope) {
+    const groups = SPEND_GROUPS.filter(g => g !== "To sort" && g !== "Work" && (B.columns || []).some(c => spendGroupOf(c) === g));
+    const sg = [[["burn", "Cost of living"], ["all", "Everything YNAB counts"]], groups.map(g => ["g:" + g, g])];
+    if (V.lastCat && (B.columns || []).some(c => c.name === V.lastCat)) sg.push([["c:" + V.lastCat, `Only ${V.lastCat}`]]);
+    line.append(pullDown(spendScopeWords(B, scope, true), sg, scope, v => { V.scope = v; redraw(); }, "Categories", { active: scope !== "burn" }));
+  }
+  return line;
+}
+function spendCheckChoices(B, V) {
+  const said = [];
+  if (!spendSpanOk(B, V.span)) { V.span = "12m"; said.push("The months chosen are not in YNAB's figures any more, so the last 12 months are shown."); }
+  if (V.scope && V.scope.startsWith("c:") && !(B.columns || []).some(c => c.name === V.scope.slice(2))) {
+    said.push(`${V.scope.slice(2)} is not one of YNAB's categories any more (renamed or removed there), so the cost of living is shown.`);
+    V.scope = "burn";
+  }
+  if (V.scope && V.scope.startsWith("g:") && !(B.columns || []).some(c => spendGroupOf(c) === V.scope.slice(2))) { V.scope = "burn"; }
+  return said;
+}
+
+function donut(slices, centre, onPick) {
+  const R = 128, W = 24, C = 140, n = ++RING_N;
+  const box = h("div", { class: "ring" });
+  const tot = slices.reduce((a, s) => a + Math.max(0, s.value), 0);
+  const svg = sv("svg", { viewBox: "0 0 280 280", role: "img", "aria-label": slices.map(s => `${s.label} ${fmtWhole$(Math.round(s.value))}`).join(", ") });
+  svg.append(sv("defs", {}, sv("pattern", { id: `ring-hatch-${n}`, width: 6, height: 6, patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)" },
+    sv("rect", { class: "hatch-ground", width: 6, height: 6 }), sv("rect", { class: "hatch-line", width: 3, height: 6 }))));
+  const live = slices.filter(s => s.value > 0);
+  if (live.length === 1) {
+    const c = sv("circle", { class: "arc " + live[0].cls, cx: C, cy: C, r: R, "data-key": live[0].key });
+    if (live[0].cls === "hatch") c.setAttribute("stroke", `url(#ring-hatch-${n})`);
+    svg.append(c);
+  } else if (tot > 0) {
+    const gap = 2 / R;                                   // two points of arc, in radians at the band's middle
+    let a0 = -Math.PI / 2;
+    for (const s of live) {
+      const span = s.value / tot * 2 * Math.PI, a1 = a0 + span;
+      if (span > gap) {
+        const p = a => [C + R * Math.cos(a), C + R * Math.sin(a)];
+        const [x0, y0] = p(a0 + gap / 2), [x1, y1] = p(a1 - gap / 2), big = span - gap > Math.PI ? 1 : 0;
+        const arc = sv("path", { class: "arc " + s.cls, d: `M${x0.toFixed(2)},${y0.toFixed(2)} A${R},${R} 0 ${big} 1 ${x1.toFixed(2)},${y1.toFixed(2)}`, "data-key": s.key });
+        if (s.cls === "hatch") arc.setAttribute("stroke", `url(#ring-hatch-${n})`);
+        if (onPick) arc.addEventListener("click", ev => { ev.stopPropagation(); onPick(s.key); });
+        svg.append(arc);
+      }
+      a0 = a1;
+    }
+  }
+  for (const a of svg.querySelectorAll(".arc")) a.setAttribute("stroke-width", W);
+  box.append(svg, h("div", { class: "mid" }, centre));
+  return box;
+}
+
+function spendParts(B, months, scope, mode) {
+  const cols = spendByColumn(B, months, scope);
+  let items;
+  if (mode === "groups") {
+    const by = {};
+    for (const c of cols) { const g = by[c.group] || (by[c.group] = { key: "g:" + c.group, name: c.group === "Work" ? "Work, paid back later" : c.group, group: c.group, value: 0, order: SPEND_GROUPS.indexOf(c.group) }); g.value += c.value; }
+    items = Object.values(by).map(g => ({ ...g, value: Math.round(g.value * 100) / 100, cls: spendHue(g.group) }));
+  } else items = cols.map(c => ({ key: "c:" + c.name, name: c.name, group: c.group, value: c.value, order: c.i, cls: spendHue(c.group), purpose: c.purpose }));
+  const out = items.filter(x => x.value > 0.005).sort((a, b) => b.value - a.value || a.order - b.order);
+  const back = items.filter(x => x.value < -0.005).sort((a, b) => a.value - b.value || a.order - b.order);
+  let named = out, fold = [];
+  if (mode !== "groups") {
+    const todo = out.filter(x => x.group === "To sort"), work = out.filter(x => x.group === "Work");
+    const rest = out.filter(x => x.group !== "To sort" && x.group !== "Work");
+    named = rest.length <= 7 ? rest : rest.slice(0, 6);
+    fold = (rest.length <= 7 ? [] : rest.slice(6)).concat(work);
+    if (fold.length === 1) { named = named.concat(fold); fold = []; }
+    named = named.concat(todo).sort((a, b) => b.value - a.value || a.order - b.order);
+  }
+  const foldValue = Math.round(fold.reduce((a, x) => a + x.value, 0) * 100) / 100;
+  const slices = named.map(x => ({ key: x.key, label: x.name, value: x.value, cls: x.cls })).concat(fold.length ? [{ key: "fold", label: "Everything else", value: foldValue, cls: "grey" }] : []);
+  slices.sort((a, b) => b.value - a.value);
+  const went = Math.round(out.reduce((a, x) => a + x.value, 0) * 100) / 100, came = Math.round(-back.reduce((a, x) => a + x.value, 0) * 100) / 100;
+  return { named, fold, foldValue, back, slices, went, came };
+}
+
+function spendBreakdown(B, V, months, span, mode, opts) {
+  opts = opts || {};
+  const wrap = h("div", { class: "spendbreak" });
+  const scope = V.scope;
+  const T = /^\d{4}-\d{2}$/.test(span) ? spendTotalMonth(B, span, scope) : spendTotal(B, span, scope);
+  const P = spendParts(B, months, scope, mode);
+  const label = opts.label || `What you spent · ${spendSpanWords(B, months, span)}`;
+  const card = h("section", { class: "card glass ringcard" }, h("div", { class: "ftop" }, h("span", { class: "l", text: label }), basisDot(B.basis, spendWhy(B, months))));
+  if (!months.length || (!P.went && !P.came)) {
+    card.append(h("p", { class: "muted ringnone", text: span === "this-month" || (months.length === 1 && months[0] === B.in_progress) ? "Nothing yet this month." : "Nothing in these months." }));
+    wrap.append(card);
+    return wrap;
+  }
+  const rows = {};
+  const pick = key => {
+    const row = rows[key], on = !!row && !row.classList.contains("on");
+    for (const [k, r] of Object.entries(rows)) { r.classList.toggle("on", on && k === key); r.classList.toggle("dim", on && k !== key); }
+    for (const a of card.querySelectorAll(".arc")) a.classList.toggle("dim", on && a.getAttribute("data-key") !== key);
+    if (on && row) { if (row.hidden && foldMore) foldMore.click(); row.scrollIntoView({ block: "nearest", behavior: motionOK() ? "smooth" : "auto" }); }
+  };
+  const net = T.total;
+  const centre = h("div", {}, h("div", { class: "v rounded", text: fmtWhole$(Math.round(Math.abs(net))) }), net < 0 ? h("div", { class: "fmeta", text: "came back" }) : null);
+  if (P.went > 0) card.append(donut(P.slices, centre, k => pick(k === "fold" ? "fold" : k)));
+  else card.append(h("div", { class: "ringnone" }, centre));
+  const shares = spendShares(P.slices.map(s => s.value));
+  const shareOf = Object.fromEntries(P.slices.map((s, i) => [s.key, [shares[i], s.value]]));
+  const list = h("div", { class: "list flat spendlist" });
+  const rowOf = (x, foldSw) => {
+    const sh = shareOf[x.key] || [Math.round(x.value / (P.went || 1) * 100), x.value];
+    const todo = x.group === "To sort";
+    const amt = h("span", { class: "amt", text: fmtWhole$(Math.round(x.value)) });
+    const kids = [h("span", { class: "sw2 " + (todo ? "blank" : foldSw ? "grey" : x.cls) }),
+      h("span", { class: "main" }, h("span", { class: "title", text: x.name }),
+        h("span", { class: "meta", text: todo ? "Not sorted yet in YNAB" : foldSw ? "In everything else" : shareWords(sh[0], sh[1]) })),
+      todo ? h("span", { class: "est-wrap" }, amt, h("span", { class: "sdot ask", role: "img", "aria-label": "To sort in YNAB" })) : amt];
+    let row;
+    if (mode === "groups") {
+      row = h("div", { class: "row legendrow spendrow" }, ...kids, h("span"));
+      if (x.group !== "Work") tapArea(row, `${x.name}, ${fmtWhole$(Math.round(x.value))}. Show its categories`, () => { V.sview = "categories"; V.scope = "g:" + x.group; V.redraw(); });
+    } else {
+      row = h("div", { class: "row legendrow spendrow" }, ...kids, icon("chevR"));
+      tapArea(row, `${x.name}, ${fmtWhole$(Math.round(x.value))}. Open`, () => openSpendCategory(B, V, x.name, span));
+    }
+    rows[x.key] = row;
+    return row;
+  };
+  for (const x of P.named) list.append(rowOf(x));
+  let foldMore = null;
+  if (P.fold.length) {
+    const sub = P.fold.map(x => { const r = rowOf(x, true); r.hidden = true; return r; });
+    const fsh = shareOf.fold || [0, P.foldValue];
+    foldMore = h("button", { class: "row legendrow spendrow rowfold", type: "button" }, h("span", { class: "sw2 grey" }),
+      h("span", { class: "main" }, h("span", { class: "title link", text: "Everything else" }), h("span", { class: "meta", text: `${plural(P.fold.length, "category", "categories")} · ${shareWords(fsh[0], fsh[1])}` })),
+      h("span", { class: "amt", text: fmtWhole$(Math.round(P.foldValue)) }), icon("chevD"));
+    foldMore.addEventListener("click", () => { sub.forEach(r => { r.hidden = false; }); foldMore.remove(); delete rows.fold; });
+    rows.fold = foldMore;
+    list.append(foldMore, ...sub);
+  }
+  card.append(list);
+  if (P.came > 0 && P.went > 0) card.append(h("p", { class: "foot", text: `${fmtWhole$(Math.round(P.went))} went out and ${fmtWhole$(Math.round(P.came))} came back.` }));
+  wrap.append(card);
+  if (P.back.length) {
+    const bl = h("div", { class: "list glass" }, P.back.map(x => {
+      const row = h("div", { class: "row amtrow" }, h("span", { class: "main" }, h("span", { class: "title", text: x.name }), h("span", { class: "meta", text: x.group === "Work" ? "Paid back by the corporation" : "More came back than went out" })),
+        h("span", { class: "amt", text: fmtWhole$(Math.round(-x.value)) }), mode === "groups" ? h("span") : icon("chevR"));
+      if (mode !== "groups") tapArea(row, `${x.name}, ${fmtWhole$(Math.round(-x.value))} back. Open`, () => openSpendCategory(B, V, x.name, span));
+      return row;
+    }));
+    wrap.append(h("section", { class: "section" }, h("h2", { text: "Money back" }), bl));
+  }
+  return wrap;
+}
+function spendTotalMonth(B, month, scope) {
+  const m = (B.months || []).find(x => x.month === month);
+  if (!m) return { months: [], total: 0, average: null, partial: false };
+  const t = scope === "burn" ? money(m.burn) : scope === "all" ? money(m.all) : spendByColumn(B, [month], scope).reduce((a, c) => a + c.value, 0);
+  return { months: [month], total: Math.round(t * 100) / 100, average: Math.round(t * 100) / 100, partial: month === B.in_progress };
+}
+function openSpendCategory(B, V, name, span) {
+  V.lastCat = name;
+  openView({ type: "category", key: name, months: /^\d{4}-\d{2}$/.test(span) ? (V.span || "12m") : span });
+}
+function againstAverage(v, avg) {
+  const d = v - avg;
+  if (Math.round(d) === 0) return "the average";
+  const p = avg > 0 ? Math.abs(d) / avg * 100 : null;
+  return `${d > 0 ? "+" : "−"}${fmtWhole$(Math.round(Math.abs(d)))}${p == null ? "" : ` (${p < 0.5 ? "under 1%" : Math.round(p) + "%"})`}`;
+}
+function spendMonthValues(B, months, scope) {
+  return months.map(k => [k, spendTotalMonth(B, k, scope).total]);
+}
+
+function spendTrends(B, V, months, span) {
+  const wrap = h("div", { class: "spendtrend" }), scope = V.scope;
+  const T = spendTotal(B, span, scope);
+  if (!months.length) { wrap.append(h("section", { class: "card glass" }, h("p", { class: "muted", text: "Nothing in these months." }))); return wrap; }
+  const one = months.length === 1;
+  const avg = T.average == null ? 0 : T.average;
+  const top = h("div", { class: "trend-top" },
+    h("div", { class: "ftop" }, h("span", { class: "l", text: `${one ? "What you spent" : "A month, on average"} · ${spendSpanWords(B, months, span)}` }), basisDot(B.basis, spendWhy(B, months))),
+    h("div", { class: "v rounded", text: fmtWhole$(Math.round(one ? T.total : avg)) }));
+  if (!one) top.append(h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${fmtWhole$(Math.round(T.total))} over ${plural(months.length, "month")}.` })));
+  wrap.append(top);
+  const byGroup = {};
+  const single = scope.startsWith("g:") || scope.startsWith("c:");
+  const cols = (B.columns || []).map((c, i) => [c, i]).filter(([c]) => spendInScope(c, scope));
+  for (const k of months) {
+    const m = (B.months || []).find(x => x.month === k);
+    for (const [c, i] of cols) {
+      const g = single ? (scope.startsWith("c:") ? c.name : spendGroupOf(c)) : spendGroupOf(c);
+      (byGroup[g] = byGroup[g] || {})[k] = ((byGroup[g] || {})[k] || 0) + money((m && m.cells[i]) || 0);
+    }
+  }
+  const order = Object.keys(byGroup).sort((a, b) => (SPEND_GROUPS.indexOf(a) + 1 || 99) - (SPEND_GROUPS.indexOf(b) + 1 || 99));
+  const hueOf = g => scope.startsWith("c:") ? spendHue(spendGroupOf((B.columns || []).find(c => c.name === g) || {})) : spendHue(g);
+  const sers = order.filter(g => months.some(k => (byGroup[g][k] || 0) > 0.005))
+    .map(g => ({ label: g === "Work" ? "Work, paid back later" : g, unit: "$", form: "bars", cls: hueOf(g), points: months.map(k => [k, Math.max(0, Math.round((byGroup[g][k] || 0) * 100) / 100)]) }));
+  if (sers.length) {
+    const tip = key => {
+      const out = order.filter(g => Math.abs(byGroup[g][key] || 0) >= 0.5).map(g => {
+        const v = byGroup[g][key] || 0;
+        return { swatch: hueOf(g), name: g === "Work" ? "Work" : g, value: v < 0 ? `${fmtWhole$(Math.round(-v))} back` : fmtWhole$(Math.round(v)) };
+      });
+      if (out.length > 1) out.push({ name: "Net", value: fmtWhole$(Math.round(spendTotalMonth(B, key, scope).total)) });
+      return out;
+    };
+    wrap.append(h("div", { class: "card glass chartcard" }, chart(sers, { form: "bars", unit: "$", height: 220, legend: sers.length > 1, axis: true, hover: true, stack: true,
+      rule: one || !(avg > 0) ? null : { value: avg, label: "average" }, tip })));
+  }
+  const vals = spendMonthValues(B, months, scope).reverse();
+  const list = h("div", { class: "list glass" }, h("div", { class: "row plain listhead" }, h("span", { text: "Month" }), h("span", { class: "amt", text: one ? "" : "Against the average month" })));
+  for (const [k, v] of vals) {
+    const row = h("div", { class: "row amtrow" }, h("span", { class: "main" }, h("span", { class: "title", text: keyLabel(k, true) }), k === B.in_progress ? h("span", { class: "meta", text: "So far" }) : null),
+      h("span", { class: "amtstack" }, h("span", { class: "amt", text: fmtWhole$(Math.round(v)) }), one ? null : h("span", { class: "meta", text: againstAverage(v, avg) })), icon("chevR"));
+    tapArea(row, `${keyLabel(k, true)}, ${fmtWhole$(Math.round(v))}. Open`, () => openView({ type: "spending-month", month: k, scope, span: V.span }));
+    list.append(row);
+  }
+  wrap.append(h("section", { class: "section" }, h("h2", { text: "Each month" }), list));
+  return wrap;
+}
+
 function renderSpending() {
   const B = (SNAP && SNAP.spending) || {}, p = h("div", { class: "page narrow" });
-  p.append(head("What you spend", "Every month since the records begin, and where it goes."));
+  p.append(head("What you spend", ""));
   if (!(B.months || []).length) { p.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "Not available yet." }))); return p; }
-  const cols = B.columns || [], burn = B.burn_columns || [];
-  const hl = B.headline || {};
-  const want = ["Trailing 12-Mo Burn", "Avg Monthly Burn (12 mo)", "Burn Since 2024-04"];
-  const NAMES = { "Trailing 12-Mo Burn": "The last 12 months", "Avg Monthly Burn (12 mo)": "A month, on average", "Burn Since 2024-04": "Since the records begin" };
-  const ytd = Object.keys(hl).find(k => /YTD Burn$/.test(k));
-  if (ytd) { want.splice(2, 0, ytd); NAMES[ytd] = ytd.replace(" YTD Burn", " so far"); }
-  p.append(h("div", { class: "trend-top" },
-    h("div", { class: "ftop" }, h("span", { class: "l", text: "A month, over the last 12 months" }), basisDot(B.basis, [`Months to ${keyLabel(B.as_of, true)}.`, `${plainSource(B.source)}.`, B.note])),
-    h("div", { class: "v rounded", text: fmtWhole$(Math.round(money(hl["Avg Monthly Burn (12 mo)"]))) }),
-    h("div", { class: "fmeta" }, h("span", { class: "asof", text: `Everyday cost of living, over the twelve months to ${keyLabel(B.as_of, true)}.` }))));
-  p.append(h("section", { class: "card glass" }, h("h3", { text: "Everyday cost of living" }),
-    h("div", { class: "facts" }, want.filter(k => hl[k] !== undefined).map(k =>
-      h("div", {}, h("span", { class: "k", text: NAMES[k] }), h("span", { class: "fv num", text: fmtWhole$(Math.round(money(hl[k]))) })))),
-    h("p", { class: "small muted", text: B.note })));
-  const bi = cols.findIndex(c => c.group === "Computed" && c.name === "Burn");
-  if (bi >= 0) p.append(h("section", { class: "card glass" }, h("h3", { text: "Month by month" }),
-    chart([{ label: "Burn", unit: "$", form: "bars", basis: B.basis, source: B.source,
-             points: B.months.map(m => [m.month, m.cells[bi]]) }], { form: "bars", unit: "$", height: 180, axis: true, hover: true })));
-  const last12 = B.months.slice(-12);
-  const avg = burn.map(i => ({ key: String(i), label: cols[i].name, sub: cols[i].group,
-                               value: last12.reduce((s2, m) => s2 + Number(m.cells[i] || 0), 0) / (last12.length || 1) }))
-                  .filter(r => Math.abs(r.value) >= 1).sort((a, b) => b.value - a.value);
-  if (avg.length) {
-    const sec = h("section", { class: "card glass" }, h("h3", { text: "Where it goes, a month" }),
-      hbars(avg.slice(0, 14), v => fmtWhole$(Math.round(v))));
-    if (avg.length > 14) sec.append(h("p", { class: "small muted", text: `The ${avg.length - 14} smaller categories are left off; each is under ${fmtWhole$(Math.round(avg[14].value))} a month.` }));
-    sec.append(h("p", { class: "small muted", text: `Averaged over the twelve months to ${keyLabel(B.as_of, true)}. Money into your TFSA, RRSP and FHSA is not spending and is not here.` }));
-    p.append(sec);
-  }
-  p.append(h("p", { class: "foot", text: `${plainSource(B.source)}. The whole table is written from your YNAB budget each day, so a change you make in YNAB comes through by the next day.` }));
+  const V = VIEW;
+  V.sview = V.sview || "categories"; V.span = V.span || "12m"; V.scope = V.scope || "burn";
+  const holder = h("div", { class: "page" });
+  const segs = segControl([["categories", "Categories"], ["groups", "Groups"], ["trends", "Trends"]], V.sview, v => { V.sview = v; draw(); }, "View");
+  let pullsEl = h("div", { class: "pulls" });
+  const draw = () => {
+    for (const b of segs.children) b.setAttribute("aria-checked", String(b.textContent.toLowerCase() === V.sview));
+    const said = spendCheckChoices(B, V);
+    const np = spendPulls(B, V, draw, true); pullsEl.replaceWith(np); pullsEl = np;
+    clear(holder);
+    if (said.length) holder.append(h("p", { class: "foot orange", text: said.join(" ") }));
+    const months = spendMonths(B, V.span);
+    holder.append(V.sview === "trends" ? spendTrends(B, V, months, V.span) : spendBreakdown(B, V, months, V.span, V.sview));
+    holder.append(h("p", { class: "foot", text: "From the Spending tab of your workbook, which is written from your YNAB budget each day, so a change you make in YNAB comes through by the next day. "
+      + (V.scope === "burn" ? "Money into your TFSA, RRSP and FHSA, and the joint savings, is not spending and is not here." : "") }));
+  };
+  V.redraw = draw;
+  p.append(segs, pullsEl, holder);
+  draw();
+  swipeAlong(segs, holder, BACK, null);
   return p;
+}
+
+function renderSpendingMonth() {
+  const B = (SNAP && SNAP.spending) || {}, V = VIEW, p = h("div", { class: "page narrow" });
+  p.append(head(keyLabel(V.month, true), ""));
+  if (!(B.months || []).some(m => m.month === V.month)) { p.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "This month is not in YNAB's figures." }))); return p; }
+  V.scope = V.scope || "burn";
+  if (V.scope.startsWith("c:") && !(B.columns || []).some(c => c.name === V.scope.slice(2))) V.scope = "burn";
+  V.redraw = () => render();
+  const scopeWords = spendScopeWords(B, V.scope, false);
+  p.append(spendBreakdown(B, V, [V.month], V.month, "categories", { label: `${scopeWords} · ${V.month === B.in_progress ? "so far" : "the whole month"}` }));
+  p.append(h("p", { class: "foot", text: `${plainSource(B.source)}.` }));
+  return p;
+}
+
+function renderCategory() {
+  const B = (SNAP && SNAP.spending) || {}, V = VIEW, p = h("div", { class: "page narrow" });
+  const c = (B.columns || []).find(x => x.name === V.key);
+  if (!c) { p.append(head(V.key || "A category", ""), h("div", { class: "card glass" }, h("p", { class: "muted", text: "This category is not in YNAB's figures any more." }))); return p; }
+  p.append(head(c.name, spendGroupOf(c) === "Savings and investing" ? "Savings and investing" : spendGroupOf(c)));
+  V.months = spendSpanOk(B, V.months || "12m") ? V.months || "12m" : "12m";
+  V.span = V.months; V.scope = "c:" + c.name;
+  const holder = h("div", { class: "page" });
+  const draw = () => {
+    V.months = V.span;
+    clear(holder);
+    const months = spendMonths(B, V.span);
+    const T = spendTotal(B, V.span, V.scope);
+    const top = h("div", { class: "trend-top" },
+      h("div", { class: "ftop" }, h("span", { class: "l", text: spendSpanWords(B, months, V.span) }), basisDot(B.basis, spendWhy(B, months))),
+      h("div", { class: "v rounded", text: (T.total < 0 ? "−" : "") + fmtWhole$(Math.round(Math.abs(T.total))) }));
+    if (c.purpose) top.append(h("div", { class: "fmeta" }, h("span", { class: "asof", text: plainWords(c.purpose) })));
+    holder.append(top);
+    if (!months.length) { holder.append(h("p", { class: "muted", text: "Nothing in these months." })); return; }
+    const vals = spendMonthValues(B, months, V.scope);
+    if (months.length > 1) holder.append(h("div", { class: "card glass chartcard" }, chart([{ label: c.name, unit: "$", form: "bars", cls: spendHue(spendGroupOf(c)), points: vals }],
+      { form: "bars", unit: "$", height: 180, axis: true, hover: true, rule: T.average > 0 ? { value: T.average, label: "average" } : null })));
+    const avg = T.average || 0;
+    const list = h("div", { class: "list glass" }, h("div", { class: "row plain listhead" }, h("span", { text: "Month" }), h("span", { class: "amt", text: months.length > 1 ? "Against its average month" : "" })),
+      vals.slice().reverse().map(([k, v]) => h("div", { class: "row plain" }, h("span", { class: "main" }, h("span", { class: "title", text: keyLabel(k, true) }), k === B.in_progress ? h("span", { class: "meta", text: "So far" }) : null),
+        h("span", { class: "amtstack" }, h("span", { class: "amt", text: (v < 0 ? "−" : "") + fmtWhole$(Math.round(Math.abs(v))) }), months.length > 1 ? h("span", { class: "meta", text: againstAverage(v, avg) }) : null))));
+    holder.append(h("section", { class: "section" }, h("h2", { text: "Each month" }), list));
+    holder.append(h("p", { class: "foot", text: `${plainSource(B.source)}. A month below nil is money that came back, such as a refund.` }));
+  };
+  V.redraw = draw;
+  p.append(h("div", { class: "pulls" }), holder);
+  const redrawPulls = () => { const old = p.querySelector(":scope > .pulls"); const nw = spendPulls(B, V, () => { redrawPulls(); draw(); }, false); old.replaceWith(nw); };
+  redrawPulls();
+  draw();
+  return p;
+}
+
+const NW_VIEWS = [["everything", "Everything"], ["corporation", "Corporation"], ["personal", "TFSA, RRSP, FHSA"], ["cash", "Cash and cards"]];
+const NW_PUT = { everything: "put_in_total", corporation: "put_in_corp", personal: "put_in_personal" };
+const NW_PART_WORDS = {
+  questrade_cash: "The corporation's Questrade cash", questrade_market: "The corporation's investments", chequing: "The corporation's chequing",
+  savings: "The corporation's savings", in_transit_to_questrade: "On its way to Questrade", visa_owed: "The corporation's Visa",
+  amex_owed: "The corporation's Amex", tfsa: "Your TFSA", rrsp: "Your RRSP", fhsa: "Your FHSA", personal_chequing: "Your chequing",
+  joint_savings: "The joint savings", cards_in_credit: "Your cards, in credit", cards_owed: "Your cards" };
+const NW_PART_WHY = {
+  questrade_cash: "Questrade's statement for the month.", questrade_market: "Questrade's statement for the month, at market.",
+  chequing: "The bank's statement: its balance on the last line of the month.", savings: "The bank's statement; nil since the account closed on Oct 24, 2024.",
+  in_transit_to_questrade: "Paid out of chequing by the month end and not yet at Questrade, a payment and its arrival paired by a ten-day rule.",
+  visa_owed: "What the corporation's Visa owed at the month end, from its statements' lines.", amex_owed: "What the corporation's Amex owed at the month end, from its statements' lines.",
+  tfsa: "The TFSA's own statement for the month.", rrsp: "The RRSP's own statement for the month.", fhsa: "The FHSA's own statement for the month.",
+  personal_chequing: "Your chequing statement: its balance on the last line on or before the month end.",
+  joint_savings: "Worked out from the bank's list of the joint savings and its screenshots; counted whole.",
+  cards_in_credit: "A card in credit is an asset that month.",
+  cards_owed: "The MBNA from its statements, the other cards from YNAB's own balance at the month end, which begins with a balance typed into YNAB." };
+function nwValue(pt, view, parts) {
+  if (!pt.complete[view]) return null;
+  let v = 0;
+  for (const p of parts) if (view === "everything" || p.view === view) v += (p.debt ? -1 : 1) * (pt.parts[p.key] || 0);
+  return Math.round(v * 100) / 100;
+}
+function nwLabel(pt, view, parts) {
+  const ls = parts.filter(p => (view === "everything" || p.view === view) && pt.parts[p.key]).map(p => basisOf(pt.labels[p.key]) || "derived");
+  return ls.includes("estimate") ? "estimate" : ls.includes("recorded") ? "recorded" : ls.includes("measured") ? "measured" : ls.length && ls.every(l => l === "verified") ? "verified" : "derived";
+}
+function nwNow(view, lastDate) {
+  const nw = (SNAP && SNAP.networth) || {};
+  const n = view === "corporation" || view === "personal" ? (nw.estimates || nw.now || null) : (nw.now || null);
+  if (!n || !n.date || !(n.date > lastDate)) return null;
+  const base = view === "personal" ? n.personal_from : n.corporation_from;
+  if (base && base < lastDate) return null;
+  const v = view === "everything" ? n.household : view === "corporation" ? n.corporation : view === "personal" ? n.personal : null;
+  return v == null || v === "" ? null : { date: n.date, value: money(v), note: view === "everything" ? n.note : view === "corporation" ? n.corporation_note : n.personal_note,
+                                         basis: view === "personal" ? (n.personal_label || "estimate") : "estimate" };
+}
+const NW_SPANS = [["12m", "Last 12 months", "12 months"], ["6m", "Last 6 months", "6 months"], ["this-year", "This year", "This year"], ["last-year", "Last year", "Last year"], ["all", "All months", "All"]];
+
+function renderNetWorth() {
+  const H = (SNAP && SNAP.networth_history) || {}, V = VIEW, S = (SNAP && SNAP.series) || {}, p = h("div", { class: "page narrow" });
+  p.append(head("Net worth", ""));
+  const all = H.points || [], parts = H.parts || [];
+  if (!all.length) { p.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "Not available yet." }))); return p; }
+  V.span = V.span || "12m"; V.view = V.view || "everything";
+  const holder = h("div", { class: "page" });
+  let pullsEl = h("div", { class: "pulls" });
+  const draw = () => {
+    const view = V.view;
+    const pts = all.map(pt => ({ pt, v: nwValue(pt, view, parts) }));
+    const known = pts.filter(x => x.v != null);
+    const yr = String(new Date().getFullYear());
+    const years = [...new Set(known.map(x => x.pt.date.slice(0, 4)))].sort().reverse().filter(y => y !== yr);
+    const spanShort = (NW_SPANS.find(x => x[0] === V.span) || [V.span, V.span, V.span])[2];
+    const np = h("div", { class: "pulls" },
+      pullDown(spanShort, [NW_SPANS.map(([v, w]) => [v, w]), years.map(y => [y, y])].filter(g => g.length), V.span, v => { V.span = v; draw(); }, "Months", { active: V.span !== "12m" }),
+      pullDown((NW_VIEWS.find(x => x[0] === view) || ["", "Everything"])[1].replace("TFSA, RRSP, FHSA", "Your accounts"), [NW_VIEWS.slice(0, 1), NW_VIEWS.slice(1)], view, v => { V.view = v; draw(); }, "Accounts", { active: view !== "everything" }));
+    pullsEl.replaceWith(np); pullsEl = np;
+    clear(holder);
+    if (!known.length) { holder.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "No month end has every part of this view yet." }))); return; }
+    const last = known[known.length - 1], lastIdx = pts.indexOf(last);
+    let inSpan;
+    if (V.span === "all") inSpan = pts.slice(pts.indexOf(known[0]), lastIdx + 1);
+    else if (V.span === "this-year") inSpan = pts.slice(0, lastIdx + 1).filter(x => x.pt.date.slice(0, 4) === yr);
+    else if (V.span === "last-year") inSpan = pts.filter(x => x.pt.date.slice(0, 4) === String(Number(yr) - 1));
+    else if (/^\d{4}$/.test(V.span)) inSpan = pts.filter(x => x.pt.date.slice(0, 4) === V.span);
+    else inSpan = pts.slice(Math.max(0, lastIdx + 1 - Number(V.span.replace("m", ""))), lastIdx + 1);
+    const spanKnown = inSpan.filter(x => x.v != null);
+    if (!spanKnown.length) { holder.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: V.span === "this-year" ? "No month end of this year yet: January's statements come in February." : "No month end of this view in these months." }))); return; }
+    const endPt = spanKnown[spanKnown.length - 1];
+    const reachesNow = endPt === last;
+    const now = reachesNow ? nwNow(view, last.pt.date) : null;
+    const firstIdx = pts.indexOf(inSpan[0]);
+    const before = V.span === "all" ? null : (firstIdx > 0 && pts[firstIdx - 1].v != null ? pts[firstIdx - 1] : null);
+    const start = before || spanKnown[0];
+    const headV = now ? now.value : endPt.v, headDate = now ? now.date : endPt.pt.date;
+    const headBasis = now ? now.basis : nwLabel(endPt.pt, view, parts);
+    const d = headV - start.v;
+    const why = [now ? `About now, ${prettyDates(now.date)}: the statements to ${prettyDates(last.pt.date)}, carried to today. ${sentence(plainWords(now.note || ""))}` : `At ${prettyDates(endPt.pt.date)}, a month end.`,
+      "A debt is what a card was owed that day. Everything else, and a card in credit, is an asset. Before the tax paid to take money out of the corporation.",
+      view === "everything" ? "It counts the corporation whole, your TFSA, RRSP and FHSA, your chequing, the joint savings, and your personal cards." : "",
+      endPt.pt.cards_note && (view === "everything" || view === "cash") ? sentence(endPt.pt.cards_note) : ""];
+    const top = h("div", { class: "trend-top" },
+      h("div", { class: "ftop" }, h("span", { class: "l", text: (now ? "About now, " : "At ") + prettyDates(headDate) }), basisDot(headBasis, why)),
+      h("div", { class: "v rounded" }, now ? h("span", { class: "about", text: "~" }) : null, fmtWhole$(Math.round(headV))));
+    if (start !== endPt || now) {
+      const pct = start.v > 0 ? Math.round(Math.abs(d) / start.v * 100) : null;
+      top.append(h("div", { class: "fmeta fchange" }, changeWords(d, start.pt.date, pct, V.span === "all" ? ", the first month on record" : "")));
+    }
+    const inView = parts.filter(q => view === "everything" || q.view === view);
+    const assets = inView.filter(q => !q.debt).reduce((a, q) => a + (endPt.pt.parts[q.key] || 0), 0);
+    const debts = inView.filter(q => q.debt).reduce((a, q) => a + (endPt.pt.parts[q.key] || 0), 0);
+    top.append(h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${now ? `At ${monthDay(endPt.pt.date)}: assets` : "Assets"} ${compact(assets, "$")} · debts ${fmtWhole$(Math.round(debts))}` })));
+    holder.append(top);
+    const worth = { label: "What it is worth", unit: "$", form: "line", basis: headBasis, points: spanKnown.map(x => [x.pt.date, x.v]).concat(now ? [[now.date, now.value]] : []) };
+    if (now) worth.est_from = now.date;
+    const put = NW_PUT[view] && S[NW_PUT[view]] ? S[NW_PUT[view]] : null;
+    const keep = new Set(worth.points.map(q => q[0]));
+    const putSer = put ? { ...put, label: "Put in, less taken out", points: put.points.filter(q => keep.has(q[0]) || (now && q[0] === now.date)) } : null;
+    const sers = [worth].concat(putSer && putSer.points.length ? [putSer] : []);
+    holder.append(h("div", { class: "card glass chartcard" }, chart(sers, { form: "line", unit: "$", height: 240, legend: sers.length > 1, axis: true, hover: true })));
+    const meterParts = [];
+    const sumOf = keys => keys.reduce((a, k) => a + (endPt.pt.parts[k] || 0), 0);
+    const corpV = sumOf(["questrade_cash", "questrade_market", "chequing", "savings", "in_transit_to_questrade"]) - sumOf(["visa_owed", "amex_owed"]);
+    const cashV = sumOf(["personal_chequing", "joint_savings", "cards_in_credit"]) - sumOf(["cards_owed"]);
+    if (view === "everything" || view === "corporation") meterParts.push({ key: "corporation", label: "The corporation", value: corpV, cls: "s0" });
+    if (view === "everything" || view === "personal") meterParts.push({ key: "tfsa", label: "Your TFSA", value: endPt.pt.parts.tfsa || 0, cls: "s1" },
+      { key: "rrsp", label: "Your RRSP", value: endPt.pt.parts.rrsp || 0, cls: "s2" }, { key: "fhsa", label: "Your FHSA", value: endPt.pt.parts.fhsa || 0, cls: "s3" });
+    if (view === "everything" || view === "cash") meterParts.push({ key: "cash", label: "Your cash, less your cards", value: cashV, cls: "grey" });
+    if (meterParts.length > 1) {
+      const card = h("section", { class: "card glass splitcard" }, h("div", { class: "ftop" }, h("span", { class: "l", text: `What it is made of · ${monthDay(endPt.pt.date)}` })),
+        meter(meterParts.filter(x => x.value > 0), null),
+        h("div", { class: "list flat" }, meterParts.map(x => h("div", { class: "row legendrow" }, h("span", { class: "sw2 " + x.cls }),
+          h("span", { class: "main" }, h("span", { class: "title", text: x.label })), h("span", { class: "amt", text: (x.value < 0 ? "−" : "") + fmtWhole$(Math.round(Math.abs(x.value))) }),
+          basisDot(x.key === "corporation" ? nwLabel(endPt.pt, "corporation", parts) : x.key === "cash" ? nwLabel(endPt.pt, "cash", parts) : (endPt.pt.labels[x.key] || "verified"),
+            [x.key === "corporation" ? "Its investments, chequing and money on its way to Questrade, less what its Visa and Amex owed." : x.key === "cash" ? "Your chequing and the joint savings, less what your personal cards owed." : NW_PART_WHY[x.key]])))));
+      holder.append(card);
+    }
+    const rows = [];
+    if (now) rows.push(h("div", { class: "row amtrow" }, h("span", { class: "main" }, h("span", { class: "title", text: "About now" }), h("span", { class: "meta", text: `${monthDay(now.date)}, an estimate` })),
+      h("span", { class: "amtstack" }, h("span", { class: "amt", text: "~" + fmtWhole$(Math.round(now.value)) }), h("span", { class: "meta", text: againstStep(now.value, endPt.v) })), h("span")));
+    const shown = inSpan.slice().reverse();
+    shown.forEach(x => {
+      const i = pts.indexOf(x), prev = i > 0 ? pts[i - 1] : null;
+      const title = keyLabel(x.pt.month, true).replace(/^(\w{3})\w*/, "$1");
+      if (x.v == null) {
+        rows.push(h("div", { class: "row plain" }, h("span", { class: "main" }, h("span", { class: "title", text: title }), h("span", { class: "meta", text: sentence(x.pt.why_not[view === "everything" ? (x.pt.why_not.corporation ? "corporation" : x.pt.why_not.cash ? "cash" : "personal") : view] || "not every part is known for this month") })), h("span")));
+        return;
+      }
+      const row = h("div", { class: "row amtrow" }, h("span", { class: "main" }, h("span", { class: "title", text: title })),
+        h("span", { class: "amtstack" }, h("span", { class: "amt", text: fmtWhole$(Math.round(x.v)) }), h("span", { class: "meta", text: prev && prev.v != null ? againstStep(x.v, prev.v) : "" })), icon("chevR"));
+      tapArea(row, `${title}, ${fmtWhole$(Math.round(x.v))}. Show its parts`, () => nwSheet(x.pt, view, parts));
+      rows.push(row);
+    });
+    holder.append(h("section", { class: "section" }, h("h2", { text: "Each month end" }), h("div", { class: "list glass" }, rows)));
+    holder.append(h("p", { class: "foot", text: [
+      view === "everything" ? "The corporation whole, your TFSA, RRSP and FHSA, your chequing, the joint savings and your personal cards. Not the car or the condo." : "",
+      "The change counts from the month end before the months shown; YNAB counts from the first month in them.",
+      endPt.pt.cards_note && (view === "everything" || view === "cash") ? sentence(endPt.pt.cards_note) : ""].filter(Boolean).join(" ") }));
+  };
+  V.redraw = draw;
+  p.append(pullsEl, holder);
+  draw();
+  return p;
+}
+function againstStep(v, prev) {
+  const d = v - prev;
+  if (Math.round(d) === 0) return "the same";
+  const pc = prev > 0 ? Math.abs(d) / prev * 100 : null;
+  return `${d > 0 ? "+" : "−"}${fmtWhole$(Math.round(Math.abs(d)))}${pc == null ? "" : ` (${pc < 0.5 ? "under 1%" : Math.round(pc) + "%"})`}`;
+}
+function nwSheet(pt, view, parts) {
+  const inView = parts.filter(q => (view === "everything" || q.view === view) && pt.parts[q.key]);
+  const row = q => h("div", { class: "row amtrow" }, h("span", { class: "main" }, h("span", { class: "title", text: NW_PART_WORDS[q.key] || q.key })),
+    h("span", { class: "est-wrap" }, h("span", { class: "amt", text: (q.debt ? "−" : "") + fmtWhole$(Math.round(pt.parts[q.key])) }), basisDot(pt.labels[q.key] || "derived", [NW_PART_WHY[q.key] || ""])));
+  const box = sheet(`${keyLabel(pt.month, true)} · ${prettyDates(pt.date)}`, "", [], "Done");
+  const list = h("div", { class: "list flat nwparts" }, inView.filter(q => !q.debt).map(row),
+    inView.some(q => q.debt) ? h("div", { class: "row plain listhead" }, h("span", { text: "Debts" }), h("span")) : null, inView.filter(q => q.debt).map(row));
+  box.insertBefore(list, box.querySelector(".acts"));
+  if (HIDE) maskMoney(box);
 }
 
 function renderVehicle() {
@@ -4828,10 +5343,11 @@ function compact(v, unit, full) {
   if (a >= 1e3) return `${sg}$${(a / 1e3).toFixed(a >= 1e4 ? 0 : 1).replace(/\.0$/, "")}K`;
   return `${sg}$${Math.round(a)}`;
 }
-function changeWords(d, since) {
+function changeWords(d, since, pct, tail) {
   const same = compact(Math.abs(d), "$") === compact(0, "$") || Math.abs(d) < 500;
+  const pc = pct == null || same ? "" : ` (${pct < 0.5 ? "under 1%" : Math.round(pct) + "%"})`;
   return h("span", {}, same ? null : h("span", { class: "arrow", "aria-hidden": "true", text: d >= 0 ? "▲" : "▼" }),
-    h("span", { text: same ? `About the same since ${prettyDates(since)}` : `${compact(Math.abs(d), "$")} since ${prettyDates(since)}` }),
+    h("span", { text: same ? `About the same since ${prettyDates(since)}${tail || ""}` : `${compact(Math.abs(d), "$")} since ${prettyDates(since)}${tail || ""}${pc}` }),
     same ? null : h("span", { class: "sr", text: d >= 0 ? " (up)" : " (down)" }));
 }
 function ytdKeep(k) { k = String(k); const t = todayISO(); return /^\d{4}-\d{2}/.test(k) && k >= `${Number(t.slice(0, 4)) - 1}-12-31` && k.slice(0, 10) <= t; }
@@ -4854,12 +5370,14 @@ function settled(ser) {
 function estAt(s2, k) { return !!((s2.est_from && String(k) >= s2.est_from) || (s2.estimate_keys && s2.estimate_keys.includes(String(k)))); }
 function motionOK() { return !(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches); }
 
+let RING_N = 0;
 function chart(sers, o) {
   sers = (sers || []).filter(s2 => s2 && Array.isArray(s2.points) && s2.points.length);
   const box = h("div", { class: "chart" + (o.spark ? " spark-chart" : "") + (o.hover !== false && !o.spark ? " scrub" : "") });
   const tip = h("div", { class: "tip", hidden: true });
   if (!o.spark) box.append(tip);
-  if (o.legend) box.append(h("div", { class: "legend" }, sers.map((s2, j) => h("span", { class: "lk" }, h("span", { class: "sw s" + j }), s2.label))));
+  const cOf = (s2, j) => s2.cls || ("s" + j);
+  if (o.legend) box.append(h("div", { class: "legend" }, sers.map((s2, j) => h("span", { class: "lk" }, h("span", { class: "sw " + cOf(s2, j) }), s2.label))));
   const tOf = k => /^\d{4}$/.test(k) ? new Date(+k, 6, 1).getTime() : /^\d{4}-\d{2}$/.test(k) ? new Date(+k.slice(0, 4), +k.slice(5, 7) - 1, 15).getTime() : (dateOf(k) || new Date(0)).getTime();
   let lastW = 0, first = true;
   const draw = () => {
@@ -4890,7 +5408,10 @@ function chart(sers, o) {
     const xt = t => L + (t1 === t0 ? iw / 2 : (t - t0) / (t1 - t0) * iw);
     const x = (i, k) => bars ? L + band * (i + .5) : xt(tOf(k));
     const y = v => T + ih - (v - lo) / (hi - lo || 1) * ih;
+    const hatchN = ++RING_N, hatchId = () => `chart-hatch-${hatchN}`;
     const svg = sv("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img", "aria-label": S2.map(s2 => s2.label).join(" and ") + ", " + keyLabel(keys[0], true) + " to " + keyLabel(keys[n - 1], true) });
+    if (S2.some(s2 => s2.cls === "hatch")) svg.append(sv("defs", {}, sv("pattern", { id: hatchId(), width: 6, height: 6, patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)" },
+      sv("rect", { class: "hatch-ground", width: 6, height: 6 }), sv("rect", { class: "hatch-line", width: 3, height: 6 }))));
     if (o.axis) {
       for (const t of ticks) {
         svg.append(sv("line", { class: "grid", x1: L, x2: W - R, y1: y(t), y2: y(t) }));
@@ -4934,8 +5455,9 @@ function chart(sers, o) {
           if (hh <= .5) { if (!b0 && !(o.stack && j)) svg.append(sv("line", { class: "zero", x1: x0 + 1, x2: x0 + bw - 1, y1: y(0) - .5, y2: y(0) - .5 })); return; }
           const d = p2[1] >= 0 ? `M${x0},${yb} V${y0 + r} Q${x0},${y0} ${x0 + r},${y0} H${x0 + bw - r} Q${x0 + bw},${y0} ${x0 + bw},${y0 + r} V${yb} Z`
                                : `M${x0},${y(0)} V${y0 - r} Q${x0},${y0} ${x0 + r},${y0} H${x0 + bw - r} Q${x0 + bw},${y0} ${x0 + bw},${y0 - r} V${y(0)} Z`;
-          const bar = sv("path", { class: "col s" + j + (anim ? " grow" : "") + (estAt(s2, p2[0]) ? " est" : "") + (p2[1] < 0 ? " below" : ""), d });
+          const bar = sv("path", { class: "col " + cOf(s2, j) + (anim ? " grow" : "") + (estAt(s2, p2[0]) ? " est" : "") + (p2[1] < 0 ? " below" : ""), d });
           if (anim) bar.style.setProperty("--d", `${Math.min(i * 12, 400)}ms`);
+          if (cOf(s2, j) === "hatch") bar.setAttribute("fill", `url(#${hatchId()})`);
           svg.append(bar);
         });
       } else {
@@ -4950,23 +5472,28 @@ function chart(sers, o) {
         });
         const estSeg = ei > 0 ? s2.points.slice(ei - 1).map(p2 => [x(0, p2[0]), y(p2[1])]) : null;
         const dOf = seg => seg.map((q, i) => (i ? "L" : "M") + q[0].toFixed(1) + "," + q[1].toFixed(1)).join(" ");
-        if (S2.length === 1) for (const seg of segs) if (seg.length > 1) svg.append(sv("path", { class: "area s" + j + (anim ? " fade" : ""), d: dOf(seg) + ` L${seg[seg.length - 1][0].toFixed(1)},${T + ih} L${seg[0][0].toFixed(1)},${T + ih} Z` }));
+        if (S2.length === 1) for (const seg of segs) if (seg.length > 1) svg.append(sv("path", { class: "area " + cOf(s2, j) + (anim ? " fade" : ""), d: dOf(seg) + ` L${seg[seg.length - 1][0].toFixed(1)},${T + ih} L${seg[0][0].toFixed(1)},${T + ih} Z` }));
         for (const seg of segs) {
-          if (seg.length === 1) { svg.append(sv("circle", { class: "end s" + j, cx: seg[0][0], cy: seg[0][1], r: S2.length > 1 ? 3 : 2 })); continue; }
-          svg.append(sv("path", { class: "line s" + j + (anim ? " draw" : ""), d: dOf(seg) }));
+          if (seg.length === 1) { svg.append(sv("circle", { class: "end " + cOf(s2, j), cx: seg[0][0], cy: seg[0][1], r: S2.length > 1 ? 3 : 2 })); continue; }
+          svg.append(sv("path", { class: "line " + cOf(s2, j) + (anim ? " draw" : ""), d: dOf(seg) }));
         }
-        if (estSeg) svg.append(sv("path", { class: "line est s" + j, d: dOf(estSeg) }));
-        if (s2.points.length <= 6 && !o.spark) for (const q of segs.flat()) svg.append(sv("circle", { class: "end s" + j, cx: q[0], cy: q[1], r: 3.2 }));
+        if (estSeg) svg.append(sv("path", { class: "line est " + cOf(s2, j), d: dOf(estSeg) }));
+        if (s2.points.length <= 6 && !o.spark) for (const q of segs.flat()) svg.append(sv("circle", { class: "end " + cOf(s2, j), cx: q[0], cy: q[1], r: 3.2 }));
         const all = estSeg || segs[segs.length - 1], e = all[all.length - 1];
-        if (!o.spark || j === 0) svg.append(sv("circle", { class: "end s" + j + (estSeg ? " est" : ""), cx: e[0], cy: e[1], r: o.spark ? 2.6 : 4 }));
+        if (!o.spark || j === 0) svg.append(sv("circle", { class: "end " + cOf(s2, j) + (estSeg ? " est" : ""), cx: e[0], cy: e[1], r: o.spark ? 2.6 : 4 }));
       }
     });
+    if (o.rule && Number.isFinite(o.rule.value) && o.rule.value >= lo && o.rule.value <= hi) {
+      const yr = y(o.rule.value);
+      svg.append(sv("line", { class: "rule", x1: L, x2: W - R, y1: yr, y2: yr }));
+      if (o.rule.label) svg.append(sv("text", { class: "rulelab", x: W - R, y: yr - 4, "text-anchor": "end" }, document.createTextNode(o.rule.label)));
+    }
     box.prepend(svg);
     if (anim) for (const pth of svg.querySelectorAll(".line.draw")) pth.style.setProperty("--len", String(Math.ceil(pth.getTotalLength())));
     first = false;
     if (o.hover !== false && !o.spark) {
       const cross = sv("line", { class: "cross", y1: T, y2: T + ih, hidden: true });
-      const dots = S2.map((s2, j) => sv("circle", { class: "hdot s" + j, r: 4.5, hidden: true }));
+      const dots = S2.map((s2, j) => sv("circle", { class: "hdot " + cOf(s2, j), r: 4.5, hidden: true }));
       svg.append(cross, ...dots);
       const hit = sv("rect", { class: "hit", x: L, y: 0, width: iw, height: H });
       svg.append(hit);
@@ -4983,14 +5510,14 @@ function chart(sers, o) {
           tip.classList.add("wide");
           for (const r of o.tip(keys[i], S2))
             tip.append(h("div", { class: "tr " + (r.cls || "") },
-              r.swatch == null ? null : h("span", { class: "sw s" + r.swatch }),
+              r.swatch == null ? null : h("span", { class: "sw " + (typeof r.swatch === "string" ? r.swatch : "s" + r.swatch) }),
               h("span", { class: "tn", text: r.name }), h("b", { text: r.value })));
         } else
         tip.append(...S2.map((s2, j) => {
           const pt = s2.points.find(q => q[0] === keys[i]);
           if (!pt) return null;             // a history with no point on this date says nothing
           const est = estAt(s2, pt[0]);
-          return h("div", { class: "tr" }, S2.length > 1 ? h("span", { class: "sw s" + j }) : null, h("span", { text: (S2.length > 1 ? s2.label + ": " : "") + (est && !s2.est_word ? "~" : "") + compact(pt[1], s2.unit, true) + (est && s2.est_word ? ", " + s2.est_word : "") }));
+          return h("div", { class: "tr" }, S2.length > 1 ? h("span", { class: "sw " + cOf(s2, j) }) : null, h("span", { text: (S2.length > 1 ? s2.label + ": " : "") + (est && !s2.est_word ? "~" : "") + compact(pt[1], s2.unit, true) + (est && s2.est_word ? ", " + s2.est_word : "") }));
         }).filter(Boolean));
         tip.hidden = false;
         const tx = xs[i] / W * box.clientWidth, tw = tip.offsetWidth, cw = box.clientWidth;
