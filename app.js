@@ -750,6 +750,7 @@ function pageFor() {
   else if (VIEW && VIEW.type === "category") page = renderCategory();
   else if (VIEW && VIEW.type === "networth") page = renderNetWorth();
   else if (VIEW && VIEW.type === "vehicle") page = renderVehicle();
+  else if (VIEW && VIEW.type === "insurance") page = renderInsurance();     // from Summary › Personal, since 2026-10-24
   else if (VIEW && VIEW.type === "card") page = renderCard();
   else if (VIEW && VIEW.type === "workunit") page = renderWorkUnit();
   else if (TAB === "add") page = renderAdd();
@@ -829,7 +830,7 @@ function viewTitle(v) {
             work: v.metric === "rate" ? "Pay per hour" : "Hours", workunit: v.title || "A shift", account: ({ "qt-tfsa": "TFSA", "qt-rrsp": "RRSP", "qt-fhsa": "FHSA" })[v.account] || "Account",
             card: v.title || "Card", trend: v.title || "History", sitting: "Monthly banking",
             saving: "What you invest", ytd: ytdTitle(v.measure), returns: "What it is worth", spending: "What you spend",
-            "spending-month": v.month ? keyLabel(v.month, true) : "A month", category: v.key || "A category", networth: "Net worth", vehicle: (SNAP && SNAP.vehicle && SNAP.vehicle.name) || "Your car" })[v.type] || "Back";
+            "spending-month": v.month ? keyLabel(v.month, true) : "A month", category: v.key || "A category", networth: "Net worth", vehicle: (SNAP && SNAP.vehicle && SNAP.vehicle.name) || "Your car", insurance: "Insurance" })[v.type] || "Back";
 }
 function onScroll() {
   document.getElementById("bar").classList.toggle("scrolled", window.scrollY > (document.body.classList.contains("toplevel") ? 48 : 28));
@@ -3476,7 +3477,7 @@ function moneyCard(opts) {
   };
   const body = chart(sers, { form: "line", unit: "$", height: 128, legend: true, tip: rows });
   return figCard(o, { hero: true, label: opts.label, value: fmtWhole$(Math.round(head)), body, about: est, change: opts.change,
-    basis: est ? "estimate" : opts.basis, why: est ? anWhy.concat(opts.why || []) : opts.why,
+    basis: est ? "estimate" : opts.basis, why: est ? anWhy.concat(opts.why || [], opts.whyMore || []) : opts.whyMore ? (opts.why || whyLines(o)).concat(opts.whyMore) : opts.why,
     onOpen: opts.onOpen || (() => openView({ type: "trend", keys: [opts.all, opts.worth, opts.put].filter(Boolean), title: opts.label })),
     meta: (opts.meta || []).concat([h("span", { class: "asof", text: opts.foot })]) });
 }
@@ -3625,71 +3626,66 @@ function nowLine(nowRow, nowName, withPrice) {
       basisDot(nowRow.now_label, [nowRow.note + ".", withPrice ? "Carried at VEQT's latest price." : ""].filter(Boolean)))));
 }
 
-function personalCashCard() {
-  const C = (SNAP && SNAP.cash) || {};
-  if (!C.chequing && !C.savings) return null;
-  const rows = [];
-  if (C.chequing) rows.push(h("div", { class: "row plain" },
-    h("span", { class: "main" }, h("span", { class: "title", text: "Your chequing" }), h("span", { class: "meta", text: `At its statement of ${prettyDates(C.chequing.date)}` })),
-    h("span", { class: "est-wrap" }, h("span", { class: "amt", text: fmtWhole$(Math.round(money(C.chequing.balance))) }),
-      basisDot(C.chequing.label, ["The closing balance on your chequing account's last statement, filed and read on the MacBook."]))));
-  if (C.savings) rows.push(h("div", { class: "row plain" },
-    h("span", { class: "main" }, h("span", { class: "title", text: "Savings, with Gloria" }), h("span", { class: "meta", text: `To ${prettyDates(C.savings.date)}, from its list` })),
-    h("span", { class: "est-wrap" }, h("span", { class: "amt", text: fmtWhole$(Math.round(money(C.savings.balance))) }),
-      basisDot(C.savings.label, ["Worked out: the bank's list for this account prints no balance, so it is every transaction since it opened, added up. Each month's interest is checked against it, which a missing transaction would upset."]))));
+function personalCashCards() {
+  const C = (SNAP && SNAP.cash) || {}, out = [];
+  if (C.chequing) out.push(figCard({ label: "Your chequing", basis: C.chequing.label }, {
+    value: fmtWhole$(Math.round(money(C.chequing.balance))),
+    why: [`At its statement of ${prettyDates(C.chequing.date)}.`, "The closing balance on your chequing account's last statement, filed and read on the MacBook.", C.source ? `${plainSource(C.source)}.` : ""],
+    meta: [h("span", { class: "asof", text: `Statement of ${monthDay(C.chequing.date)}` })] }));
   const act = (C.savings && C.savings.activity) || [];
-  const sec = h("section", { class: "card glass" },
-    h("div", { class: "ftop" }, h("h3", { text: "Chequing and savings" }),
-      basisDot(C.savings ? C.savings.label : C.chequing.label, ["Your own chequing, from its statements, and the savings account you share with Gloria, from its list.", `${plainSource(C.source || "")}.`])),
-    h("div", { class: "list flat" }, rows));
-  if (act.length) sec.append(h("p", { class: "foot", text: `Since the savings opened on ${prettyDates(C.savings.opened)}: `
-    + act.map(a => `${fmtWhole$(Math.round(Math.abs(money(a.amount))))} ${a.what}`).join(", ") + "." }));
-  return sec;
+  if (C.savings) out.push(figCard({ label: "Joint savings", basis: C.savings.label }, {
+    value: fmtWhole$(Math.round(money(C.savings.balance))),
+    why: [`The account you share with Gloria, at ${prettyDates(C.savings.date)}, the last day on its list.`, "Worked out: every transaction on the bank's list for this account since it opened, added up. Each month's interest is checked against it, which a missing transaction would upset.",
+          act.length ? `Since it opened on ${prettyDates(C.savings.opened)}: ` + act.map(a => `${fmtWhole$(Math.round(Math.abs(money(a.amount))))} ${a.what}`).join(", ") + "." : ""],
+    meta: [h("span", { class: "asof", text: `At ${monthDay(C.savings.date)}` })] }));
+  return out;
 }
 
-const OWED_WORDS = { arrived: "Paid back", paid: "Paid back", left: "On its way", waiting: "Owed", late: "Not paid back", explained: "Explained" };
+function owedRule(all) {
+  const legacy = !all.some(m => m.kind === "owed" && "owed_now" in m);
+  const owes = m => m.kind === "owed" && (legacy ? ["waiting", "late"].includes(m.status) && !m.left_on : m.owed_now === "yes");
+  return { owes, pending: m => m.kind === "owed" && !owes(m) && ["waiting", "late", "left"].includes(m.status) };
+}
 function owedByCorpCard() {
   const M = (SNAP && SNAP.moves) || {};
-  const mine = (M.moves || []).filter(m => m.kind === "owed");
-  if (!mine.length) return null;
-  const order = { late: 0, waiting: 1, left: 2, explained: 3, arrived: 4, paid: 4 };
-  const shown = mine.slice().reverse().sort((x, y) => (order[x.status] ?? 4) - (order[y.status] ?? 4)).slice(0, 6);
-  const rows = shown.map(m => {
-    const base = MOVE_STATE[m.status] || { cls: "ok" };
+  const all = M.moves || [], rule = owedRule(all), owed = all.filter(rule.owes), pending = all.filter(rule.pending);
+  const total = money(M.owed_total || 0), nf = Number(M.owed_foreign || 0);
+  if (!owed.length && !pending.length && !(total > 0) && !nf) return null;
+  const order = { late: 0, waiting: 1, explained: 2, left: 3 };
+  const sorted = xs => xs.slice().reverse().sort((x, y) => (order[x.status] ?? 4) - (order[y.status] ?? 4));
+  const shown = sorted(owed).concat(sorted(pending));
+  const labels = shown.map(m => m.label).concat(M.owed_label ? [M.owed_label] : []);
+  const weakest = labels.includes("estimate") ? "estimate" : labels.every(l => l === "verified") ? "verified" : "recorded";
+  const one = shown.length === 1;
+  const rowOf = m => {
     const cur = (String(m.source || "").match(/\(in ([A-Z]{3})\)$/) || [])[1];
     const what = prettyDates(String(m.source || "").replace(/^ledger\/corp-expenses\.csv: /, "").replace(/^the year tab's \d{4}-\d{2}: /, "")
       .replace(/^the web page: /, "").replace(/ \(in [A-Z]{3}\)$/, ""));
     const amt = cur ? `${money(m.amount).toFixed(2)} ${cur}` : fmt$(money(m.amount));
-    return h("div", { class: "row plain" },
-      h("span", { class: "main" }, h("span", { class: "title", text: `${amt} ${what}` }),
-        h("span", { class: "meta", text: m.left_on ? `Paid ${monthDay(m.sent)}, paid back ${monthDay(m.left_on)}` : `Paid ${monthDay(m.sent)}` })),
-      h("span", { class: "est-wrap" }, h("span", { class: "cchip " + (m.status === "waiting" ? "unk" : base.cls),
-                                                   text: m.status === "late" && m.left_on ? "Not arrived" : OWED_WORDS[m.status] || m.status }),
-        basisDot(m.label, [m.note + "."])));
-  });
-  const total = money(M.owed_total || 0);
-  const owing = total > 0 || Number(M.owed_foreign || 0) > 0 || shown.some(m => !["arrived", "paid", "explained"].includes(m.status));
-  const labels = shown.map(m => m.label).concat(M.owed_label ? [M.owed_label] : []);
-  const weakest = labels.includes("estimate") ? "estimate" : labels.every(l => l === "verified") ? "verified" : "recorded";
-  return h("section", Object.assign({ class: "card glass" }, owing ? {} : { "data-settled": "1" }),
-    h("div", { class: "ftop" }, h("h3", { text: "Expenses you paid, not yet paid back" }),
-      basisDot(weakest, ["What you paid for the corporation yourself, from your receipts and the page, and the corporation's transfer that paid it back, as your chequing or the savings shows it arriving. It is due the day you paid.",
-                          "Not the shareholder loan on the balance sheet, which is a car allowance and the card's cash back."])),
-    h("p", { class: "foot", text: (() => {
-      const nf = Number(M.owed_foreign || 0), each = nf === 1 ? "one expense" : `${nf} expenses`;
-      if (!nf) return total > 0 ? `${fmt$(total)} owed to you now.` : "Nothing owed to you now.";
-      return (total > 0 ? `${fmt$(total)} owed to you now, and ${each}` : `Owed to you now: ${each}`)
-        + " in another currency, its dollars known when it is paid back.";
-    })() }),
-    owing ? h("div", { class: "list flat" }, rows) : laterRows(rows, `Show the last ${rows.length} paid back`));
-}
-function laterRows(rows, words) {
-  const ul = h("div", { class: "list flat" }, rows);
-  rows.forEach(r => { r.hidden = true; });
-  const more = h("button", { class: "row rowmore", type: "button" }, h("span", { class: "main" }, h("span", { class: "title link", text: words })));
-  more.addEventListener("click", () => { rows.forEach(r => { r.hidden = false; }); more.remove(); });
-  ul.append(more);
-  return ul;
+    const st = m.status === "late" && m.left_on ? ["not arrived", "overdue"] : m.status === "late" ? ["late", "overdue"]
+      : m.status === "left" ? ["on its way", ""] : !rule.owes(m) ? ["may not be owed", "warnword"] : null;
+    return h("div", Object.assign({ class: "row plain" }, rule.owes(m) ? { "data-owed": "1" } : {}),
+      h("span", { class: "main" }, h("span", { class: "title", text: capFirst(what) }),
+        h("span", { class: "meta" }, m.left_on ? `Paid ${monthDay(m.sent)}, paid back ${monthDay(m.left_on)}` : `Paid ${monthDay(m.sent)}`,
+          st ? " · " : null, st ? h("span", { class: st[1], text: st[0] }) : null)),
+      h("span", { class: "est-wrap" }, h("span", { class: "amt", text: amt }),
+        one || (!st && basisOf(m.label) === basisOf(weakest)) ? null : basisDot(m.label, [sentence(plainWords(m.note))])));
+  };
+  const whole = owed.length === 1 && !nf && Math.abs(money(owed[0].amount) - total) < 0.005;
+  const foot = !(total > 0) && !nf ? "" : whole ? ""
+    : nf ? (total > 0 ? `${fmt$(total)} owed to you now, and ${nf === 1 ? "one" : nf} in another currency.` : `Owed to you now: ${nf === 1 ? "one expense" : nf + " expenses"} in another currency.`)
+    : `${fmt$(total)} owed to you now.`;
+  const owesYou = owed.length || total > 0 || nf;
+  return h("section", { class: "card glass" },
+    h("div", { class: "ftop" }, h("h3", { text: owesYou ? "The corporation owes you" : "Not yet settled with the corporation" }),
+      basisDot(weakest, ["What you paid for the corporation yourself, from your receipts and the page, until the corporation's transfer that pays it back arrives in your chequing or the savings. It is due the day you paid.",
+                          "Not the shareholder loan on the balance sheet, which is a car allowance and the card's cash back.",
+                          nf ? "One in another currency has its dollars known when it is paid back." : "",
+                          one ? `${capFirst(plainWords(shown[0].note))}.` : ""])),
+    owed.length ? h("div", { class: "list flat owedrows" }, sorted(owed).map(rowOf)) : null,
+    foot ? h("p", { class: "foot", text: foot }) : null,
+    pending.length && owesYou ? h("div", { class: "owedsub", text: "Not yet settled" }) : null,
+    pending.length ? h("div", { class: "list flat owedrows" }, sorted(pending).map(rowOf)) : null);
 }
 
 function readingFlagCard(f) {
@@ -3743,33 +3739,34 @@ function salaryCard(sal, S) {
     expected ? `Expected for ${yr}: what is paid, and ${left} month${left === 1 ? "" : "s"} still to come${money(sal.monthly) > 0 ? ` at ${fmtWhole$(Math.round(money(sal.monthly)))}` : ""}, an estimate until they are paid.` : "",
     `${fmtWhole$(Math.round(target))} fills ${nextYr}'s RRSP room${sal.rrsp_limit ? " of " + fmtWhole$(Number(sal.rrsp_limit)) : ""} from your salary alone. The room is ${sal.rrsp_rate ? sal.rrsp_rate + "%" : "a share"} of ${yr}'s salary after your employment expenses; any consulting income adds room on top and never lowers the salary.`
     + (basisOf(sal.rrsp_target_basis) === "estimate" ? ` An estimate: it takes this year's employment expenses to be last year's.` : "")];
+  const paidTo = sal.last_pay ? `To ${MONTH_FULL[Number((sal.last_pay_month || sal.last_pay).slice(5, 7)) - 1]}'s pay, ${sal.last_pay > todayISO() ? "going out" : "paid"} ${monthDay(sal.last_pay)}` : `Paid to ${monthDay(sal.as_of)}`;
   let note = null;
-  if (paid >= target - 0.5) note = h("div", { class: "salnote ok" }, h("b", { text: "Reached. " }), `What has been paid already fills ${nextYr}'s RRSP room.`);
-  else if (expected !== null && short > 0.5) note = h("div", { class: "salnote short" }, h("b", { text: `${fmtWhole$(Math.round(short))} short. ` }),
-    `The payroll plan pays ${fmtWhole$(Math.round(expected))} this year.` + (sal.monthly_needed && span ? " Pay " : ""),
-    sal.monthly_needed && span ? h("b", { text: fmtWhole$(Number(sal.monthly_needed)) }) : null,
-    sal.monthly_needed && span ? ` a month for ${span}${money(sal.monthly) > 0 ? `, ${fmtWhole$(Number(sal.monthly_needed) - Math.round(money(sal.monthly)))} more than now,` : ","} and ${nextYr}'s RRSP room${room}.` : "");
-  else if (expected !== null) note = h("div", { class: "salnote ok" }, h("b", { text: "On target. " }),
-    `The payroll plan pays ${fmtWhole$(Math.round(expected))} this year` + (expected - target > 0.5 ? `, ${fmtWhole$(Math.round(expected - target))} more than ${nextYr}'s RRSP room needs.` : `, what ${nextYr}'s RRSP room needs.`));
+  if (paid >= target - 0.5) note = ["ok", `Fills ${nextYr}'s RRSP room`];
+  else if (expected !== null && short > 0.5) note = ["short", `${fmtWhole$(Math.round(short))} short of filling ${nextYr}'s RRSP room`];
+  else if (expected !== null) note = ["ok", `On track to fill ${nextYr}'s RRSP room`];
+  else note = ["", `The salary that fills ${nextYr}'s RRSP room`];
+  const rank = ["verified", "derived", "measured", "recorded", "estimate"];
+  const noteBasis = [sal.rrsp_target_basis, paid >= target - 0.5 || expected === null ? null : (sal.expected_basis || "estimate")]
+    .filter(Boolean).map(b => basisOf(b) || "estimate").sort((p2, q) => rank.indexOf(q) - rank.indexOf(p2))[0];
+  const noteEl = h("div", { class: "salnote" + (note[0] ? " " + note[0] : "") }, h("span", { text: note[1] }),
+    basisDot(noteBasis || "estimate", [why[1],expected !== null ? `The payroll plan pays ${fmtWhole$(Math.round(expected))} this year${short > 0.5 ? "" : expected - target > 0.5 ? `, ${fmtWhole$(Math.round(expected - target))} more than ${nextYr}'s RRSP room needs` : ""}.` : "",
+      short > 0.5 && sal.monthly_needed && span ? `Pay ${fmtWhole$(Number(sal.monthly_needed))}${left > 1 ? " a month" : ""} for ${span}${money(sal.monthly) > 0 ? `, ${fmtWhole$(Number(sal.monthly_needed) - Math.round(money(sal.monthly)))} more than now,` : ","} and ${nextYr}'s RRSP room${room}.` : "",
+      why[2]]));
   const D = (SNAP && SNAP.dividends) || {}, dp = D.paid || {};
-  const dYears = Object.keys(dp).filter(k => k < yr && money(dp[k])).sort().reverse().slice(0, 2);
   const dThis = money(dp[yr]) || 0, dn = D.next;
-  const divLine = (Object.keys(dp).length || dn) ? h("div", { class: "divrow", style: "display:flex;gap:6px;align-items:flex-start" }, h("div", { class: "salnote", style: "flex:1;min-width:0" }, h("b", { text: "Dividends: " }),
-
-    [dThis ? `${fmtWhole$(Math.round(dThis))} paid in ${yr}` : `none paid yet in ${yr}`,
-     dn && dn.date.slice(0, 4) === yr ? `one due ${monthDay(dn.date)}${dn.set ? `, ${fmtWhole$(Math.round(money(dn.amount)))}` : ", its amount not yet set"}` : "",
-     dYears.map(k => `${k}: ${fmtWhole$(Math.round(money(dp[k])))}`).join(" · ")].filter(Boolean).join("; ") + "."),
-    basisDot("recorded", [D.source ? plainSource(D.source) + "." : "", "An amount still to be set is not counted."])) : null;
+  const nextWords = dn ? `next due ${dn.date.slice(0, 4) === yr ? monthDay(dn.date) : prettyDates(dn.date)}${dn.set ? `, ${fmtWhole$(Math.round(money(dn.amount)))}` : ""}` : "";
+  const divBasis = dn && dn.set && basisOf(dn.label) === "estimate" ? "estimate" : "recorded";
+  const divLine = (Object.keys(dp).length || dn) ? h("div", { class: "divrow" }, h("span", {},
+    "Dividends: ", [dThis ? `${fmtWhole$(Math.round(dThis))} paid in ${yr}` : nextWords ? "" : `none paid yet in ${yr}`, nextWords].filter(Boolean).join("; ")),
+    basisDot(divBasis, [D.source ? plainSource(D.source) + "." : "", dn && !dn.set ? `The one due ${prettyDates(dn.date)} has no amount set yet.` : "",
+      ...Object.keys(dp).filter(k => k < yr && money(dp[k])).sort().reverse().map(k => `${k}: ${fmtWhole$(Math.round(money(dp[k])))}.`)])) : null;
   const card = h("div", { class: "fig hero glass tappable salcard" },
-    h("div", { class: "ftop" }, h("span", { class: "l", text: `Your pay, ${yr}` }), basisDot(sal.basis, why),
+    h("div", { class: "ftop" }, h("span", { class: "l", text: `Your pay, ${yr}` }), basisDot(sal.basis, [why[0], "Before tax and deductions."]),
       h("span", { class: "chev-go", "aria-hidden": "true" }, icon("chevR"))),
     h("div", { class: "salhead" }, h("span", { class: "v rounded", text: fmtWhole$(Math.round(paid)) }),
       h("span", { class: "salof" }, sal.last_pay > todayISO() ? "salary of " : "salary paid of ", h("b", { text: fmtWhole$(Math.round(target)) }))),
-    bar,
-    h("div", { class: "salends" }, h("span", { text: sal.last_pay ? `To ${MONTH_FULL[Number((sal.last_pay_month || sal.last_pay).slice(5, 7)) - 1]}'s pay, ${sal.last_pay > todayISO() ? "going out" : "paid"} ${monthDay(sal.last_pay)}` : `Paid to ${monthDay(sal.as_of)}` }),
-      h("span", {}, `${fmtWhole$(Math.round(target))} fills ${nextYr}'s RRSP room`, basisDot(sal.rrsp_target_basis, why.slice(2)))),
-    note, divLine,
-    h("span", { class: "fmeta" }, h("span", { class: "asof", text: "Before tax and deductions." })));
+    bar, noteEl, divLine,
+    h("span", { class: "fmeta" }, h("span", { class: "asof", text: paidTo })));
   tapArea(card, `Your salary, ${fmtWhole$(Math.round(paid))} ${sal.last_pay > todayISO() ? "with the pay going out" : "paid"} of ${fmtWhole$(Math.round(target))}. Open`, () => openTrendOf("salary"));
   return card;
 }
@@ -3779,8 +3776,8 @@ function summaryPersonal() {
   const g = h("div", { class: "figs" });
   const pmLast = (((S.personal_market || {}).points) || []).slice(-1)[0];
   const pmc = moneyCard({ worth: "personal_market", put: "put_in_personal", label: "Your registered accounts",
-                          nets: true,
-                          foot: (pmLast && !(S.personal_market || {}).about_now ? `At ${prettyDates(pmLast[0])}, from the statements. ` : "") + "Your TFSA, RRSP and FHSA. Not the car, and not cash." });
+                          nets: true, whyMore: ["Your TFSA, RRSP and FHSA. Not the car, and not cash."],
+                          foot: pmLast && !(S.personal_market || {}).about_now ? `At ${monthDay(pmLast[0])}, from the statements` : "" });
   if (pmc) g.append(pmc);
   const AN = (SNAP && SNAP.about_now) || {}, anA = AN.accounts || {};
   const aboutNow = !!(S.personal_market || {}).about_now && ACCOUNTS.every(([a]) => !regOf(a) || anA[a]);
@@ -3791,69 +3788,90 @@ function summaryPersonal() {
     const same = vals.every(x => x[2][0] === at);
     const y = SNAP.registered.year || new Date().getFullYear();   // the summary's year, not the phone's clock (P10, P2)
     const withRoom = vals.filter(([a]) => regOf(a) && regOf(a).room_this_year !== undefined && regOf(a).left !== undefined);
-    const roomBasis = withRoom.some(([a]) => leftBasis(regOf(a)) === "estimate") ? "estimate" : "recorded";
-    const head2 = h("div", { class: "regcols" }, h("span", { text: "Value" }),
-      h("span", {}, String(y), withRoom.length ? basisDot(roomBasis, [`What has gone into each account in ${y}, against its room for the year.`,
-        ...withRoom.map(([a, n]) => `${n}: ${roomWhy(regOf(a))[1]}`), roomWhy(regOf(withRoom[0][0]))[2]]) : null), h("span", {}));
-    const rows = h("div", { class: "list flat regrows" }, head2, vals.map(([a, n, v], i) => {
+    const rows = h("div", { class: "list flat regrows" }, vals.map(([a, n, v], i) => {
       const acct = regOf(a) || {}, hasRoom = acct.room_this_year !== undefined && acct.left !== undefined;
       const room = money(acct.room_this_year), put = money(acct.this_year), left = money(acct.left) || 0;
       return h("button", { class: "row regrow", type: "button", onclick: ev => { ev.stopPropagation(); openView({ type: "account", account: a }); } },
         h("span", { class: "main" }, h("span", { class: "regname" }, h("span", { class: "sw2 s" + i }), n),
-          h("span", { class: "regval rounded", text: fmtWhole$(Math.round(v[1])) })),
+          h("span", { class: "regval rounded" }, aboutNow && basisOf(v[2]) === "estimate" ? h("span", { class: "about", text: "~" }) : null, fmtWhole$(Math.round(v[1])))),
         hasRoom ? h("span", { class: "regyear" }, roomBar(put, room),
           h("span", { class: "small muted" }, left > 0.5 ? h("b", { text: `${fmtWhole$(Math.round(left))} left` }) : h("b", { class: "regfull", text: "Full" }),
-            left > 0.5 ? ` of ${fmtWhole$(Math.round(room))}` : ` · ${fmtWhole$(Math.round(put))} of ${fmtWhole$(Math.round(room))}`)) : h("span", {}),
+            ` for ${y}`)) : h("span", {}),
         icon("chevR"));
     }));
     const since = ACCOUNTS.reduce((s2, [a]) => s2 + (money((regOf(a) || {}).since_value) || 0), 0);
     const rank = ["verified", "derived", "measured", "recorded", "estimate"];
-    const weakestVal = vals.map(x => basisOf(x[2][2]) || "recorded").sort((p, q) => rank.indexOf(q) - rank.indexOf(p))[0];
+    const roomBasis = withRoom.some(([a]) => leftBasis(regOf(a)) === "estimate") ? "estimate" : "recorded";
+    const weakest = vals.map(x => basisOf(x[2][2]) || "recorded").concat(withRoom.length ? [roomBasis] : []).sort((p, q) => rank.indexOf(q) - rank.indexOf(p))[0];
     const anyReading = vals.some(x => basisOf(x[2][2]) !== "verified");
-    g.append(figCard({ label: "Your registered accounts", basis: weakestVal },
-      { hero: true, noValue: !!pmc && aboutNow, label: aboutNow ? "Each account, about now" : same ? `Each account, ${prettyDates(at)}` : "Each account, latest values", value: fmtWhole$(Math.round(total)), about: aboutNow,
-        why: aboutNow ? vals.map(([a, n]) => `${n}: ${anA[a].note}.`)
-           : [same ? `At ${prettyDates(at)}.` : "Each at its latest value: " + vals.map(([a, n, v]) => `${n} ${prettyDates(v[0])}`).join(", ") + ".",
-              "From each account's own Questrade statement, or a value you read off Questrade and sent from this page (Add › A reading)."],
-        body: h("div", {}, meter(vals.map(([a, n, v], i) => ({ value: v[1], cls: "s" + i, label: n }))), rows),
-        meta: [h("span", { class: "asof", text: (aboutNow ? (ACCOUNTS.some(([a2]) => (anA[a2] || {}).reading_time) ? `Questrade's own figures where it has read them since VEQT's last close; otherwise the statements, what you logged since, and VEQT's price. ` : `Including what you logged since the statements, and VEQT's price. `) : since > 0 ? `${fmtWhole$(Math.round(since))} more has gone in since ${anyReading ? "these values" : "the statements"}. `
-                                                   : since < 0 ? `${fmtWhole$(Math.round(-since))} more has come out than gone in since ${anyReading ? "these values" : "the statements"}. ` : "")
-                                                   + (withRoom.length ? `${y} is counted${tabTo ? " to " + monthDay(tabTo) : ""}, from your Registered Contributions tab${withRoom.some(([a]) => (regOf(a).waiting || []).length) ? " and this page" : ""}.` : "") })] }));
+    const why = aboutNow ? [(ACCOUNTS.some(([a2]) => (anA[a2] || {}).reading_time) ? "Questrade's own figures where it has read them since VEQT's last close; otherwise the statements, what you logged since, and VEQT's price." : "About now: the statements, what you logged since, and VEQT's price."),
+                            ...vals.map(([a, n]) => `${n}: ${anA[a].note}.`)]
+      : [same ? `At ${prettyDates(at)}.` : "Each at its latest value: " + vals.map(([a, n, v]) => `${n} ${prettyDates(v[0])}`).join(", ") + ".",
+         "From each account's own Questrade statement, or a value you read off Questrade and sent from this page (Add › A reading).",
+         since > 0 ? `${fmtWhole$(Math.round(since))} more has gone in since ${anyReading ? "these values" : "the statements"}.`
+           : since < 0 ? `${fmtWhole$(Math.round(-since))} more has come out than gone in since ${anyReading ? "these values" : "the statements"}.` : ""];
+    if (withRoom.length) why.push(`The bar is what has gone into each account in ${y}, against its room for the year, counted${tabTo ? " to " + prettyDates(tabTo) : ""} from your Registered Contributions tab${withRoom.some(([a]) => (regOf(a).waiting || []).length) ? " and this page" : ""}.`,
+      ...withRoom.map(([a, n]) => `${n}: ${roomWhy(regOf(a))[1]}`));
+    const name = aboutNow ? "Each account" : same ? `Each account, ${monthDay(at)}` : "Each account, latest values";
+    g.append(figCard({ label: name, basis: weakest },
+      { hero: true, noValue: !!pmc && aboutNow, label: name, value: fmtWhole$(Math.round(total)), about: aboutNow, why, body: rows }));
   }
   const flags = ((SNAP.registered || {}).reading_flags || []).map(readingFlagCard);
-  const owedCard = owedByCorpCard();
-  const cash = personalCashCard();
   let g2 = g;
-  if (cash || owedCard || flags.length) {
-    out.append(balance(g)); for (const f of flags) out.append(f);
-    if (cash) out.append(cash); if (owedCard && !owedCard.dataset.settled) out.append(owedCard); g2 = h("div", { class: "figs" });
-  }
+  if (flags.length) { out.append(balance(g)); for (const f of flags) out.append(f); g2 = h("div", { class: "figs" }); }
   const sal = ov("salary");
   if (sal && sal.rrsp_target) g2.append(salaryCard(sal, S));
   else if (sal) g2.append(figCard(sal, { label: sal.label.replace("Salary paid", "Your salary"), series: S.salary, onOpen: () => openTrendOf("salary"),
     meta: [h("span", { class: "asof", text: "Before tax and deductions" })] }));
+  for (const c of personalCashCards()) g2.append(c);
   const sp = ov("spending");
   const spendable = ((SNAP && SNAP.spending) || {}).months;
-  if (sp) g2.append(figCard(sp, { label: "Spending now, a month", onOpen: spendable ? () => openView({ type: "spending" }) : null,
-    meta: [h("span", { class: "asof", text: spendable ? "Where it goes, over the last twelve months" : "Recent months, now rent is gone" })] }));
+  if (sp) g2.append(figCard(sp, { label: "Spending", onOpen: spendable ? () => openView({ type: "spending" }) : null,
+    meta: [h("span", { class: "asof", text: "A month, lately" })] }));
   const car = vehicleCard(); if (car) g2.append(car);
   out.append(balance(g2));
-  const pols = ((SNAP && SNAP.policies) || {}).policies || [];
-  if (pols.length) {
-    const per = f => ({ monthly: "a month", quarterly: "a quarter", annual: "a year", yearly: "a year" })[f] || f;
-    out.append(h("section", { class: "section" }, h("h2", { text: "Insurance" }), h("div", { class: "list glass" }, ...pols.map(p => {
-      const none = /none/i.test(p.status), gap = /gap/i.test(p.status), held = /^in force/i.test(p.status);
-      return h("div", { class: "row plain" },
-        h("span", { class: "main" }, h("span", { class: "title", text: String(p.kind || "").replace(/^./, c => c.toUpperCase()) }),
-          h("span", { class: "meta", text: [p.insurer, money(p.premium) ? `${fmtWhole$(Math.round(money(p.premium)))} ${per(p.premium_frequency)}` : "",
-            p.payer === "maypc" ? "the corporation pays" : p.payer === "alvin" ? "you pay" : ""].filter(Boolean).join(" · ") })),
-        h("span", { class: "est-wrap" },
-          h("span", { class: "chip " + (held ? "green" : gap ? "orange" : "grey"), text: held ? "Held" : none ? (gap ? "None: a gap" : /unconfirmed/i.test(p.label) ? "None, not confirmed" : "None") : String(p.status).replace(/^./, c => c.toUpperCase()) }),
-          basisDot(p.label, [sentence(plainWords((/\((.*)\)\s*$/.exec(p.label || "") || [])[1] || "").replace(/\bAlvin has\b/g, "you have").replace(/\bAlvin's\b/g, "your").replace(/\bAlvin\b/g, "you"))])));
-    })), h("p", { class: "foot", text: "Every policy you hold, and the ones you do not, as your insurance record lists them. A change of insurer or premium is told to a session." })));
-  }
-  if (owedCard && owedCard.dataset.settled) out.append(owedCard);
+  const owedCard = owedByCorpCard();
+  if (owedCard) out.append(owedCard);
+  const ins = insuranceRow();
+  if (ins) out.append(ins);
   return out;
+}
+
+function policies() { return ((SNAP && SNAP.policies) || {}).policies || []; }
+const policyHeld = p => /^in force/i.test(p.status);
+const policyGap = p => /gap/i.test(p.status);
+function insuranceRow() {
+  const pols = policies();
+  if (!pols.length) return null;
+  const held = pols.filter(policyHeld).length, gaps = pols.filter(policyGap).length;
+  const ended = pols.filter(x => !policyHeld(x) && !/none/i.test(x.status) && !policyGap(x));
+  const warn = [gaps ? (gaps === 1 ? "1 gap" : `${gaps} gaps`) : "",
+                ended.length === 1 ? `1 ${String(ended[0].status).split(/[\s(,;]/)[0].toLowerCase()}` : ended.length ? `${ended.length} not in force` : ""].filter(Boolean).join(" · ");
+  return h("div", { class: "list glass" }, h("button", { class: "row plain", type: "button", onclick: () => openView({ type: "insurance" }) },
+    h("span", { class: "main" }, h("span", { class: "title", text: "Insurance" }),
+      h("span", { class: "meta" }, held ? `${held} held` : "None held", warn ? " · " : null, warn ? h("span", { class: "warnword", text: warn }) : null)),
+    h("span", { class: "trail" }, icon("chevR"))));
+}
+function renderInsurance() {
+  const p = h("div", { class: "page narrow" }), pols = policies();
+  p.append(head("Insurance"));
+  const per = f => ({ monthly: "a month", quarterly: "a quarter", annual: "a year", yearly: "a year" })[f] || f;
+  const said = x => sentence(plainWords((/\((.*)\)\s*$/.exec(x.label || "") || [])[1] || "").replace(/\bAlvin has\b/g, "you have").replace(/\bAlvin's\b/g, "your").replace(/\bAlvin\b/g, "you"));
+  const name = x => String(x.kind || "").replace(/^./, c => c.toUpperCase());
+  const row = (x, meta, chip, warn) => h("div", { class: "row plain" },
+    h("span", { class: "main" }, h("span", { class: "title", text: name(x) }), meta ? h("span", { class: "meta" + (warn ? " warnword" : ""), text: meta }) : null),
+    h("span", { class: "est-wrap" }, chip, basisDot(x.label, [x.insurer ? `${x.insurer}.` : "", said(x)])));
+  const heldRows = pols.filter(policyHeld).map(x => row(x, [String(x.insurer || "").replace(/\s*\(.*\)\s*$/, ""),
+    money(x.premium) ? `${fmtWhole$(Math.round(money(x.premium)))} ${per(x.premium_frequency)}` : "",
+    x.payer === "maypc" ? "the corporation pays" : x.payer === "alvin" ? "you pay" : ""].filter(Boolean).join(" · ")));
+  const notRows = pols.filter(x => !policyHeld(x)).map(x => row(x,
+    /none/i.test(x.status) ? (/unconfirmed/i.test(x.label) ? "Not confirmed" : "") : capFirst(prettyDates(String(x.status).replace(/\s*\(.*\)\s*$/, ""))),
+    policyGap(x) ? h("span", { class: "chip orange", text: "Gap" }) : null, !/none/i.test(x.status)));
+  if (heldRows.length) p.append(h("section", { class: "section" }, h("h2", { text: "Held" }), h("div", { class: "list glass" }, heldRows)));
+  if (notRows.length) p.append(h("section", { class: "section" }, h("h2", { text: "Not held" }), h("div", { class: "list glass" }, notRows)));
+  if (!pols.length) p.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "Not available yet." })));
+  p.append(h("p", { class: "foot", text: "As your insurance record lists them. Tell a session when an insurer or a premium changes." }));
+  return p;
 }
 
 function vehicleCard() {
@@ -3866,7 +3884,7 @@ function vehicleCard() {
     why: [`At ${prettyDates(last.date)}.`, `${plainSource(V.source)}.`, V.note],
     onOpen: () => openView({ type: "vehicle" }),
     meta: [h("span", { class: "asof", text: (V.held || []).length ? "A reading you sent looks mistyped: open to answer"
-      : y ? `${y.km.toLocaleString("en-CA")} km in ${y.year} · ${fmtWhole$(Math.round(money(V.spent)))} of upkeep so far` : `At ${prettyDates(last.date)}` })] });
+      : y ? `${y.km.toLocaleString("en-CA")} km in ${y.year}` : `At ${prettyDates(last.date)}` })] });
 }
 
 
