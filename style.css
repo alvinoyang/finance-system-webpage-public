@@ -3,6 +3,7 @@
 
 :root {
   --c0: #007AFF; --c1: #0E9F8A; --c2: #8E5BD9; --c3: #D6559A;
+  --r0: #0FA3B1; --r1: #007AFF; --r2: #7A8A1E; --r3: #7B3FB8; --r4: #8E2F4F;
   --ground: #EEF1F6; --seg-on: rgba(255, 255, 255, .95); --scrim: rgba(0, 0, 0, .28);
   --glow-1: rgba(96, 150, 255, .55); --glow-2: rgba(80, 215, 175, .50); --glow-3: rgba(190, 140, 255, .42);
   --glass: rgba(255, 255, 255, .62); --glass-strong: rgba(255, 255, 255, .82); --glass-bar: rgba(248, 250, 253, .72);
@@ -19,6 +20,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --c0: #0A84FF; --c1: #1FA38D; --c2: #A874F0; --c3: #E0518F;
+    --r0: #1C9EAA; --r1: #0A84FF; --r2: #8C9B2A; --r3: #9A62D6; --r4: #B4466B;
     --ground: #07090D; --seg-on: rgba(150, 150, 165, .62); --scrim: rgba(0, 0, 0, .58);
     --glow-1: rgba(40, 95, 220, .52); --glow-2: rgba(20, 140, 115, .44); --glow-3: rgba(120, 65, 205, .46);
     --glass: rgba(30, 34, 44, .46); --glass-strong: rgba(36, 40, 52, .86); --glass-bar: rgba(16, 18, 24, .70);
@@ -579,10 +581,17 @@ body.veiled .pullmenu, body.veiled .pullscrim { visibility: hidden; }
 .ring { position: relative; width: min(280px, calc(100% - 24px)); aspect-ratio: 1; margin: 6px auto 4px; }
 .ring svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .ring .arc { fill: none; stroke-linecap: butt; cursor: pointer; transition: opacity .2s; }
+.ring .arc.r0 { stroke: var(--r0); } .ring .arc.r1 { stroke: var(--r1); } .ring .arc.r2 { stroke: var(--r2); } .ring .arc.r3 { stroke: var(--r3); }
+.ring .arc.r4 { stroke: var(--r4); }
+.sw2.r0 { background: var(--r0); } .sw2.r1 { background: var(--r1); } .sw2.r2 { background: var(--r2); } .sw2.r3 { background: var(--r3); }
+.sw2.r4 { background: var(--r4); }
 .ring .arc.s0 { stroke: var(--c0); } .ring .arc.s1 { stroke: var(--c1); } .ring .arc.s2 { stroke: var(--c2); } .ring .arc.s3 { stroke: var(--c3); }
 .ring .arc.grey { stroke: var(--ink-3); } .ring .arc.todo { stroke: var(--orange); }
 .ring .arc.dim { opacity: .28; }
 .ring .mid { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none; }
+.ring .mid .fmeta { justify-content: center; text-align: center; }   /* the share, or "came back", under the figure */
+.ring .ringname { max-width: 170px; margin: 0 auto 2px; font-size: .9rem; font-weight: 600; color: var(--ink-2); line-height: 1.25;
+  overflow-wrap: break-word; }
 .ring .mid .v, .ringnone .v { font-size: 2.3rem; font-weight: 700; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
 .ringnone { padding: 18px 4px 8px; }
 .ringcard .ftop .l { font-size: .8125rem; font-weight: 600; color: var(--ink-2); }
