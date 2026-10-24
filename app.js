@@ -3370,7 +3370,7 @@ function ytdMore(m, y) {
   if (m === "personal spending" && ((SNAP && SNAP.spending) || {}).months) {
     const now = new Date(), here = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;   // this month on the phone's clock, not UTC's
     void here;
-    return ["What you spend", "The last twelve whole months, and where it goes: by category, by group and month by month.", "spending"];
+    return ["What you spend", "This year so far, January included, and where it goes: by category, by group and month by month.", "spending"];
   }
   const B = (SNAP && SNAP.saving) || {};
   if (m === "invested" && (B.years || []).length && B.life && B.life.pct !== undefined) {
@@ -3626,20 +3626,6 @@ function nowLine(nowRow, nowName, withPrice) {
       basisDot(nowRow.now_label, [nowRow.note + ".", withPrice ? "Carried at VEQT's latest price." : ""].filter(Boolean)))));
 }
 
-function personalCashCards() {
-  const C = (SNAP && SNAP.cash) || {}, out = [];
-  if (C.chequing) out.push(figCard({ label: "Your chequing", basis: C.chequing.label }, {
-    value: fmtWhole$(Math.round(money(C.chequing.balance))),
-    why: [`At its statement of ${prettyDates(C.chequing.date)}.`, "The closing balance on your chequing account's last statement, filed and read on the MacBook.", C.source ? `${plainSource(C.source)}.` : ""],
-    meta: [h("span", { class: "asof", text: `Statement of ${monthDay(C.chequing.date)}` })] }));
-  const act = (C.savings && C.savings.activity) || [];
-  if (C.savings) out.push(figCard({ label: "Joint savings", basis: C.savings.label }, {
-    value: fmtWhole$(Math.round(money(C.savings.balance))),
-    why: [`The account you share with Gloria, at ${prettyDates(C.savings.date)}, the last day on its list.`, "Worked out: every transaction on the bank's list for this account since it opened, added up. Each month's interest is checked against it, which a missing transaction would upset.",
-          act.length ? `Since it opened on ${prettyDates(C.savings.opened)}: ` + act.map(a => `${fmtWhole$(Math.round(Math.abs(money(a.amount))))} ${a.what}`).join(", ") + "." : ""],
-    meta: [h("span", { class: "asof", text: `At ${monthDay(C.savings.date)}` })] }));
-  return out;
-}
 
 function owedRule(all) {
   const legacy = !all.some(m => m.kind === "owed" && "owed_now" in m);
@@ -3823,7 +3809,6 @@ function summaryPersonal() {
   if (sal && sal.rrsp_target) g2.append(salaryCard(sal, S));
   else if (sal) g2.append(figCard(sal, { label: sal.label.replace("Salary paid", "Your salary"), series: S.salary, onOpen: () => openTrendOf("salary"),
     meta: [h("span", { class: "asof", text: "Before tax and deductions" })] }));
-  for (const c of personalCashCards()) g2.append(c);
   const sp = ov("spending");
   const spendable = ((SNAP && SNAP.spending) || {}).months;
   if (sp) g2.append(figCard(sp, { label: "Spending", onOpen: spendable ? () => openView({ type: "spending" }) : null,
@@ -4212,6 +4197,8 @@ function renderReturns() {
   return p;
 }
 
+const SPEND_DEFAULT = "this-year";
+function spendDefault(B) { return spendMonths(B, SPEND_DEFAULT).length ? SPEND_DEFAULT : "12m"; }
 const SPEND_SPANS = [["this-month", "This month so far", "This month"], ["3m", "Last 3 months", "3 months"], ["6m", "Last 6 months", "6 months"],
   ["12m", "Last 12 months", "12 months"], ["this-year", "This year", "This year"], ["last-year", "Last year", "Last year"], ["all", "All months", "All"]];
 const SPEND_GROUPS = ["Bills", "Everyday", "Irregular", "Retired", "To sort", "Savings and investing", "Work"];
@@ -4291,7 +4278,7 @@ function spendPulls(B, V, redraw, withScope) {
   const spans = [SPEND_SPANS.map(([v, w]) => [v, w]), (B.years || []).map(y => [y, y])].filter(g => g.length);
   const span = V.span, scope = V.scope;
   const spanShort = (SPEND_SPANS.find(x => x[0] === span) || [span, span, span])[2];
-  const line = h("div", { class: "pulls" }, pullDown(spanShort, spans, span, v => { V.span = v; redraw(); }, "Months", { active: span !== "12m" }));
+  const line = h("div", { class: "pulls" }, pullDown(spanShort, spans, span, v => { V.span = v; redraw(); }, "Months", { active: span !== spendDefault(B) }));
   if (withScope) {
     const groups = SPEND_GROUPS.filter(g => g !== "To sort" && g !== "Work" && (B.columns || []).some(c => spendGroupOf(c) === g));
     const sg = [[["burn", "Cost of living"], ["all", "Everything YNAB counts"]], groups.map(g => ["g:" + g, g])];
@@ -4302,7 +4289,7 @@ function spendPulls(B, V, redraw, withScope) {
 }
 function spendCheckChoices(B, V) {
   const said = [];
-  if (!spendSpanOk(B, V.span)) { V.span = "12m"; said.push("The months chosen are not in YNAB's figures any more, so the last 12 months are shown."); }
+  if (!spendSpanOk(B, V.span)) { V.span = spendDefault(B); said.push(`The months chosen are not in YNAB's figures any more, so ${V.span === SPEND_DEFAULT ? "this year so far is" : "the last 12 months are"} shown.`); }
   if (V.scope && V.scope.startsWith("c:") && !(B.columns || []).some(c => c.name === V.scope.slice(2))) {
     said.push(`${V.scope.slice(2)} is not one of YNAB's categories any more (renamed or removed there), so the cost of living is shown.`);
     V.scope = "burn";
@@ -4358,14 +4345,21 @@ function spendParts(B, months, scope, mode) {
   if (mode !== "groups") {
     const todo = out.filter(x => x.group === "To sort"), work = out.filter(x => x.group === "Work");
     const rest = out.filter(x => x.group !== "To sort" && x.group !== "Work");
-    named = rest.length <= 7 ? rest : rest.slice(0, 6);
-    fold = (rest.length <= 7 ? [] : rest.slice(6)).concat(work);
+    const keep = rest.length <= 5 ? rest.length : rest.length === 6 ? 4 : 5;
+    named = rest.slice(0, keep);
+    fold = rest.slice(keep).concat(work);
     if (fold.length === 1) { named = named.concat(fold); fold = []; }
     named = named.concat(todo).sort((a, b) => b.value - a.value || a.order - b.order);
   }
   const foldValue = Math.round(fold.reduce((a, x) => a + x.value, 0) * 100) / 100;
   const slices = named.map(x => ({ key: x.key, label: x.name, value: x.value, cls: x.cls })).concat(fold.length ? [{ key: "fold", label: "Everything else", value: foldValue, cls: "grey" }] : []);
   slices.sort((a, b) => b.value - a.value);
+  if (mode !== "groups") {
+    let k = 0;
+    const own = {};
+    for (const sl of slices) if (!["todo", "hatch", "grey"].includes(sl.cls)) { sl.cls = "r" + Math.min(k++, 4); own[sl.key] = sl.cls; }
+    for (const x of named) if (own[x.key]) x.cls = own[x.key];
+  }
   const went = Math.round(out.reduce((a, x) => a + x.value, 0) * 100) / 100, came = Math.round(-back.reduce((a, x) => a + x.value, 0) * 100) / 100;
   return { named, fold, foldValue, back, slices, went, came };
 }
@@ -4384,18 +4378,32 @@ function spendBreakdown(B, V, months, span, mode, opts) {
     return wrap;
   }
   const rows = {};
-  const pick = key => {
-    const row = rows[key], on = !!row && !row.classList.contains("on");
-    for (const [k, r] of Object.entries(rows)) { r.classList.toggle("on", on && k === key); r.classList.toggle("dim", on && k !== key); }
-    for (const a of card.querySelectorAll(".arc")) a.classList.toggle("dim", on && a.getAttribute("data-key") !== key);
-    if (on && row) { if (row.hidden && foldMore) foldMore.click(); row.scrollIntoView({ block: "nearest", behavior: motionOK() ? "smooth" : "auto" }); }
-  };
-  const net = T.total;
-  const centre = h("div", {}, h("div", { class: "v rounded", text: fmtWhole$(Math.round(Math.abs(net))) }), net < 0 ? h("div", { class: "fmeta", text: "came back" }) : null);
-  if (P.went > 0) card.append(donut(P.slices, centre, k => pick(k === "fold" ? "fold" : k)));
-  else card.append(h("div", { class: "ringnone" }, centre));
   const shares = spendShares(P.slices.map(s => s.value));
   const shareOf = Object.fromEntries(P.slices.map((s, i) => [s.key, [shares[i], s.value]]));
+  const net = T.total;
+  const centre = h("div", { class: "ringmid", "aria-live": "polite" });
+  const setCentre = key => {
+    clear(centre);
+    const sl = key && P.slices.find(x => x.key === key);
+    if (sl) centre.append(h("div", { class: "ringname", text: sl.label.replace(/\//g, "/\u200b") }), h("div", { class: "v rounded", text: fmtWhole$(Math.round(sl.value)) }),
+      h("div", { class: "fmeta", text: shareWords(...(shareOf[sl.key] || [0, 0])) }));
+    else {
+      centre.append(h("div", { class: "v rounded", text: fmtWhole$(Math.round(Math.abs(net))) }));
+      if (net < 0) centre.append(h("div", { class: "fmeta", text: "came back" }));   // append(null) writes "null"
+    }
+  };
+  setCentre(null);
+  let chosen = null;
+  const pick = key => {
+    const row = rows[key], on = chosen !== key;
+    chosen = on ? key : null;
+    for (const [k, r] of Object.entries(rows)) { r.classList.toggle("on", !!(on && row && k === key)); r.classList.toggle("dim", !!(on && row && k !== key)); }
+    for (const a of card.querySelectorAll(".arc")) a.classList.toggle("dim", on && a.getAttribute("data-key") !== key);
+    setCentre(chosen);
+    if (on && row) { if (row.hidden && foldMore) foldMore.click(); row.scrollIntoView({ block: "nearest", behavior: motionOK() ? "smooth" : "auto" }); }
+  };
+  if (P.went > 0) card.append(donut(P.slices, centre, k => pick(k === "fold" ? "fold" : k)));
+  else card.append(h("div", { class: "ringnone" }, centre));
   const list = h("div", { class: "list flat spendlist" });
   const rowOf = (x, foldSw) => {
     const sh = shareOf[x.key] || [Math.round(x.value / (P.went || 1) * 100), x.value];
@@ -4450,7 +4458,7 @@ function spendTotalMonth(B, month, scope) {
 }
 function openSpendCategory(B, V, name, span) {
   V.lastCat = name;
-  openView({ type: "category", key: name, months: /^\d{4}-\d{2}$/.test(span) ? (V.span || "12m") : span });
+  openView({ type: "category", key: name, months: /^\d{4}-\d{2}$/.test(span) ? (V.span || spendDefault(B)) : span });
 }
 function againstAverage(v, avg) {
   const d = v - avg;
@@ -4516,7 +4524,7 @@ function renderSpending() {
   p.append(head("What you spend", ""));
   if (!(B.months || []).length) { p.append(h("div", { class: "card glass" }, h("p", { class: "muted", text: "Not available yet." }))); return p; }
   const V = VIEW;
-  V.sview = V.sview || "categories"; V.span = V.span || "12m"; V.scope = V.scope || "burn";
+  V.sview = V.sview || "categories"; V.span = V.span || spendDefault(B); V.scope = V.scope || "burn";
   const holder = h("div", { class: "page" });
   const segs = segControl([["categories", "Categories"], ["groups", "Groups"], ["trends", "Trends"]], V.sview, v => { V.sview = v; draw(); }, "View");
   let pullsEl = h("div", { class: "pulls" });
@@ -4556,7 +4564,7 @@ function renderCategory() {
   const c = (B.columns || []).find(x => x.name === V.key);
   if (!c) { p.append(head(V.key || "A category", ""), h("div", { class: "card glass" }, h("p", { class: "muted", text: "This category is not in YNAB's figures any more." }))); return p; }
   p.append(head(c.name, spendGroupOf(c) === "Savings and investing" ? "Savings and investing" : spendGroupOf(c)));
-  V.months = spendSpanOk(B, V.months || "12m") ? V.months || "12m" : "12m";
+  V.months = V.months && spendSpanOk(B, V.months) ? V.months : spendDefault(B);
   V.span = V.months; V.scope = "c:" + c.name;
   const holder = h("div", { class: "page" });
   const draw = () => {
