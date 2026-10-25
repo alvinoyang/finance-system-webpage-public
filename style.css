@@ -162,8 +162,12 @@ body.in-form main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 .head-gear svg { width: 23px; height: 23px; }
 .head-hide { width: 40px; height: 40px; }
 .hide-btn { color: var(--ink-3); }
-.hide-btn[aria-pressed="true"] { color: var(--accent); }
+.hide-btn[data-mode="hidden"] { color: var(--accent); }
 .hide-btn svg { width: 23px; height: 23px; }
+.lock .lock-amounts { position: absolute; top: max(12px, env(safe-area-inset-top)); right: 12px; width: auto; height: auto; min-height: 44px;
+  display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px 8px 11px; border-radius: 999px; font: inherit; font-size: .88rem; }
+.lock .lock-amounts svg { width: 21px; height: 21px; }
+.lock .lock-amounts span { color: var(--ink-2); }
 @media (max-width: 359px) {
   .head .head-sync .sync-t { display: none; }
   .head .head-sync { padding-left: 10px; padding-right: 10px; gap: 0; overflow: visible; }
