@@ -4400,7 +4400,7 @@ function spendBreakdown(B, V, months, span, mode, opts) {
     for (const [k, r] of Object.entries(rows)) { r.classList.toggle("on", !!(on && row && k === key)); r.classList.toggle("dim", !!(on && row && k !== key)); }
     for (const a of card.querySelectorAll(".arc")) a.classList.toggle("dim", on && a.getAttribute("data-key") !== key);
     setCentre(chosen);
-    if (on && row) { if (row.hidden && foldMore) foldMore.click(); row.scrollIntoView({ block: "nearest", behavior: motionOK() ? "smooth" : "auto" }); }
+    if (on && row && row.hidden && foldMore) foldMore.click();
   };
   if (P.went > 0) card.append(donut(P.slices, centre, k => pick(k === "fold" ? "fold" : k)));
   else card.append(h("div", { class: "ringnone" }, centre));
