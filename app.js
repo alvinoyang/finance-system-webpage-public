@@ -3725,7 +3725,6 @@ function salaryCard(sal, S) {
     expected ? `Expected for ${yr}: what is paid, and ${left} month${left === 1 ? "" : "s"} still to come${money(sal.monthly) > 0 ? ` at ${fmtWhole$(Math.round(money(sal.monthly)))}` : ""}, an estimate until they are paid.` : "",
     `${fmtWhole$(Math.round(target))} fills ${nextYr}'s RRSP room${sal.rrsp_limit ? " of " + fmtWhole$(Number(sal.rrsp_limit)) : ""} from your salary alone. The room is ${sal.rrsp_rate ? sal.rrsp_rate + "%" : "a share"} of ${yr}'s salary after your employment expenses; any consulting income adds room on top and never lowers the salary.`
     + (basisOf(sal.rrsp_target_basis) === "estimate" ? ` An estimate: it takes this year's employment expenses to be last year's.` : "")];
-  const paidTo = sal.last_pay ? `To ${MONTH_FULL[Number((sal.last_pay_month || sal.last_pay).slice(5, 7)) - 1]}'s pay, ${sal.last_pay > todayISO() ? "going out" : "paid"} ${monthDay(sal.last_pay)}` : `Paid to ${monthDay(sal.as_of)}`;
   let note = null;
   if (paid >= target - 0.5) note = ["ok", `Fills ${nextYr}'s RRSP room`];
   else if (expected !== null && short > 0.5) note = ["short", `${fmtWhole$(Math.round(short))} short of filling ${nextYr}'s RRSP room`];
@@ -3752,7 +3751,7 @@ function salaryCard(sal, S) {
     h("div", { class: "salhead" }, h("span", { class: "v rounded", text: fmtWhole$(Math.round(paid)) }),
       h("span", { class: "salof" }, sal.last_pay > todayISO() ? "salary of " : "salary paid of ", h("b", { text: fmtWhole$(Math.round(target)) }))),
     bar, noteEl, divLine,
-    h("span", { class: "fmeta" }, h("span", { class: "asof", text: paidTo })));
+    null);
   tapArea(card, `Your salary, ${fmtWhole$(Math.round(paid))} ${sal.last_pay > todayISO() ? "with the pay going out" : "paid"} of ${fmtWhole$(Math.round(target))}. Open`, () => openTrendOf("salary"));
   return card;
 }
@@ -3914,7 +3913,8 @@ function cardLead(it) {
     if (it.status === "DONE") return "Its welcome bonus is earned.";
     if (it.status === "MISSED") return `Its ${$(it.need)} was not spent in time.`;
     if (toGo <= 0) return "The spending is done; waiting for the points.";
-    return `${$(toGo)} still to spend${it.due ? " by " + monthDay(it.due) : ""}.`;
+    const more = Math.min(Math.max(0, Number(it.planned || 0) - Number(it.spent || 0)), toGo);
+    return `${$(it.spent || 0)} of ${$(it.need)}${it.due ? " by " + monthDay(it.due) : ""}` + (more >= 0.5 ? `, ${$(more)} more planned.` : ".");
   }
   if (it.item === "close-by") {
     if (it.due && it.due < todayISO()) return `That day passed on ${monthDay(it.due)}.`;
@@ -3933,7 +3933,7 @@ function cardLead(it) {
   const m = /^[\s\S]*?\.(?=\s|$)/.exec(String(it.note || ""));
   return m ? m[0] : String(it.note || "");
 }
-function spendBar(it) {
+function spendBar(it, bare) {
   const need = Number(it.need), spent = Number(it.spent || 0), planned = Number(it.planned || 0);
   if (!need) return null;
   const room = Math.max(0, need - spent);
@@ -3941,6 +3941,7 @@ function spendBar(it) {
   const bar = meter([{ value: spent, cls: "s0", label: "Charged so far" },
                      { value: extra, cls: "s1 planned", label: "Planned, not yet charged" }], need);
   const money$ = v => fmtWhole$(Math.round(v));
+  if (bare) return h("div", { class: "spendbar" }, bar);
   return h("div", { class: "spendbar" }, bar,
     h("div", { class: "legend3" },
       h("span", {}, h("span", { class: "sw2 s0" }), "Charged ", h("b", { text: money$(spent) })),
@@ -3982,7 +3983,7 @@ function summaryCards() {
                                               "Worked out on the MacBook, from what you have typed and the issuers' own pages."]),
         h("span", { class: "chev-go", "aria-hidden": "true" }, icon("chevR"))),
       h("div", { class: "cardline" }, cardChip(it ? it.status : c.status, it ? it.item : ""), h("span", { class: "clead", text: cardLead(it) })));
-    if (ms) sec.append(spendBar(ms));
+    if (ms) sec.append(spendBar(ms, true));
     return tapArea(sec, `${c.name}. Open`, () => openView({ type: "card", card: c.id, title: c.name }));
   };
   out.append(h("section", { class: "section" }, h("h2", { text: "Your cards" }),
