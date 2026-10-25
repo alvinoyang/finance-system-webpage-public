@@ -818,13 +818,13 @@ details.billing > .fields > .foot { padding: 0; }
 .meter.salbar .mseg.s0.planned { background: repeating-linear-gradient(115deg, var(--c0) 0 5px, transparent 5px 10px), var(--fill); opacity: .75; }
 .meter.salbar .mseg.gap { background: var(--orange); }
 .salnote { display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  border-radius: 12px; padding: 8px 12px; font-size: .84rem; font-weight: 600; line-height: 1.3; }
-.salnote:not(.ok):not(.short) { padding-left: 0; font-weight: 500; color: var(--ink-2); }
+  padding: 2px 0 0; font-size: .84rem; font-weight: 600; line-height: 1.3; }
+.salnote:not(.ok):not(.short) { font-weight: 500; color: var(--ink-2); }
 .salnote .bdot, .divrow .bdot { margin: -9px -8px -9px 0; flex: none; }
-.divrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .84rem; color: var(--ink-2);
-  padding-right: 12px; }   /* its dot under the plan line's, which sits inside the band's padding */
-.salnote.short { background: var(--orange-soft); }
-.salnote.ok { background: var(--green-soft); }
+.divrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .84rem; color: var(--ink-2); }
+.salnote.short { color: #8A5200; }   /* the chips' own orange and green for words, 4.5:1 on the light glass */
+.salnote.ok { color: hsl(125 70% 29%); }
+@media (prefers-color-scheme: dark) { .salnote.short { color: var(--orange); } .salnote.ok { color: hsl(120 72% 52%); } }
 .roomcard { gap: 12px; }
 .legend3 { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .9rem; color: var(--ink); }
 .legend3 > span { display: inline-flex; align-items: center; gap: 6px; }
