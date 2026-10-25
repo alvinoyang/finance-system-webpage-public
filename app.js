@@ -3336,7 +3336,7 @@ function summaryTotal() {
     basis: (S.net_worth || {}).basis,
     why: householdWhy(n).concat(n.hsince ? [n.hsince > 0 ? `Includes ${fmtWhole$(Math.round(n.hsince))} put in since ${prettyDates(n.from)}, which no statement covers yet.`
                                                       : `Includes ${fmtWhole$(Math.round(-n.hsince))} taken out since ${prettyDates(n.from)}, net, which no statement covers yet.`] : []),
-    foot: "The corporation whole, your TFSA, RRSP and FHSA, your chequing, the joint savings, less your cards. Not the car or the condo.",
+    foot: "The corporation whole, your TFSA, RRSP and FHSA, your chequing, the joint savings, less your cards. " + (demoShown() ? "Not the car." : "Not the car or the condo."),
     onOpen: () => openView({ type: "networth" }),
     change: up !== null ? changeWords(up, nw.date) : null });
   if (tmc) g.append(tmc);
@@ -4829,7 +4829,7 @@ function renderNetWorth() {
     });
     holder.append(h("section", { class: "section" }, h("h2", { text: "Each month end" }), h("div", { class: "list glass" }, rows)));
     holder.append(h("p", { class: "foot", text: [
-      view === "everything" ? "The corporation whole, your TFSA, RRSP and FHSA, your chequing, the joint savings and your personal cards. Not the car or the condo." : "",
+      view === "everything" ? "The corporation whole, your TFSA, RRSP and FHSA, your chequing, the joint savings and your personal cards. " + (demoShown() ? "Not the car." : "Not the car or the condo.") : "",
       "The change counts from the month end before the months shown; YNAB counts from the first month in them.",
       endPt.pt.cards_note && (view === "everything" || view === "cash") ? sentence(endPt.pt.cards_note) : ""].filter(Boolean).join(" ") }));
   };
