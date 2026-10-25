@@ -100,7 +100,7 @@ function hasVault() { return !!rawGet("vault"); }
 function eraseDevice() {
   GEN++; VGEN++; SEAL_NEXT = null;
   if (typeof dropNeighbours === "function") dropNeighbours();
-  MEM = null; VKEY = null; VMETA = null; SNAP = null; SCHEMA = null;
+  MEM = null; VKEY = null; VMETA = null; SNAP = null; MY_SNAP = null; SCHEMA = null;
   persisting.then(() => dropAll());
   dropAll();
 }
@@ -179,6 +179,8 @@ const ICONS = {
   refresh: [["path", { d: "M19 12a7 7 0 1 1-2.05-4.95", "stroke-width": 2.2 }], ["path", { d: "M19.5 4.5v4h-4", "stroke-width": 2.2 }]],
   eye: [["path", { d: "M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z" }], ["circle", { cx: 12, cy: 12, r: 3 }]],
   eyeOff: [["path", { d: "M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z" }], ["circle", { cx: 12, cy: 12, r: 3 }], ["path", { d: "M4 4l16 16", "stroke-width": 2.2 }]],
+  mask: [["path", { d: "M3 9.2C3 8 4 7 5.2 7h13.6C20 7 21 8 21 9.2v1.3c0 3.3-2.5 5.8-5.6 5.8-1.8 0-2.7-1.2-3.4-2.4-.7 1.2-1.6 2.4-3.4 2.4C5.5 16.3 3 13.8 3 10.5z" }],
+         ["ellipse", { cx: 8.2, cy: 10.8, rx: 1.9, ry: 1.3 }], ["ellipse", { cx: 15.8, cy: 10.8, rx: 1.9, ry: 1.3 }]],
 };
 function icon(name) {
   const NS = "http://www.w3.org/2000/svg";
@@ -362,12 +364,15 @@ async function refresh() {
     ]);
     const issues = await gh(repo() + "/issues?state=open&per_page=100").then(r => r.json()).catch(e => e);
     if (gen !== GEN || !MEM) return;                // locked while the answer was on its way
-    const was = { snap: SNAP, schema: SCHEMA, waiting: load("waiting", 0), net: NET };
+    const was = { snap: MY_SNAP, schema: SCHEMA, waiting: load("waiting", 0), net: NET };
     const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
     const bare = x => x ? Object.assign({}, x, { checked_at: "" }) : x;
     let redraw = false;
     const staleOf = x => !!(x && hoursSince(x.checked_at) > STALE_HOURS);
-    if (s && s.format === "finance-system-webpage-summary" && !same(s, SNAP)) { redraw = !same(bare(s), bare(SNAP)) || staleOf(s) !== staleOf(SNAP); SNAP = s; save("snap", s); }
+    if (s && s.format === "finance-system-webpage-summary" && !same(s, MY_SNAP)) {
+      redraw = !demoShown() && (!same(bare(s), bare(MY_SNAP)) || staleOf(s) !== staleOf(MY_SNAP));
+      MY_SNAP = s; save("snap", s); SNAP = shownSnap();
+    }
     if (f && f.forms && !same(f, SCHEMA)) { SCHEMA = f; save("schema", f); redraw = true; }
     if (issues instanceof Error || !Array.isArray(issues)) {
       const e = issues instanceof Error ? issues : new PageError("error", "GitHub is not answering just now. Try again in a few minutes.");
@@ -427,7 +432,13 @@ function privateIn(fields, formFields) {
   return "";
 }
 const PRIVATE_MSG = "Something typed looks like a SIN, a card, an account or a phone number. Take it out before sending: the last four digits are enough to name an account";
+function demoBlocks() {
+  if (!demoShown()) return false;
+  toast("This is the example household, so nothing is sent. Set the eye to Real to send it.");
+  return true;
+}
 function submit(kind, fields, corrects, said) {
+  if (demoBlocks()) return null;
   const entry = { format: MARKER, id: newId(), kind, typed_at: typedAt(), device: device(), fields };
   if (corrects) entry.corrects = corrects;
   const box = load("outbox", []);
@@ -631,7 +642,15 @@ function foldProse(root) {
     run[0].after(show);
   }
 }
-let HIDE = (() => { try { return JSON.parse(rawGet("hideamounts")) === true; } catch (e) { return false; } })();
+const AMOUNT_MODES = ["real", "fake", "hidden"];
+const AMOUNT_WORDS = { real: "Real", fake: "Made up", hidden: "Hidden" };
+let AMOUNTS = (() => {
+  try {
+    const m = JSON.parse(rawGet("amounts"));
+    if (AMOUNT_MODES.includes(m)) return m;
+    return JSON.parse(rawGet("hideamounts")) === true ? "hidden" : "real";
+  } catch (e) { return "real"; }
+})();
 let MONEY_RE_ = null;
 function moneyRe() {
   if (MONEY_RE_) return MONEY_RE_;
@@ -650,6 +669,7 @@ const masked = v => {
   const out = v.replace(moneyRe(), MASK).replace(UNITS_RE, BARE_MASK).replace(VALUE_RE, "$1" + MASK).replace(BARE_RE, BARE_MASK);
   return out === v ? null : out;
 };
+const maskOn = () => AMOUNTS === "hidden" || (AMOUNTS === "fake" && !DEMO);
 const outside = el => !el || (el.closest && el.closest("script, style, #lock, [contenteditable]"));
 function maskText(node) {
   const v = node.nodeValue, kept = UNMASKED.get(node);
@@ -667,8 +687,11 @@ function maskAttrs(el) {
     if (m) { o[a] = v; UNMASKED.set(el, o); el.setAttribute(a, m); }
     else if (o[a] !== undefined) delete o[a];
   }
-  if (el.dataset && el.dataset.hide !== undefined && el.textContent !== el.dataset.hide) {
-    const o = UNMASKED.get(el) || {}; o.__text = el.textContent; UNMASKED.set(el, o); el.textContent = el.dataset.hide;
+  if (el.dataset && el.dataset.hide !== undefined) {
+    const o = UNMASKED.get(el) || {}, t = el.textContent;
+    if (o.__text !== undefined && t === el.dataset.hide) return;
+    if (el.dataset.hide !== t) { o.__text = t; UNMASKED.set(el, o); el.textContent = el.dataset.hide; }
+    else if (o.__text !== undefined) delete o.__text;    // the page's own new words, with nothing to hide
   }
 }
 function maskMoney(root) {
@@ -692,7 +715,7 @@ function unmaskMoney(root) {
   for (let n = w.nextNode(); n; n = w.nextNode()) if (UNMASKED.has(n)) { n.nodeValue = UNMASKED.get(n); UNMASKED.delete(n); }
 }
 new MutationObserver(recs => {
-  if (!HIDE) return;
+  if (!maskOn()) return;
   for (const r of recs) {
     if (r.type === "characterData") {
       maskText(r.target);
@@ -706,22 +729,87 @@ new MutationObserver(recs => {
     }
   }
 }).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: MASK_ATTRS });
-function hideButton(cls) {
-  const b = h("button", { class: "icon-btn hide-btn" + (cls ? " " + cls : ""), type: "button", "aria-pressed": String(HIDE),
-                          "aria-label": "Hide the amounts" }, icon(HIDE ? "eyeOff" : "eye"));
-  b.addEventListener("click", () => setHide(!HIDE));
+const AMOUNT_ICONS = { real: "eye", fake: "mask", hidden: "eyeOff" };
+function hideButton(cls, worded) {
+  const b = h("button", { class: "icon-btn hide-btn" + (cls ? " " + cls : "") + (worded ? " worded" : ""), type: "button" });
+  paintHideButton(b);
+  b.addEventListener("click", () => {
+    setAmounts(AMOUNT_MODES[(AMOUNT_MODES.indexOf(AMOUNTS) + 1) % AMOUNT_MODES.length]);
+    if (worded) b.blur();
+  });
   return b;
 }
-function setHide(on) {
-  HIDE = !!on;
-  save("hideamounts", HIDE);
-  for (const b of document.querySelectorAll(".hide-btn")) {
-    clear(b).append(icon(HIDE ? "eyeOff" : "eye"));
-    b.setAttribute("aria-pressed", String(HIDE));
-  }
+function paintHideButton(b) {
+  const word = AMOUNT_WORDS[AMOUNTS];
+  clear(b).append(icon(AMOUNT_ICONS[AMOUNTS]));
+  if (b.classList.contains("worded")) b.append(h("span", { text: word }));
+  b.dataset.mode = AMOUNTS;
+  b.setAttribute("aria-label", "Amounts: " + word);
+  b.title = "Amounts: " + word;
+}
+function setAmounts(mode) {
+  if (!AMOUNT_MODES.includes(mode)) mode = "real";
+  const wasDemo = demoShown();
+  if (maskOn()) unmaskMoney(document.body);
+  AMOUNTS = mode;
+  save("amounts", AMOUNTS);
+  rawDrop("hideamounts");
+  for (const b of document.querySelectorAll(".hide-btn")) paintHideButton(b);
   closePop();
-  if (HIDE) maskMoney(document.body);
-  else unmaskMoney(document.body);
+  if (mode === "fake" && !DEMO) loadDemo();
+  if (demoShown() !== wasDemo) swapSnap();
+  if (maskOn()) maskMoney(document.body);
+}
+
+
+let MY_SNAP = null, DEMO = null, DEMO_FOR = { day: "", snap: null };
+function demoShown() { return AMOUNTS === "fake" && !!DEMO; }
+function shownSnap() { return MEM && demoShown() ? demoSnap() : MY_SNAP; }
+function swapSnap() {
+  SNAP = shownSnap();
+  if (!MEM || lockShowing()) return;
+  dropNeighbours();
+  historyBack(STACK.length + (VIEW ? 1 : 0));
+  VIEW = null; STACK = [];
+  render();
+}
+function loadDemo() {
+  if (DEMO || loadDemo.p) return loadDemo.p;
+  loadDemo.p = fetch("demo-summary.json", { cache: "no-cache" }).then(r => r.ok ? r.json() : null).then(j => {
+    if (!j || j.format !== "finance-system-webpage-summary" || !/^\d{4}-\d{2}-\d{2}$/.test(j.anchor || "")) return;
+    if (AMOUNTS === "fake") unmaskMoney(document.body);
+    DEMO = j;
+    if (AMOUNTS === "fake") swapSnap();
+  }).catch(() => { /* Made up stays masked: maskOn */ }).finally(() => { loadDemo.p = null; });
+  return loadDemo.p;
+}
+function demoSnap() {
+  const day = todayISO();
+  if (DEMO_FOR.day !== day) {
+    const snap = movedTo(DEMO, DEMO.anchor, day);
+    delete snap.anchor;
+    for (const k of ["checked_at", "written_at"]) Object.defineProperty(snap, k, { enumerable: true, get: () => new Date(Date.now() - 60000).toISOString() });
+    DEMO_FOR = { day, snap };
+  }
+  return DEMO_FOR.snap;
+}
+function movedTo(x, anchor, day) {
+  const days = Math.round((Date.parse(day + "T12:00:00") - Date.parse(anchor + "T12:00:00")) / 864e5);
+  const to = plusDays(anchor, days), mIdx = d => Number(d.slice(0, 4)) * 12 + Number(d.slice(5, 7)) - 1;
+  const months = mIdx(to) - mIdx(anchor), years = Number(to.slice(0, 4)) - Number(anchor.slice(0, 4));
+  const lastOf = (y, m) => new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  const moveDay = (y, m, d) => {
+    const out = plusDays(`${y}-${m}-${d}`, days);
+    if (Number(d) !== lastOf(Number(y), Number(m) - 1)) return out;
+    return out.slice(0, 8) + String(lastOf(Number(out.slice(0, 4)), Number(out.slice(5, 7)) - 1)).padStart(2, "0");
+  };
+  const moveMonth = (y, m) => { const i = Number(y) * 12 + Number(m) - 1 + months; return `${Math.floor(i / 12)}-${String(i % 12 + 1).padStart(2, "0")}`; };
+  const move = s => /^20\d\d$/.test(s) ? String(Number(s) + years)
+    : s.replace(/\b(20\d\d)-(\d\d)(?:-(\d\d))?(?!\d)/g, (m, y, mo, d) => d ? moveDay(y, mo, d) : moveMonth(y, mo));
+  const walk = v => Array.isArray(v) ? v.map(walk)
+    : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, w]) => [move(k), walk(w)]))
+    : typeof v === "string" ? move(v) : v;
+  return walk(x);
 }
 
 let FOLD_RAF = 0;
@@ -1408,7 +1496,7 @@ function renderSitting() {
   }
   const mine = h("div", { class: "visit glass" }, h("div", { class: "items" }));
   if (pd.savings_plan && pd.savings_plan.amount) mine.querySelector(".items").append((h("div", { class: "item" },
-    h("span", { class: "what" }, h("span", { text: "To savings with Gloria" }),
+    h("span", { class: "what" }, h("span", { text: demoShown() ? "To joint savings" : "To savings with Gloria" }),
       h("span", { class: "how", text: pd.savings_plan.skip ? `Not this month: ${pd.savings_plan.skip.replace(/^./, c => c.toLowerCase())} (your calendar); the form starts it at nothing` : "A transfer; clear it on the form if not sent" })),
     pd.savings_plan.skip ? h("span", { class: "onscreen", text: "skip" }) : h("span", { class: "amt num" }, h("span", { text: fmt$(pd.savings_plan.amount) })))));
   investRows(pd, mine.querySelector(".items"), mine);
@@ -1601,6 +1689,7 @@ function receiptRow(q, from, redraw) {
     h("span", { class: "main" }, h("span", { class: "title", text: r.what }), h("span", { class: "meta", text: r.problem }),
       keep ? h("button", { class: "btn small gray keep", type: "button", onclick: () => {
         const entry = keepWithout(q);
+        if (!entry) return;
         row.replaceWith(h("div", { class: "row kept" }, leaf(),
           h("span", { class: "main" }, h("span", { class: "title", text: "Kept without a receipt" }), h("span", { class: "meta", text: `${r.what}, ${r.amount}` })),
           h("button", { class: "link", type: "button", onclick: () => { submit("withdraw", {}, entry.id, "Back on your list. Sending…"); redraw(); } }, "Undo")));
@@ -1747,10 +1836,11 @@ function recentSection() {
                   h("span", { class: "chip " + (chipColor || ""), text: chip })];
     return onTap ? h("button", { class: "row recent", type: "button", onclick: onTap }, kids[0], kids[1], icon("chevR")) : h("div", { class: "row plain" }, ...kids);
   };
-  for (const e of load("outbox", [])) { seen.add(e.id); ul.append(row(summaryOf(e), "On this device", "Not sent", "orange")); }
+  const mine = demoShown() ? [] : null;
+  for (const e of mine || load("outbox", [])) { seen.add(e.id); ul.append(row(summaryOf(e), "On this device", "Not sent", "orange")); }
   const collected = (SNAP && SNAP.recent) || [];
   const collectedIds = new Set(collected.map(r => r.id));
-  for (const x of load("sent", []).slice(0, 10)) {
+  for (const x of (mine || load("sent", [])).slice(0, 10)) {
     if (seen.has(x.entry.id) || collectedIds.has(x.entry.id)) continue;
     seen.add(x.entry.id);
     ul.append(row(summaryOf(x.entry), "Sent " + ago(x.sent_at), "Waiting for MacBook", "blue"));
@@ -1829,7 +1919,7 @@ const LAYOUT = {
     { h: "Then", keys: [["balance"]] },
     { sweep: true },
     { keys: [["sweep"]] },
-    { h: "From your own chequing", foot: "The month's transfer to the savings account you share with Gloria.", keys: [["savings"]] },
+    { h: "From your own chequing", foot: demoShown() ? "The month's transfer to the joint savings account." : "The month's transfer to the savings account you share with Gloria.", keys: [["savings"]] },
     { keys: [["note"]] },
   ],
   answer: [{ keys: [["question"]] }, { keys: [["answer"]] }],
@@ -2285,6 +2375,7 @@ function buildForm(f) {
       const c = collect();
       for (const k of ["paid", "amounts", "estimated"]) { if (c[k]) fields[k] = c[k]; else delete fields[k]; }
     }
+    if (demoBlocks()) return;
     sentAlready = true; clearTimeout(draftTimer);
     DRAFT_NOW = null;
     const d = load("drafts", {}); delete d[dkey]; save("drafts", d);
@@ -2768,6 +2859,7 @@ function buildShiftForm(f) {
       window.scrollTo({ top: 0, behavior: motionOK() ? "smooth" : "auto" });
       return;
     }
+    if (demoBlocks()) return;
     sent = true; clearTimeout(draftTimer); DRAFT_NOW = null;
     const d = drafts(); delete d[dkey]; save("drafts", d);
     submit("shift", fields, VIEW.corrects);
@@ -3280,7 +3372,8 @@ function summaryTotal() {
           h("span", { class: "main" }, h("span", { class: "title", text: "Cash, less cards" }), h("span", { class: "meta", text: `${pct(n.cash)} · ${monthDay(n.cashFrom || n.date)}` })),
           h("span", { class: "amt", text: (n.cash < 0 ? "−" : "") + fmtWhole$(Math.round(Math.abs(n.cash))) }),
           basisDot(n.cashBasis || "recorded", [n.cashNote ? sentence(plainWords(n.cashNote)) : `At ${prettyDates(n.cashFrom || n.date)}.`,
-            "Your chequing from its statements, the joint savings from the bank's list, counted whole, less what your personal cards owed: the MBNA from its statements, the others from YNAB."])),
+            "Your chequing from its statements, the joint savings from the bank's list, counted whole, less what your personal cards owed" +
+              (demoShown() ? "." : ": the MBNA from its statements, the others from YNAB.")])),
           `Cash, less cards, ${fmtWhole$(Math.round(n.cash))}. Show in detail`, () => openView({ type: "networth", view: "cash" })) : null)),
       h("p", { class: "foot", text: "Choose either line to see it in detail." })));
   { const y = ytdCard(); if (y) out.append(y); }
@@ -4614,6 +4707,9 @@ const NW_PART_WHY = {
   joint_savings: "Worked out from the bank's list of the joint savings and its screenshots; counted whole.",
   cards_in_credit: "A card in credit is an asset that month.",
   cards_owed: "The MBNA from its statements, the other cards from YNAB's own balance at the month end, which begins with a balance typed into YNAB." };
+const NW_PART_WHY_EXAMPLE = { savings: "The bank's statement: its balance on the last line of the month.",
+  cards_owed: "Each card's statement, or its balance at the month end." };
+const partWhy = k => (demoShown() && NW_PART_WHY_EXAMPLE[k]) || NW_PART_WHY[k];
 function nwValue(pt, view, parts) {
   if (!pt.complete[view]) return null;
   let v = 0;
@@ -4712,7 +4808,7 @@ function renderNetWorth() {
         h("div", { class: "list flat" }, meterParts.map(x => h("div", { class: "row legendrow" }, h("span", { class: "sw2 " + x.cls }),
           h("span", { class: "main" }, h("span", { class: "title", text: x.label })), h("span", { class: "amt", text: (x.value < 0 ? "−" : "") + fmtWhole$(Math.round(Math.abs(x.value))) }),
           basisDot(x.key === "corporation" ? nwLabel(endPt.pt, "corporation", parts) : x.key === "cash" ? nwLabel(endPt.pt, "cash", parts) : (endPt.pt.labels[x.key] || "verified"),
-            [x.key === "corporation" ? "Its investments, chequing and money on its way to Questrade, less what its Visa and Amex owed." : x.key === "cash" ? "Your chequing and the joint savings, less what your personal cards owed." : NW_PART_WHY[x.key]])))));
+            [x.key === "corporation" ? "Its investments, chequing and money on its way to Questrade, less what its Visa and Amex owed." : x.key === "cash" ? "Your chequing and the joint savings, less what your personal cards owed." : partWhy(x.key)])))));
       holder.append(card);
     }
     const rows = [];
@@ -4751,12 +4847,12 @@ function againstStep(v, prev) {
 function nwSheet(pt, view, parts) {
   const inView = parts.filter(q => (view === "everything" || q.view === view) && pt.parts[q.key]);
   const row = q => h("div", { class: "row amtrow" }, h("span", { class: "main" }, h("span", { class: "title", text: NW_PART_WORDS[q.key] || q.key })),
-    h("span", { class: "est-wrap" }, h("span", { class: "amt", text: (q.debt ? "−" : "") + fmtWhole$(Math.round(pt.parts[q.key])) }), basisDot(pt.labels[q.key] || "derived", [NW_PART_WHY[q.key] || ""])));
+    h("span", { class: "est-wrap" }, h("span", { class: "amt", text: (q.debt ? "−" : "") + fmtWhole$(Math.round(pt.parts[q.key])) }), basisDot(pt.labels[q.key] || "derived", [partWhy(q.key) || ""])));
   const box = sheet(`${keyLabel(pt.month, true)} · ${prettyDates(pt.date)}`, "", [], "Done");
   const list = h("div", { class: "list flat nwparts" }, inView.filter(q => !q.debt).map(row),
     inView.some(q => q.debt) ? h("div", { class: "row plain listhead" }, h("span", { text: "Debts" }), h("span")) : null, inView.filter(q => q.debt).map(row));
   box.insertBefore(list, box.querySelector(".acts"));
-  if (HIDE) maskMoney(box);
+  if (AMOUNTS !== "real") maskMoney(box);
 }
 
 function renderVehicle() {
@@ -5091,7 +5187,7 @@ function renderWork(embedded) {
         null));
       const later = [
         c.travel_source && wc ? h("div", { class: "fmeta" }, h("span", { class: "asof commute-from" }, basisDot(c.basis_incl_travel || "recorded",
-          ["Where the travel hours came from, by share.", "Measured: both legs of the round trip seen by your phone. Worked out: one leg seen and doubled, or the usual round trip for that place. Estimate: an assumption written down, such as the Rudd walk and the Don Valley drive."]),
+          ["Where the travel hours came from, by share.", "Measured: both legs of the round trip seen by your phone. Worked out: one leg seen and doubled, or the usual round trip for that place. Estimate: an assumption written down, such as " + (demoShown() ? "a usual walk or drive you gave." : "the Rudd walk and the Don Valley drive.")]),
           h("span", { class: "fold-me", text: `Travel time: ${commuteFrom(c.travel_source)}.` }))) : null,
         wc && pl === "mgh" && ((W.commute || {}).mgh || {}).median_round_trip_hours && (y === "all" || y >= String(W.commute.mgh.from).slice(0, 4)) ? h("div", { class: "fmeta" }, h("span", { class: "asof",
           text: `MGH's round trip, as your phone measured it: ${Math.round(Number(W.commute.mgh.median_round_trip_hours) * 60)} minutes, the middle of ${W.commute.mgh.round_trips_measured} trips since the move, from ${keyLabel(W.commute.mgh.from, true)} to ${keyLabel(W.commute.mgh.to, true)}` })) : null,
@@ -5135,7 +5231,7 @@ function renderWork(embedded) {
         ? h("p", { class: "foot warnline", text: `EDLP's stipend is counted to ${monthDay(stEnd)}, its shifts to ${monthDay(shEnd)}, and your phone saw EDLP work on ${monthDay(W.seen.edlp)}. Until those shifts are typed, the figure with the stipend is too high; the shifts alone are not affected.` })
         : h("p", { class: "foot", text: `EDLP's stipend is counted to ${monthDay(stEnd)}, its shifts to ${monthDay(shEnd)}; your phone saw no EDLP shift after that${W.seen_to ? ` (to ${monthDay(W.seen_to)})` : ""}, so the months since are stipend with no hours, which lifts the figure with the stipend.` }));
     holder.append(h("p", { class: "foot", text: (metric === "rate" ? (c && c.feeKind ? "Its contract's fee, a month at a time, over the hours you logged for it in those months. " : `Your pay for each ${({ abp: "month's entry", bochner: "sedation", endoscopy: "sedation" })[pl] || "shift"}, over its hours` + (wc && travelChanges(c) ? " and the round trip to it" : "") + ". ") : "") + HOURS_SAID(c)
-      + (metric === "rate" && wc && travelChanges(c) ? " Travel time is measured where your phone saw both legs, doubled from one leg, or the usual round trip for that place" + (pl === "all" || pl === "endoscopy" ? ": the Rudd walk and the Don Valley drive are estimates you gave." : ".") : "") + " Worked out on the MacBook, from your Work tab and what you sent from this page." }));
+      + (metric === "rate" && wc && travelChanges(c) ? " Travel time is measured where your phone saw both legs, doubled from one leg, or the usual round trip for that place" + (pl === "all" || pl === "endoscopy" ? (demoShown() ? ": the usual walks and drives you gave are estimates." : ": the Rudd walk and the Don Valley drive are estimates you gave.") : ".") : "") + " Worked out on the MacBook, from your Work tab and what you sent from this page." }));
   };
   const pickPlace = k => { V.place = k; render(); };
   function bySite(valOf, fmtV, subOf, note, estOf) {
@@ -5234,7 +5330,7 @@ function renderTrend() {
           : ["The corporation at market plus the TFSA, RRSP and FHSA as typed in the workbook's Net Worth tab, before their statements were filed."])));
     }))));
     p.append(h("p", { class: "foot", text: "The household has a point at each year end, from the TFSA, RRSP and FHSA's December statements, and at the latest estimate. " +
-      "Dec 31, 2023 is missing because the corporation's 2023 bank statements can no longer be obtained. The corporation alone has a point every month." }));
+      (demoShown() ? "" : "Dec 31, 2023 is missing because the corporation's 2023 bank statements can no longer be obtained. ") + "The corporation alone has a point every month." }));
     return p;
   }
   let lead = fig ? String(fig.value).replace(/\.00$/, "") : compact(last[1], main.unit, true), leadNote = null;
@@ -5859,7 +5955,8 @@ function drawLock(entering) {
   inner.append(pad);
   if (window.matchMedia && matchMedia("(pointer: fine)").matches) inner.append(h("p", { class: "hint2", text: "You can also type the digits." }));
   if (LOCK.mode === "unlock") inner.append(h("button", { class: "link", type: "button", onclick: () => { if (!LOCK.busy) forgot(); } }, "Forgot your passcode?"));
-  LOCK.ui = { sub, dots, sr, digits, del, fallback: s };
+  if (LOCK.mode === "unlock") el.append(hideButton("lock-amounts", true));
+  LOCK.ui ={ sub, dots, sr, digits, del, fallback: s };
   updateLock();
 }
 
@@ -5972,7 +6069,8 @@ function afterUnlock(fresh) {
     PENDING_OLD = []; persist();
   }
   sweepOld();
-  SNAP = load("snap", SNAP);
+  MY_SNAP = load("snap", MY_SNAP);
+  SNAP = shownSnap();
   SCHEMA = load("schema", SCHEMA);
   TAB = load("tab", "today");
   historyBack(STACK.length + (VIEW ? 1 : 0));    // after a passcode change from Settings, its pages' history steps go too
@@ -5993,7 +6091,7 @@ function lockNow() {
   if (NEW_PAGE) saved.then(() => location.reload());
   historyBack(STACK.length + (VIEW ? 1 : 0));    // the pages' history steps go with the pages
   GEN++;
-  MEM = null; VKEY = null; VMETA = null; SNAP = null; SCHEMA = null; VIEW = null; STACK = [];
+  MEM = null; VKEY = null; VMETA = null; SNAP = null; MY_SNAP = null; SCHEMA = null; VIEW = null; STACK = [];
   ENTER = "";                                   // no slide is left waiting for the page after the lock
   closePop(); closePullDown();
   for (const s of document.querySelectorAll(".scrim, .pop")) s.remove();
@@ -6560,6 +6658,7 @@ async function boot() {
 
   document.getElementById("lock").classList.add("at-start");
   setTimeout(() => document.getElementById("lock").classList.remove("at-start"), 1000);
+  if (AMOUNTS === "fake") loadDemo();            // the example household, ready by the time the passcode is in
   if (hasVault()) { sweepOldAtStart(); lockScreen("unlock"); return; }
   const oldToken = (() => { try { return JSON.parse(rawGet(OLD.token) || "null"); } catch (e) { return null; } })();
   if (oldToken) {
