@@ -1,6 +1,6 @@
 "use strict";
-const CACHE = "finance-system-webpage-ojljhagkdejg";      // deploy replaces "v8" with a stamp of the page's files
-const FILES = ["./", "index.html", "app.js", "style.css", "config.json", "manifest.webmanifest", "icon.svg"];
+const CACHE = "finance-system-webpage-eoemigglplch";      // deploy replaces "v8" with a stamp of the page's files
+const FILES = ["./", "index.html", "app.js", "style.css", "config.json", "manifest.webmanifest", "icon.svg", "demo-summary.json"];
 const FRESH_FIRST = new Set(["config.json"]);
 
 self.addEventListener("install", ev => {
