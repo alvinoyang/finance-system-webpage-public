@@ -1461,7 +1461,8 @@ function renderSitting() {
       const said = d.state === "filed" ? "" : d.state === "none" ? (d.detail || "").replace(/^none yet: /, "")
         : d.state !== "todo" ? (d.detail || "")
         : also ? `${also[1]} also to get` : behind ? `${behind[2]} to get (${behind[1]} is in)` : /^still to download$/.test(d.detail || "") ? "" : (d.detail || "");
-      const notYet = d.state === "todo" && d.by_day && d.by_day > sitDay ? `on the website from the ${ordinal(d.by_day)}` : "";
+      const notYet = d.state !== "todo" ? "" : d.out_on ? (d.out_on > iso ? `on the website from the ${ordinal(Number(d.out_on.slice(8, 10)))}` : "")
+        : d.by_day && d.by_day > sitDay ? `on the website from the ${ordinal(d.by_day)}` : "";
       const meta = (behind ? [said, kind] : [d.state === "none" ? "" : monthOf(d), kind, said]).concat(notYet).filter(Boolean).join(" · ");
       ul.append(h("div", { class: "row", title: d.what }, mark(d), h("span", { class: "main" }, h("span", { class: "title", text: name }),
         meta ? h("span", { class: "meta", text: meta.replace(/^./, c => c.toUpperCase()) }) : null),
