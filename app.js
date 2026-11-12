@@ -1282,10 +1282,21 @@ function sittingStep(pd) {
   for (const n of [1, 2, 3]) if (stepState(pd, n) === "now") return n;
   return 5;
 }
+function sendsTo(pd, k) { return (((pd || {}).sends_to || {})[k]) || {}; }
+function dealerName(pd, k) { return sendsTo(pd, k).institution || (k === "sweep" ? "the corporation's investment account" : "your investment account"); }
+function sweepAccountWords(pd) {
+  const s = sendsTo(pd, "sweep");
+  return s.institution ? `${s.institution}, the corporation's cash account${s.last4 ? ` ending ${s.last4}` : ""}` : "the corporation's investment account";
+}
+function holdWords(pd) {
+  const parts = ["sweep", "registered"].map(k => sendsTo(pd, k)).filter(x => x.keep_until && x.institution)
+    .map(x => `${x.institution} before ${dayName(x.keep_until, { day: "numeric", month: "long", year: "numeric" })}`);
+  return parts.length ? `Take nothing out of ${parts.join(", nor out of ")}: it lowers the bonus.` : "";
+}
 const STEP_WORDS = {
   1: "Next: step 1, download the month's documents",
   2: "Next: step 2, run CRA's calculator on the MacBook",
-  3: "Next: step 3, the payments, then step 4, send the rest to Questrade",
+  3: "Next: step 3, the payments, then step 4, send the rest to the corporation's investments",
   5: "Done for this month",
 };
 function visitCard() {
@@ -1323,7 +1334,7 @@ function visitCard() {
       h("span", { class: "l", text: (pd.logged ? what.replace(/^to pay/, "paid") : what) + (pd.ready ? "" : ", from last month's figures") })));
   }
   c.append(visitItemsEl(pd));
-  const nextWords = pd.logged ? `Logged ${dayName(pd.logged.date, { day: "numeric", month: "long" })}` + (money(pd.logged.sweep) ? `: ${fmt$(pd.logged.sweep)} sent to Questrade.` : ".")
+  const nextWords = pd.logged ? `Logged ${dayName(pd.logged.date, { day: "numeric", month: "long" })}` + (money(pd.logged.sweep) ? `: ${fmt$(pd.logged.sweep)} sent to ${pd.logged.sent_to || dealerName(pd, "sweep")}.` : ".")
     + (!pd.ready ? ` ${STEP_WORDS[2]}.`
        : money(pd.logged.sweep) && pd.logged.lands_by && todayISO() <= plusDays(pd.logged.lands_by, 2) ? ` Next: buy VEQT once it lands, by ${dayName(pd.logged.lands_by, { weekday: "short", day: "numeric", month: "long" })}.`
        : pd.next_visit ? ` Next: ${dayName(pd.next_visit, { weekday: "short", day: "numeric", month: "long" })}.` : "") : STEP_WORDS[step] + ".";
@@ -1347,7 +1358,7 @@ function toBuyList() {
   const list = h("div", { class: "list glass" });
   for (const b of rows) {
     const btn = h("button", { class: "btn small tinted", type: "button", text: "Bought" });
-    btn.addEventListener("click", () => { submit("invested", { date: todayISO(), account: b.account }, null, "Saved. The reminder goes; Questrade's own reading, or the next statement, checks it."); render(); });
+    btn.addEventListener("click", () => { submit("invested", { date: todayISO(), account: b.account }, null, "Saved. The reminder goes; the next statement checks it."); render(); });
     const amt = money(b.to_invest), units = Number(b.units);
     const est = b.label === "estimate";
     const since = b.since ? `waiting since ${dayName(b.since, { day: "numeric", month: "short" }).replace(" ", "\u00a0")}` : "";
@@ -1360,7 +1371,7 @@ function toBuyList() {
         b.said ? h("span", { class: "meta", text: prettyDates(b.said) }) : null,
         h("span", { class: "buyact" }, btn)),
       h("span", { class: "trail" }, named ? h("span", { class: "amt num", text: (est ? "~" : "") + fmtWhole$(Math.round(amt)) }) : null,
-        basisDot(b.label, [named ? prettyDates(b.words) + "." : "", "Buy it in Questrade, then tap Bought.", tb.source ? plainSource(tb.source) + "." : ""].filter(Boolean)))));
+        basisDot(b.label, [named ? prettyDates(b.words) + "." : "", "Buy it there, then tap Bought.", tb.source ? plainSource(tb.source) + "." : ""].filter(Boolean)))));
   }
   for (const x of said) list.append(h("div", { class: "row veqt" },
     h("span", { class: "main" }, h("span", { class: "title", text: `About ${x.name}` }), h("span", { class: "meta", text: prettyDates(x.said) }))));
@@ -1369,7 +1380,7 @@ function toBuyList() {
 function landingList() {
   const deps = toBuy().deposits || [];
   if (!deps.length) return null;
-  const word = { landed: "landed", due: "should have landed", "on-its-way": "lands by", "not-seen": "not seen at Questrade", late: "not on the statement" };
+  const word = { landed: "landed", due: "should have landed", "on-its-way": "lands by", "not-seen": "not seen there", late: "not on the statement" };
   const list = h("div", { class: "list glass" });
   for (const d of deps) {
     const when = d.status === "landed" ? d.landed_on : d.lands_by;
@@ -1521,15 +1532,16 @@ function renderSitting() {
     [pd.next_visit ? `bills to ${dayName(pd.next_visit, { day: "numeric", month: "short" })}` : "bills to the next banking day", "a cushion"]);
   const s4 = h("div", { class: "sendbox" },
     h("div", { class: "keeps" }, h("span", { class: "kl", text: "Keeps back" }), ...kept.map(k => h("span", { class: "tag", text: k }))),
-    pd.logged ? h("p", { class: "foot", text: `Logged ${dayName(pd.logged.date, { day: "numeric", month: "long" })}` + (money(pd.logged.sweep) ? `: ${fmt$(pd.logged.sweep)} sent to Questrade.` : ".") })
-              : h("button", { class: "btn primary wide", type: "button", onclick: () => startForm("bankvisit", null, "today") }, "Work out the amount"));
-  p.append(step(4, "Send the rest to Questrade", stateOf(4),
-    "From corporate chequing to Questrade, the corporation's cash account, as a bill payment.", s4));
+    pd.logged ? h("p", { class: "foot", text: `Logged ${dayName(pd.logged.date, { day: "numeric", month: "long" })}` + (money(pd.logged.sweep) ? `: ${fmt$(pd.logged.sweep)} sent to ${pd.logged.sent_to || dealerName(pd, "sweep")}.` : ".") })
+              : h("button", { class: "btn primary wide", type: "button", onclick: () => startForm("bankvisit", null, "today") }, "Work out the amount"),
+    holdWords(pd) ? h("p", { class: "foot", text: holdWords(pd) }) : null);
+  p.append(step(4, `Send the rest to ${dealerName(pd, "sweep")}`, stateOf(4),
+    `From corporate chequing, as a bill payment${sendsTo(pd, "sweep").last4 ? ` to its cash account ending ${sendsTo(pd, "sweep").last4}` : ""}.`, s4));
   const lastSent = pd.logged && money(pd.logged.sweep) ? pd.logged
     : pd.last_logged && money(pd.last_logged.sweep) && pd.last_logged.lands_by && todayISO() <= plusDays(pd.last_logged.lands_by, 2) ? pd.last_logged : null;
   const sentOn = lastSent ? lastSent.date : null;
   const lands = pd.lands || {}, within = n => n != null ? `within ${plural(n, "business day", "business days")}` : "in a few business days";
-  const ownToo = (pd.invest && (pd.invest.sent || []).length) ? ` Buy VEQT in your own account too, with what you sent from your own pay, once it lands (${within(lands.registered)}).` : "";
+  const ownToo = (pd.invest && (pd.invest.sent || []).length) ? ` Buy VEQT ${sendsTo(pd, "registered").institution ? `at ${dealerName(pd, "registered")}` : "in your own account"} too, with what you sent from your own pay, once it lands (${within(lands.registered)}).` : "";
   const land = landingList(), buy = toBuyList();
   const s5 = h("div", {}, land ? h("div", { class: "gh", text: "On the way" }) : null, land, buy ? h("div", { class: "gh", text: "To buy" }) : null, buy);
   const tb = toBuy(), buying = (tb.buy || []).some(b => !boughtSent(b.account));
@@ -1538,7 +1550,7 @@ function renderSitting() {
   const st5 = buying || amiss ? "now" : pd.logged && !onWay ? "done" : "later";
   p.append(step(5, "Buy VEQT when it lands", st5, (sentOn && lastSent.lands_by
     ? `The ${fmt$(lastSent.sweep)} sent ${dayName(sentOn, { day: "numeric", month: "long" })} lands by ${dayName(lastSent.lands_by, { weekday: "short", day: "numeric", month: "long" })}.`
-    : `Money lands in Questrade ${within(lands.questrade)}.`)
+    : `Money lands ${within(lands.sweep)}.`)
     + " Then buy VEQT and tap Bought." + ownToo, land || buy ? s5 : null));
   const qn = openQuestions().length;
   p.append(step(6, "Answer the questions", qn ? "now" : "done", qn
@@ -1591,7 +1603,7 @@ function investRows(pd, items, box) {
     log.addEventListener("click", () => startForm("registered", { account: s.account, direction: "contribution", amount: Number(s.amount).toFixed(2), date: todayISO() }, "sitting"));
     items.append(h("div", { class: "item", title: `Room left this year: ${fmt$(s.room_left)} (${s.basis})` },
       h("span", { class: "what" }, h("span", { text: `${sent.length ? "Also into" : "Into"} your ${s.name}` }),
-        h("span", { class: "how", text: "To Questrade, as a bill payment; then tap Log it" }), log),
+        h("span", { class: "how", text: `To ${dealerName(pd, "registered")}${((sendsTo(pd, "registered").accounts || {})[s.account]) ? `, ending ${sendsTo(pd, "registered").accounts[s.account]}` : ""}, as a bill payment; then tap Log it` }), log),
       h("span", { class: "amt num" }, inv.pay_estimate || s.basis === "estimate" ? ring() : null, h("span", { text: fmt$(s.amount) }))));
   }
   if (inv.left_over > 0) note(`Every account's room for the year is full, and ${fmt$(inv.left_over)} is left over after the ${inv.savings_target ? fmtWhole$(inv.savings_target) + " " : ""}transfer to savings. What should happen to it? Tell a session; nothing is sent anywhere by itself.`, true);
@@ -1984,7 +1996,7 @@ function monthsAround() {
   return out;
 }
 const LABELS = { description: "Which shift", pay_ffs: "Paid, all payers", billed_total: "Submitted, all payers", ffs_billed: "Fees MGH billed", shadow_pct: "Shadow billing %", pay_shadow: "Shadow billing pay", pay_travel: "Travel time paid", patients_private: "Private patients",
-                 who_why: "Who was there, and why it was work", receipt: "Where the receipt photo is", balance: "Chequing balance you see now", sweep: "Sent to Questrade (the corporation's cash account)" };
+                 who_why: "Who was there, and why it was work", receipt: "Where the receipt photo is", balance: "Chequing balance you see now", sweep: "Sent to the corporation's investments (its cash account)" };
 const KIND_LABELS = { "expense.amount": "Amount", "expense.meal": "A meal or entertainment?", "income.month": "For the month", "income.what": "What it was for",
                       "registered.tax_year": "Tax year", "reading.value": "Reading", "card.points": "Points", "life.amount": "Amount, if any",
                       "expense.receipt": "Receipt file name, if you have it" };
@@ -2338,7 +2350,7 @@ function buildForm(f) {
   form.addEventListener("change", syncMeal); syncMeal();
 
   if (f.kind === "bankvisit")
-    form.append(h("p", { class: "small muted", text: "This only records the day. It moves no money: send the amount yourself from corporate chequing to Questrade, as a bill payment, then record the day." }));
+    form.append(h("p", { class: "small muted", text: `This only records the day. It moves no money: send the amount yourself from corporate chequing to ${sweepAccountWords((SNAP || {}).payday)}, as a bill payment, then record the day.` }));
   const sendBtn = h("button", { class: "btn primary", type: "submit" },
     VIEW.corrects ? "Send the correction" : f.kind === "bankvisit" ? "Record the day" : "Send");
   form.append(h("div", { class: "formbar" }, sendBtn));
@@ -3021,9 +3033,9 @@ function updateSweep(form) {
   };
   const cardsOpen = S.cardsOpen.map(c => c.name);
   const cardNames = cardsOpen.join(" and ") + (cardsOpen.length > 1 ? " balances" : " balance");
-  box.append(h("h3", { text: "What to send to Questrade" }));
+  box.append(h("h3", { text: `What to send to ${dealerName(pd, "sweep")}` }));
   if (/not yet approved/i.test(pd.rule || "")) box.append(h("p", { class: "small muted", text: "A suggestion only: the plan it follows (pay everything first, send the rest, keep a cushion) is still waiting for your yes." }));
-  if (!pd.ready) box.append(h("p", { class: "small warnline", text: "Step 2 is not done: the two payments above are last month's figures, so the amount worked out here will change. Do not send anything to Questrade until steps 2 and 3 are done." }));
+  if (!pd.ready) box.append(h("p", { class: "small warnline", text: "Step 2 is not done: the two payments above are last month's figures, so the amount worked out here will change. Do not send anything until steps 2 and 3 are done." }));
   if (bal === null) { box.append(h("p", { class: "small muted", text: "Type the chequing balance above, and the amount to send is worked out here." })); return; }
   const goneNow = pd.items.filter(it => gone(it) && money(it.amount)).map(it => itemName(it.what).replace(/^./, c => c.toLowerCase()) + ", " + fmt$(it.amount));
   for (const c of (pd.cards || [])) if (!beforeDay && !c.pays_itself && c.statement && c.statement.balance && c.field && typed(c.field) !== null) goneNow.push(`the ${c.name} statement, ${fmt$(c.statement.balance)}`);
@@ -3048,7 +3060,7 @@ function updateSweep(form) {
     box.append(h("p", { class: "small muted", text: "Approximate, rounded down: the ringed amounts are estimates." +
       (unpaidEst.length ? ` ${unpaidEst.map(it => "The " + itemName(it.what).toLowerCase()).join(" and ")} becomes exact once this month's calculation is read (step 2).` : "") }));
   }
-  if (S.unreadable.length) box.append(h("p", { class: "small warnline", text: `Can't work it out: ${S.unreadable.map(w => shortly(plainWords(w))).join(" and ")} ${S.unreadable.length > 1 ? "have amounts" : "has an amount"} this page cannot read. Send nothing to Questrade until the MacBook's next round puts it right.` }));
+  if (S.unreadable.length) box.append(h("p", { class: "small warnline", text: `Can't work it out: ${S.unreadable.map(w => shortly(plainWords(w))).join(" and ")} ${S.unreadable.length > 1 ? "have amounts" : "has an amount"} this page cannot read. Send nothing until the MacBook's next round puts it right.` }));
   else if (wait) box.append(h("p", { class: "small muted", text: `Type the ${cardNames} above (0 if nothing is owing). The amount to send appears then.` }));
   else if (v > 0 && !pd.ready) box.append(h("p", { class: "small muted", text: "Once step 2 is done and this page has the month's own figures, a button here puts the amount in the box below." }));
   else if (v > 0) {
@@ -3058,10 +3070,11 @@ function updateSweep(form) {
   } else if (S.short > 0) {
     const short = S.short;
     const big = reserve.filter(r => money(r.amount)).sort((a, b) => money(b.amount) - money(a.amount))[0];
-    const back = pd.lands && pd.lands.back != null ? ` and the transfer takes up to ${plural(pd.lands.back, "business day", "business days")}` : ", and allow a few days for the transfer";
-    box.append(h("p", { class: "small warnline", text: `Nothing to send, and chequing is ${fmtWhole$(short)} short of what is still to leave before the next banking day, the cushion included${big ? ` (the largest: ${billWords(big.what)}, ${isEst(big) ? "~" : ""}${fmtWhole$(Math.round(money(big.amount)))}${isEst(big) ? " (an estimate)" : ""} on ${shortDate(big.due)})` : ""}. To cover it, sell ${fmtWhole$(short)} of VEQT in the corporation's Questrade account and move the cash back to chequing in good time: the sale settles in a day${back}.` }));
+    const sw = sendsTo(pd, "sweep");
+    const keep = sw.keep_until ? ` Take nothing out of ${sw.institution} before ${dayName(sw.keep_until, { day: "numeric", month: "long", year: "numeric" })} to cover it: that lowers the bonus.` : "";
+    box.append(h("p", { class: "small warnline", text: `Nothing to send, and chequing is ${fmtWhole$(short)} short of what is still to leave before the next banking day, the cushion included${big ? ` (the largest: ${billWords(big.what)}, ${isEst(big) ? "~" : ""}${fmtWhole$(Math.round(money(big.amount)))}${isEst(big) ? " (an estimate)" : ""} on ${shortDate(big.due)})` : ""}. This should not happen: the sweep keeps back every bill to the next banking day and a cushion, so a bill was missed or money came in late.${keep} Tell a session before anything is due.` }));
   } else box.append(h("p", { class: "small muted", text: "Nothing to send this month: the balance does not cover what is still due plus the cushion." }));
-  for (const r of S.soon) box.append(h("p", { class: "small warnline", text: `Just after the next banking day: ${billWords(r.what)}, ${r.label === "estimate" ? "~" : ""}${fmtWhole$(Math.round(money(r.amount)))}${r.label === "estimate" ? " (an estimate)" : ""} on ${shortDate(r.due)}. The next banking day's chequing must hold it; keeping some of it back now means not selling VEQT then.` }));
+  for (const r of S.soon) box.append(h("p", { class: "small warnline", text: `Just after the next banking day: ${billWords(r.what)}, ${r.label === "estimate" ? "~" : ""}${fmtWhole$(Math.round(money(r.amount)))}${r.label === "estimate" ? " (an estimate)" : ""} on ${shortDate(r.due)}. The next banking day's chequing must hold it; keeping some of it back now means chequing is not short then.` }));
 }
 
 
