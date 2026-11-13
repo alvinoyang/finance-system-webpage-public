@@ -3538,6 +3538,8 @@ const RETURNS_SIDES = {
               foot: "Your TFSA, RRSP and FHSA. Not the car, and not cash." },
 };
 
+const MONEY_HUE = { put: "s0", worth: "s1", all: "s2" };
+
 function moneyCard(opts) {
   const S = (SNAP && SNAP.series) || {}, worth = S[opts.worth], put = S[opts.put], all = opts.all ? S[opts.all] : null;
   if (!worth || !worth.points.length) return null;
@@ -3550,8 +3552,8 @@ function moneyCard(opts) {
   const putLabel = opts.nets ? "Put in, less taken out" : "Put in";
   const worthLabel = opts.worthLabel || (all ? "Invested" : "What it is worth");
   const sers = [];
-  if (all) sers.push({ ...all, label: "All of it" });
-  sers.push({ ...worth, label: worthLabel }, { ...put, label: putLabel });
+  if (all) sers.push({ ...all, label: "All of it", cls: MONEY_HUE.all });
+  sers.push({ ...worth, label: worthLabel, cls: MONEY_HUE.worth }, { ...put, label: putLabel, cls: MONEY_HUE.put });
   const money$ = v => v == null ? "—" : fmtWhole$(Math.round(v));
   const rows = (key, S2) => {
     const get = lab => { const s2 = S2.find(x => x.label === lab); if (!s2) return null;
@@ -3572,7 +3574,8 @@ function moneyCard(opts) {
   const body = chart(sers, { form: "line", unit: "$", height: 128, legend: true, tip: rows });
   return figCard(o, { hero: true, label: opts.label, value: fmtWhole$(Math.round(head)), body, about: est, change: opts.change,
     basis: est ? "estimate" : opts.basis, why: est ? anWhy.concat(opts.why || [], opts.whyMore || []) : opts.whyMore ? (opts.why || whyLines(o)).concat(opts.whyMore) : opts.why,
-    onOpen: opts.onOpen || (() => openView({ type: "trend", keys: [opts.all, opts.worth, opts.put].filter(Boolean), title: opts.label })),
+    onOpen: opts.onOpen || (() => openView({ type: "trend", keys: [opts.all, opts.worth, opts.put].filter(Boolean), title: opts.label,
+      hues: [opts.all && MONEY_HUE.all, MONEY_HUE.worth, MONEY_HUE.put].filter(Boolean) })),
     meta: (opts.meta || []).concat([h("span", { class: "asof", text: opts.foot })]) });
 }
 
@@ -4788,11 +4791,11 @@ function renderNetWorth() {
     const debts = inView.filter(q => q.debt).reduce((a, q) => a + (endPt.pt.parts[q.key] || 0), 0);
     top.append(h("div", { class: "fmeta" }, h("span", { class: "asof", text: `${now ? `At ${monthDay(endPt.pt.date)}: assets` : "Assets"} ${compact(assets, "$")} · debts ${fmtWhole$(Math.round(debts))}` })));
     holder.append(top);
-    const worth = { label: "What it is worth", unit: "$", form: "line", basis: headBasis, points: spanKnown.map(x => [x.pt.date, x.v]).concat(now ? [[now.date, now.value]] : []) };
+    const worth = { label: "What it is worth", unit: "$", form: "line", cls: MONEY_HUE.worth, basis: headBasis, points: spanKnown.map(x => [x.pt.date, x.v]).concat(now ? [[now.date, now.value]] : []) };
     if (now) worth.est_from = now.date;
     const put = NW_PUT[view] && S[NW_PUT[view]] ? S[NW_PUT[view]] : null;
     const keep = new Set(worth.points.map(q => q[0]));
-    const putSer = put ? { ...put, label: "Put in, less taken out", points: put.points.filter(q => keep.has(q[0]) || (now && q[0] === now.date)) } : null;
+    const putSer = put ? { ...put, label: "Put in, less taken out", cls: MONEY_HUE.put, points: put.points.filter(q => keep.has(q[0]) || (now && q[0] === now.date)) } : null;
     const sers = [worth].concat(putSer && putSer.points.length ? [putSer] : []);
     holder.append(h("div", { class: "card glass chartcard" }, chart(sers, { form: "line", unit: "$", height: 240, legend: sers.length > 1, axis: true, hover: true })));
     const meterParts = [];
@@ -5307,7 +5310,9 @@ function renderTrend() {
   else { keys = VIEW.keys || []; title = VIEW.title || ""; }
   const house = VIEW.figId === "household" ? householdNow() : null;
   if (house && S.corp_market) keys = keys.concat(["corp_market"]);
-  const sers = keys.map(k => k === "corp_market" && house ? { ...S[k], label: "Corporation alone" } : k === "household" && house ? { ...S[k], label: "Household" } : S[k]).filter(Boolean);
+  const hues = VIEW.hues || [];
+  const sers = keys.map((k, i) => { const s2 = k === "corp_market" && house ? { ...S[k], label: "Corporation alone" } : k === "household" && house ? { ...S[k], label: "Household" } : S[k];
+                                    return s2 && hues[i] ? { ...s2, cls: hues[i] } : s2; }).filter(Boolean);
   if (!sers.length) { p.append(head("Not available", "This history has not arrived yet.")); return p; }
   const main = sers[0], last = main.points[main.points.length - 1];
   p.append(head(title, fig ? "" : ""));
