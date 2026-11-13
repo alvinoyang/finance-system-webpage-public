@@ -558,12 +558,15 @@ body.veiled .pullmenu, body.veiled .pullscrim { visibility: hidden; }
 .chart .end { fill: var(--c0); stroke-width: 2; paint-order: stroke; stroke: var(--glass-strong); }
 .chart .end.s0 { fill: var(--c0); stroke: var(--c0); }
 .chart .end.s1 { fill: var(--c1); stroke: var(--c1); }
+.chart .end.s2 { fill: var(--c2); stroke: var(--c2); } .chart .end.s3 { fill: var(--c3); stroke: var(--c3); }
 .chart .cross { stroke: var(--ink-3); stroke-width: 1; }
 .chart .hdot { fill: var(--glass-strong); stroke-width: 2.5; }
 .chart .hit { fill: transparent; cursor: crosshair; }
 .chart .col.est { fill-opacity: .32; }
 .chart .line.est { stroke-dasharray: 5 5; }
 .chart .end.est.s0 { fill: var(--glass-strong); stroke: var(--c0); stroke-width: 2.2; }
+.chart .end.est.s1 { fill: var(--glass-strong); stroke: var(--c1); stroke-width: 2.2; }
+.chart .end.est.s2 { fill: var(--glass-strong); stroke: var(--c2); stroke-width: 2.2; }
 .chart .tip { position: absolute; top: 2px; -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); padding: 6px 10px; border-radius: 10px; font-size: .78rem; background: var(--seg-on); box-shadow: var(--shadow); pointer-events: none; white-space: nowrap; z-index: 2; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .chart .tip { background: #282C38; } }
 @media (prefers-color-scheme: light), (prefers-color-scheme: no-preference) { .chart .tip { background: #FFFFFF; } }
