@@ -3074,6 +3074,10 @@ const MEANS_LONG = {
   estimate: "Rests on an assumption, which is written down beside it.",
 };
 function basisOf(label) { const m = /^(verified|derived|recorded|measured|estimate)/.exec(String(label || "").trim()); return m ? m[1] : ""; }
+const LABEL_ORDER = ["verified", "derived", "measured", "recorded", "estimate"];
+function weakestLabel(labels, unknown) {
+  return labels.map(l => basisOf(l) || unknown).reduce((w, l) => LABEL_ORDER.indexOf(l) > LABEL_ORDER.indexOf(w) ? l : w, "verified");
+}
 
 function basisDot(basis, extra) {
   const b = basisOf(basis);
@@ -3701,7 +3705,7 @@ function movesSection(accts, title, nowName, rowName) {
   if (!mine.length) return null;
   const shown = mine.slice().reverse().sort((x, y) => (MOVE_ORDER[x.status] ?? 4) - (MOVE_ORDER[y.status] ?? 4)).slice(0, 8);
   const rows = shown.map(m => moveRow(m, `${fmtWhole$(Math.round(money(m.amount)))} ${accts.includes(m.to) ? "into" : "out of"} ${rowName}`, true));
-  const weakest = shown.every(m => m.label === "verified") ? "verified" : "recorded";
+  const weakest = weakestLabel(shown.map(m => m.label), "recorded");
   const sec = h("section", { class: "card glass" },
     h("div", { class: "ftop" }, h("h3", { text: title }),
       basisDot(weakest, ["What was logged the day it was sent, matched to the statement that later shows it: the same amount to the cent, within the business days that route has taken before. A row not yet on a statement rests on the log alone.",
@@ -3738,7 +3742,7 @@ function owedByCorpCard() {
   const sorted = xs => xs.slice().reverse().sort((x, y) => (order[x.status] ?? 4) - (order[y.status] ?? 4));
   const shown = sorted(owed).concat(sorted(pending));
   const labels = shown.map(m => m.label).concat(M.owed_label ? [M.owed_label] : []);
-  const weakest = labels.includes("estimate") ? "estimate" : labels.every(l => l === "verified") ? "verified" : "recorded";
+  const weakest = weakestLabel(labels, "recorded");
   const one = shown.length === 1;
   const rowOf = m => {
     const cur = (String(m.source || "").match(/\(in ([A-Z]{3})\)$/) || [])[1];
@@ -3827,9 +3831,9 @@ function salaryCard(sal, S) {
   else if (expected !== null && short > 0.5) note = ["short", `${fmtWhole$(Math.round(short))} short of filling ${nextYr}'s RRSP room`];
   else if (expected !== null) note = ["ok", `On track to fill ${nextYr}'s RRSP room`];
   else note = ["", `The salary that fills ${nextYr}'s RRSP room`];
-  const rank = ["verified", "derived", "measured", "recorded", "estimate"];
-  const noteBasis = [sal.rrsp_target_basis, paid >= target - 0.5 || expected === null ? null : (sal.expected_basis || "estimate")]
-    .filter(Boolean).map(b => basisOf(b) || "estimate").sort((p2, q) => rank.indexOf(q) - rank.indexOf(p2))[0];
+  const noteParts = [sal.rrsp_target_basis, paid >= target - 0.5 || expected === null ? null : (sal.expected_basis || "estimate")]
+    .filter(Boolean);
+  const noteBasis = noteParts.length ? weakestLabel(noteParts, "estimate") : null;
   const noteEl = h("div", { class: "salnote" + (note[0] ? " " + note[0] : "") }, h("span", { text: note[1] }),
     basisDot(noteBasis || "estimate", [why[1],expected !== null ? `The payroll plan pays ${fmtWhole$(Math.round(expected))} this year${short > 0.5 ? "" : expected - target > 0.5 ? `, ${fmtWhole$(Math.round(expected - target))} more than ${nextYr}'s RRSP room needs` : ""}.` : "",
       short > 0.5 && sal.monthly_needed && span ? `Pay ${fmtWhole$(Number(sal.monthly_needed))}${left > 1 ? " a month" : ""} for ${span}${money(sal.monthly) > 0 ? `, ${fmtWhole$(Number(sal.monthly_needed) - Math.round(money(sal.monthly)))} more than now,` : ","} and ${nextYr}'s RRSP room${room}.` : "",
@@ -3882,9 +3886,8 @@ function summaryPersonal() {
         icon("chevR"));
     }));
     const since = ACCOUNTS.reduce((s2, [a]) => s2 + (money((regOf(a) || {}).since_value) || 0), 0);
-    const rank = ["verified", "derived", "measured", "recorded", "estimate"];
     const roomBasis = withRoom.some(([a]) => leftBasis(regOf(a)) === "estimate") ? "estimate" : "recorded";
-    const weakest = vals.map(x => basisOf(x[2][2]) || "recorded").concat(withRoom.length ? [roomBasis] : []).sort((p, q) => rank.indexOf(q) - rank.indexOf(p))[0];
+    const weakest = weakestLabel(vals.map(x => x[2][2]).concat(withRoom.length ? [roomBasis] : []), "recorded");
     const anyReading = vals.some(x => basisOf(x[2][2]) !== "verified");
     const why = aboutNow ? [(ACCOUNTS.some(([a2]) => (anA[a2] || {}).reading_time) ? "Questrade's own figures where it has read them since VEQT's last close; otherwise the statements, what you logged since, and VEQT's price." : "About now: the statements, what you logged since, and VEQT's price."),
                             ...vals.map(([a, n]) => `${n}: ${anA[a].note}.`)]
@@ -4919,7 +4922,7 @@ function renderIncome() {
     clear(holder);
     if (v === "all") {
       const total = ys.reduce((s2, y) => s2 + money(Y[y].total), 0);
-      const basis = ys.every(y => Y[y].basis === "verified") ? "verified" : "recorded";
+      const basis = weakestLabel(ys.map(y => Y[y].basis), "recorded");
       holder.append(h("div", { class: "trend-top" },
         h("div", { class: "ftop" }, h("span", { class: "l", text: `Since ${ys[0]}` }), basisDot(basis, [ys.map(y => `${y}: ${BASIS_NAME[Y[y].basis].toLowerCase()}, ${Y[y].note}.`).join(" "), plainSource(I.source) + "."])),
         h("div", { class: "v rounded", text: fmtWhole$(Math.round(total)) }),
