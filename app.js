@@ -5959,9 +5959,9 @@ function drawLock(entering) {
   pad.append(cancelable ? h("button", { class: "txt", type: "button", onclick: () => { if (LOCK.busy) return; LOCK.mode = "cancelled"; closeLock(); render(); } }, "Cancel") : h("span", { class: "blank" }));
   const zero = h("button", { type: "button", "aria-label": "0" }, "0");
   tapKey(zero, () => press("0")); digits.push(zero); pad.append(zero);
-  const del = h("button", { class: "txt", type: "button", "aria-label": "Delete the last digit" }, "Delete");
+  const del = h("button", { class: "txt", type: "button", "aria-label": "Delete the last digit" }, icon("del"));
   tapKey(del, () => press("del")); pad.append(del);
-  inner.append(pad);
+  el.append(pad);
   if (window.matchMedia && matchMedia("(pointer: fine)").matches) inner.append(h("p", { class: "hint2", text: "You can also type the digits." }));
   if (LOCK.mode === "unlock") inner.append(h("button", { class: "link", type: "button", onclick: () => { if (!LOCK.busy) forgot(); } }, "Forgot your passcode?"));
   if (LOCK.mode === "unlock") el.append(hideButton("lock-amounts", true));
