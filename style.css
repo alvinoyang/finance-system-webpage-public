@@ -989,16 +989,16 @@ html.sliding, html.sliding body { overflow-x: hidden; }
 }
 
 .lock {
-  position: fixed; inset: 0; z-index: 60; display: grid; justify-items: center; align-content: start; overflow: auto;
-  padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
+  position: fixed; inset: 0; z-index: 60; display: grid; grid-template-rows: minmax(0, 1fr) auto; justify-items: center; overflow: auto;
+  padding: max(24px, env(safe-area-inset-top)) 24px 0;
   background: var(--glass-bar);
   touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
 }
 .lock.over-app { -webkit-backdrop-filter: blur(40px) saturate(160%); backdrop-filter: blur(40px) saturate(160%); }
 .lock.going { pointer-events: none; }
-.lock-inner { width: 100%; max-width: 340px; display: grid; justify-items: center; gap: min(18px, 2.2vh); text-align: center; padding-top: min(12vh, 110px); }
+.lock-inner { width: 100%; max-width: 340px; display: grid; justify-items: center; align-self: center; gap: min(16px, 2vh); text-align: center; padding: 8px 0 12px; }
 @media (max-height: 740px) {
-  .lock-inner { gap: 10px; padding-top: 3vh; }
+  .lock-inner { gap: 8px; padding: 4px 0 8px; }
   .lock .badge { width: 52px; height: 52px; border-radius: 15px; }
   .lock .badge svg { width: 26px; height: 26px; }
 }
@@ -1024,18 +1024,23 @@ html.sliding, html.sliding body { overflow-x: hidden; }
   12% { transform: translateX(-9px); } 28% { transform: translateX(8px); }
   44% { transform: translateX(-6px); } 60% { transform: translateX(4px); } 78% { transform: translateX(-2px); }
 }
-.pad { display: grid; grid-template-columns: repeat(3, 76px); gap: 14px 24px; justify-content: center; }
+.pad {
+  width: calc(100% + 48px); margin: 0 -24px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px 6px;
+  padding: 7px max(6px, calc((100% - 420px) / 2)) max(7px, env(safe-area-inset-bottom));
+  background: var(--fill); border-top: 1px solid var(--sep);
+}
 .pad button {
-  width: 76px; height: 76px; border-radius: 50%; font-size: 2.1rem; font-weight: 400; display: grid; place-items: center; line-height: 1;
-  background: var(--fill);
+  height: 46px; border-radius: 7px; font-size: 1.55rem; font-weight: 400; display: grid; place-items: center; line-height: 1;
+  background: var(--glass-strong); color: var(--ink); box-shadow: 0 1px 0 var(--sep);
   transition: background-color .4s ease-out;          /* pressed: bright at once, then fades, as on an iPhone */
   touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
 }
 .pad button.down { background: var(--sep); transition: none; }
 .pad button:disabled { opacity: .3; }
-.pad button.txt { background: transparent; font-size: 1rem; font-weight: 500; color: var(--ink); min-width: 76px; }
-.pad button.txt.down { background: transparent; }
-.pad button .sub2 { display: block; font-size: .625rem; font-weight: 600; letter-spacing: .16em; margin-right: -.16em; color: var(--ink-2); margin-top: 1px; }
+.pad button.txt { background: transparent; box-shadow: none; font-size: 1rem; font-weight: 500; }
+.pad button.txt.down { background: var(--sep); }
+.pad button.txt svg { width: 26px; height: 26px; }
+.pad button .sub2 { display: block; font-size: .56rem; font-weight: 600; letter-spacing: .16em; margin-right: -.16em; color: var(--ink-2); margin-top: 1px; }
 .pad .blank { visibility: hidden; }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -1120,8 +1125,6 @@ html.sliding, html.sliding body { overflow-x: hidden; }
   .sheet { border-radius: 24px; padding-top: 20px; padding-bottom: 20px; }
   .formbar { position: static; padding: 4px 0 0; background: transparent; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
   .formbar .btn { max-width: none; }
-  .lock { align-content: center; }
-  .lock-inner { padding-top: 0; }
 }
 @media (min-width: 600px) and (max-width: 759px) { .brand { display: none !important; } }
 @media (min-width: 900px) {
