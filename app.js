@@ -3038,6 +3038,8 @@ function updateSweep(form) {
         h("span", { text: "−" + (e || (round && anyEstLine) ? fmtWhole$(Math.round(a)) : fmt$(a)).replace("−", "") }), e ? h("span", { class: "sr", text: " (an estimate)" }) : null)));
   }
   if (S.lines.some(l => l.kind === "bill")) box.append(h("p", { class: "small muted", text: "The bills are the ones on Today's Coming up." }));
+  for (const l of S.lines.filter(l => l.kind === "bill" && l.est && l.r.assumption))
+    box.append(h("p", { class: "small muted", text: `${billWords(l.r.what).replace(/^./, c => c.toUpperCase())} is kept back on an assumption, to be looked at again by ${shortDate(l.r.revisit)}: ${plainWords(l.r.assumption).replace(/^./, c => c.toLowerCase())}.` }));
   if (cardsOpen.length) box.append(h("div", { class: "line muted" }, h("span", { text: cardNames.replace(/^./, c => c.toUpperCase()) + ", not typed yet" }), h("span", { class: "amt", text: "not counted" })));
   const v = S.amount, wait = S.wait, approx = S.approx, shown = S.shown;
   box.append(h("div", { class: "res" + (wait ? " wait" : "") }, h("span", { text: "Amount to send" }),
